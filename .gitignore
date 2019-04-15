@@ -1,0 +1,10 @@
+/build
+/dist
+/*.egg-info
+
+**/.vscode
+**/__pycache__
+**/.ipynb_checkpoints
+*.py[cod]
+*$py.class
+*.cprof
