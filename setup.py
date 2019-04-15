@@ -1,8 +1,8 @@
 #!/bin/python3
 import setuptools
 
-# with open('README.md') as f:
-#     long_description = f.read()
+with open('README.md') as f:
+    long_description = f.read()
 
 setuptools.setup(
     name='ort',
@@ -11,8 +11,8 @@ setuptools.setup(
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
     description='Optimized RouTines for Python',
-    # long_description=long_description,
-    # long_description_content_type='text/markdown',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Programming Language :: Python :: 3',
