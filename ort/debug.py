@@ -14,13 +14,16 @@ sprint = synchronized(print)
 
 
 @contextmanager
-def timer(event_name=''):
+def timer(name=''):
     start = time()
     try:
         yield
     finally:
         duration = time() - start
-        logging.warning('%s - done in %.4g seconds', event_name, duration)
+        if name:
+            logging.warning('done in %.4g seconds', duration)
+        else:
+            logging.warning('%s - done in %.4g seconds', name, duration)
 
 
 @decorator
