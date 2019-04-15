@@ -5,7 +5,7 @@ import setuptools
 #     long_description = f.read()
 
 setuptools.setup(
-    name='ort-arquolo',
+    name='ort',
     version='0.0.1',
     url="https://github.com/arquolo/ort",
     author='Paul Maevskikh',
