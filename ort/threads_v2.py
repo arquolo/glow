@@ -1,21 +1,39 @@
+import functools
+import inspect
+import os
+import pickle
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from multiprocessing import Manager
 from queue import Queue
 from threading import Event
 
+_func = None
 
-def map_t(func, iterable, workers=12, latency=2, offload=False):
+def worker(state, item):
+    global _func
+    if _func is None:
+        _func = pickle.loads(state.value)
+    return _func(item)
+     
+
+def map_t(func, iterable,
+          workers=os.cpu_count(), latency=2, offload=False):
     def submit():
-        # TODO: rethink this, pass func once per child process
         pool = ProcessPoolExecutor if offload else ThreadPoolExecutor
         with pool(workers) as pool:
             for _, item in zip(iter(e.is_set, True), iterable):
                 q.put(pool.submit(func, item))  # stops when main dies
 
+    if offload and not inspect.isfunction(func):
+        func = functools.partial(
+            worker,
+            Manager().Value('c', pickle.dumps(func)),
+        )
     q = Queue(workers * latency)
     e = Event()
 
-    with ThreadPoolExecutor(1) as submitter:
-        task = submitter.submit(submit)
+    with ThreadPoolExecutor(1) as server:
+        task = server.submit(submit)
         task.add_done_callback(lambda _: [q.put(None) for _ in range(2)])
 
         try:
