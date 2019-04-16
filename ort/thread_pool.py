@@ -1,14 +1,8 @@
 import contextlib
-import functools
 import os
-from concurrent.futures import (Future,
-                                ThreadPoolExecutor,
-                                TimeoutError as _TimeoutError)
+from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Queue, Empty, Full
-from threading import RLock, Thread, local, get_ident
-from weakref import WeakValueDictionary
-
-from wrapt import decorator
+from threading import Thread, get_ident
 
 
 # TODO: too complex, needs refactoring
@@ -69,39 +63,3 @@ def maps(function, iterable, prefetch=0, workers=os.cpu_count()):
             for future in q.bufferize(executor.submit(function, item)
                                       for item in iterable):
                 yield future.result()
-
-
-def threadlocal(function, *args, _local=None, **kwargs):
-    """Thread-local singleton factory, mimics `functools.partial`"""
-    if args or kwargs:
-        return functools.partial(threadlocal, function, *args,
-                                 _local=local(), **kwargs)
-    try:
-        obj = _local.obj
-    except AttributeError:
-        obj = _local.obj = function(*args, **kwargs)
-    return obj
-
-
-def shared_call(wrapped=None, *,
-                lock=None, timeout=.001, executor=ThreadPoolExecutor()):
-    if wrapped is None:
-        return functools.partial(shared_call,
-                                 lock=lock, timeout=timeout, executor=executor)
-    if lock is None:
-        lock = RLock()
-    futures = WeakValueDictionary()
-
-    @decorator
-    def wrapper(func, _, args, kwargs):
-        key = f'{func}{args or ""}{kwargs or ""}'
-        with lock:
-            try:
-                future = futures[key]
-            except KeyError:
-                futures[key] = future = executor.submit(func, *args, **kwargs)
-        while True:
-            with contextlib.suppress(_TimeoutError):  # prevent deadlock
-                return future.result(timeout=timeout)
-
-    return wrapper(wrapped)  # pylint: disable=no-value-for-parameter
