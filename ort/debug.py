@@ -20,7 +20,7 @@ def timer(name=''):
         yield
     finally:
         duration = time() - start
-        if name:
+        if not name:
             logging.warning('done in %.4g seconds', duration)
         else:
             logging.warning('%s - done in %.4g seconds', name, duration)
