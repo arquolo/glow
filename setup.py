@@ -6,7 +6,7 @@ with open('README.md') as f:
 
 setuptools.setup(
     name='ort',
-    version='0.0.3',
+    version='0.0.4',
     url="https://github.com/arquolo/ort",
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
