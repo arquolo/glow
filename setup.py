@@ -21,7 +21,10 @@ setuptools.setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    packages=setuptools.find_packages(),
+    packages=setuptools.find_namespace_packages(),
     python_requires='>=3.6',
-    install_requires=['wrapt'],
+    install_requires=[
+        "dataclasses ; python_version<'3.7'",
+        "wrapt"
+    ],
 )

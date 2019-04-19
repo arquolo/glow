@@ -1,8 +1,7 @@
 import functools
-import inspect
 import os
 import pickle
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import Manager
 from queue import Queue
 from threading import Event, Thread
@@ -38,15 +37,17 @@ def bufferize(iterable, latency=2, cleanup=None):
 
         finally:
             if cleanup is not None:
-                cleanup(q)
+                for item in iter(q.get, None):
+                    cleanup(item)
             exc = task.exception()
             if exc:
                 raise exc from None  # rethrow source exception
 
 
 def maps(func, iterable, workers=None, latency=2, offload=False):
+    """Lazy, exception-safe, buffered and concurrent `builtins.map`"""
     workers = workers or os.cpu_count()
-    if offload and not inspect.isfunction(func):  # put function to shared memory
+    if offload:  # put function to shared memory
         func = functools.partial(
             worker,
             Manager().Value('c', pickle.dumps(func))
@@ -57,7 +58,7 @@ def maps(func, iterable, workers=None, latency=2, offload=False):
         for f in bufferize(
             (pool.submit(func, item) for item in iterable),
             latency=latency * workers,
-            cleanup=lambda q: set(f.cancel() for f in iter(q.get, None))
+            cleanup=lambda f: f.cancel()
         ):
             yield f.result()
 

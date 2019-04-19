@@ -1,6 +1,7 @@
 import itertools
 import sys
 from collections import Counter, OrderedDict
+from dataclasses import dataclass, field
 from inspect import isgetsetdescriptor, ismemberdescriptor
 from threading import RLock
 from weakref import WeakValueDictionary
@@ -15,8 +16,8 @@ except ImportError:
     torch = None
 from wrapt import FunctionWrapper
 
-from .utils import pdict, pbytes
-from .debug import sprint
+from .debug import prints
+from .util import pdict, pbytes
 
 
 def sizeof(obj, seen=None):
@@ -62,12 +63,13 @@ def sizeof(obj, seen=None):
     return size
 
 
+@dataclass
 class _Record:
-    __slots__ = 'value', 'size'
+    value: object
+    size: int = field(init=False)
 
-    def __init__(self, value):
-        self.value = value
-        self.size = sizeof(value)
+    def __post_init__(self):
+        self.size = sizeof(self.value)
 
 
 class CacheAbc:
@@ -121,7 +123,7 @@ class CacheAbc:
     def info_all(cls, *_):
         with cls._lock:
             for key, value in sorted(cls._refs.items()):
-                sprint(f' [info] {key!s}: {value!r}')
+                prints(f' [info] {key!s}: {value!r}')
 
 
 class Cache(CacheAbc, dict):

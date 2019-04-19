@@ -1,5 +1,4 @@
 import inspect
-import logging
 import sys
 from collections import Counter
 from contextlib import contextmanager, suppress
@@ -7,10 +6,10 @@ from threading import RLock
 from time import time
 from types import ModuleType
 
-from wrapt import (decorator, when_imported, synchronized,
+from wrapt import (decorator, register_post_import_hook, synchronized,
                    ObjectProxy)
 
-sprint = synchronized(print)
+prints = synchronized(print)
 
 
 @contextmanager
@@ -21,46 +20,41 @@ def timer(name=''):
     finally:
         duration = time() - start
         if not name:
-            logging.warning('done in %.4g seconds', duration)
+            prints('done in %.4g seconds', duration)
         else:
-            logging.warning('%s - done in %.4g seconds', name, duration)
+            prints('%s - done in %.4g seconds', name, duration)
 
 
 @decorator
-def profile(wrapped, _, args, kwargs):
-    with timer(f'{wrapped.__module__}:{wrapped.__qualname__}'):
-        result = wrapped(*args, **kwargs)
+def profile(func, _, args, kwargs):
+    with timer(f'{func.__module__}:{func.__qualname__}'):
+        result = func(*args, **kwargs)
     return result
 
 #############################################################################
 
 
-_PATH = tuple(sorted(sys.path, key=lambda path: -len(path)))
-
-
-def clean_module_path(path):
-    for prefix in _PATH:
+def shorten_path(path,
+                 _paths=tuple(sorted(sys.path, key=len, reverse=True))):
+    for prefix in _paths:
         if path.startswith(prefix):
             return path[len(prefix):]
     return path
 
 
 def whereami():
-    names = [':'.join([clean_module_path(frame.filename) or "",
-                       frame.function,
-                       str(frame.lineno)])
-             for frame in inspect.stack()
-             if (frame.function not in {'whereami', 'trace'}
-                 and frame.filename.find('importlib') == -1)]
+    names = [f'{shorten_path(f.filename) or ""}:{f.function}:{f.lineno}'
+             for f in inspect.stack()
+             if 'importlib' not in f.filename
+                 and f.function not in {'whereami', 'trace'}]
     return ' -> '.join(reversed(names))
 
 
 @decorator
-def trace(wrapped, _, args, kwargs):
-    sprint('<(%s)> : %s.%s' % (whereami(),
-                               wrapped.__module__ or "", wrapped.__qualname__),
+def trace(func, _, args, kwargs):
+    prints(f'<({whereami()})> : {func.__module__ or ""}.{func.__qualname__}',
            flush=True)
-    return wrapped(*args, **kwargs)
+    return func(*args, **kwargs)
 
 
 def set_trace(obj, seen=None, prefix=None, module=None):
@@ -98,7 +92,7 @@ def set_trace(obj, seen=None, prefix=None, module=None):
 
 
 def trace_module(name):
-    return when_imported(name)(set_trace)
+    register_post_import_hook(set_trace, name)
 
 #############################################################################
 
