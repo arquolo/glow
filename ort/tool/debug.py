@@ -13,16 +13,13 @@ prints = synchronized(print)
 
 
 @contextmanager
-def timer(name=''):
+def timer(name='Task'):
     start = time()
     try:
         yield
     finally:
         duration = time() - start
-        if not name:
-            prints('done in %.4g seconds', duration)
-        else:
-            prints('%s - done in %.4g seconds', name, duration)
+        prints(f'{name} done in {duration:.4g} seconds')
 
 
 @decorator
