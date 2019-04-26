@@ -1,6 +1,6 @@
 from .debug import prints, summary, timer, trace, trace_module
 
-from .memory import (Cache, CacheLRU,
+from .memory import (CacheAbc, Cache, CacheLRU,
                      sizeof)
 
 from .thread import shared_call, threadlocal
