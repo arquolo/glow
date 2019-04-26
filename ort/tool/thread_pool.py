@@ -44,7 +44,7 @@ def bufferize(iterable, latency=2, cleanup=None):
                 raise exc from None  # rethrow source exception
 
 
-def maps(func, iterable, workers=None, latency=2, offload=False):
+def maps(func, *iterables, workers=None, latency=2, offload=False):
     """Lazy, exception-safe, buffered and concurrent `builtins.map`"""
     workers = workers or os.cpu_count()
     if offload:  # put function to shared memory
@@ -56,7 +56,7 @@ def maps(func, iterable, workers=None, latency=2, offload=False):
     _Pool = ProcessPoolExecutor if offload else ThreadPoolExecutor
     with _Pool(workers) as pool:
         for f in bufferize(
-            (pool.submit(func, item) for item in iterable),
+            (pool.submit(func, *items) for items in zip(*iterables)),
             latency=latency * workers,
             cleanup=lambda f: f.cancel()
         ):
