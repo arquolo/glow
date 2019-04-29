@@ -28,6 +28,14 @@ setuptools.setup(
         "wrapt"
     ],
     extras_require={
-        'image': ['numpy', 'numba'],
+        'image': [
+            'numpy>=1.15',
+            'numba'
+        ],
+        'nn': [
+            'numpy>=1.15',
+            'opencv-python>=4.0',
+            'pytorch>=1.0'
+        ],
     },
 )
