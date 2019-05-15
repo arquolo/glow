@@ -22,13 +22,14 @@ def bufferize(iterable, latency=2, cleanup=None):
 
     def consume():
         for item, _ in zip(iterable, iter(stop.is_set, True)):
-            q.put(item)
+            q.put((item,))
 
     with ThreadPoolExecutor(1, 'src') as src:
         try:
             task = src.submit(consume)
             task.add_done_callback(lambda _: [q.put(None) for _ in range(2)])
-            yield from iter(q.get, None)
+            for x in iter(q.get, None):  # because `iter` calls `==`, not `is`
+                yield x[0]
 
         except:  # pylint: disable=bare-except
             if not (task.done() and task.exception()):
@@ -38,7 +39,7 @@ def bufferize(iterable, latency=2, cleanup=None):
         finally:
             if cleanup is not None:
                 for item in iter(q.get, None):
-                    cleanup(item)
+                    cleanup(item[0])
             exc = task.exception()
             if exc:
                 raise exc from None  # rethrow source exception
