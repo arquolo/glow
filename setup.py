@@ -32,6 +32,11 @@ setuptools.setup(
             'numpy>=1.15',
             'numba'
         ],
+        'sound': [
+            'numpy>=1.15',
+            'pyaudio',
+            'soundfile',
+        ],
         'nn': [
             'numpy>=1.15',
             'opencv-python>=4.0',
