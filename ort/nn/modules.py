@@ -66,8 +66,9 @@ class Show(Module):
         bs, ch, h, w = x.shape
 
         arr = x.detach()
-        arr -= arr.min(3, keepdim=True)[0].min(2, keepdim=True)[0]
-        arr /= arr.max(3, keepdim=True)[0].max(2, keepdim=True)[0]
+        T.max_values()
+        arr -= arr.min(3, keepdim=True).values.min(2, keepdim=True).values
+        arr /= arr.max(3, keepdim=True).values.max(2, keepdim=True).values
         arr = arr.mul_(255).byte().cpu()
         arr = arr.numpy().transpose(0, 2, 1, 3).reshape(bs * h, ch * w)
 

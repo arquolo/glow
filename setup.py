@@ -35,7 +35,7 @@ setuptools.setup(
         'nn': [
             'numpy>=1.15',
             'opencv-python>=4.0',
-            'pytorch>=1.0'
+            'pytorch>=1.1'
         ],
     },
 )
