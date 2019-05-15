@@ -1,3 +1,4 @@
+import functools
 import itertools
 from collections import Counter
 from collections.abc import Iterable
@@ -21,6 +22,18 @@ def once_per_instance(wrapped, instance, args, kwargs):
     return instance.__results__[wrapped]
 
 
+def as_function(wrapped=None, factory=list):
+    """Make function from generator"""
+    if wrapped is None:
+        return functools.partial(as_function, factory=factory)
+
+    @decorator
+    def wrapper(wrapped, _, args, kwargs):
+        return factory(wrapped(*args, **kwargs))
+
+    return wrapper(wrapped)  # pylint: disable=no-value-for-parameter
+
+
 def as_iter(obj, times=None, base=Iterable):
     """Make iterator from object"""
     if obj is None:
@@ -30,8 +43,8 @@ def as_iter(obj, times=None, base=Iterable):
     return itertools.repeat(obj, times=times)
 
 
-def grouped(iterable, size):
-    """Yield groups of `size` items from iterator"""
+def chunked(iterable, size):
+    """Yields chunks of at most `size` items from iterable"""
     iterator = iter(iterable)
     yield from iter(lambda: list(itertools.islice(iterator, size)),
                     [])
