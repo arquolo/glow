@@ -1,19 +1,12 @@
 import itertools
 import sys
+from collections import abc
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from inspect import isgetsetdescriptor, ismemberdescriptor
 from threading import RLock
 from weakref import WeakValueDictionary
 
-try:
-    import numpy
-except ImportError:
-    numpy = None
-try:
-    import torch
-except ImportError:
-    torch = None
 from wrapt import FunctionWrapper
 
 from .debug import prints
@@ -35,11 +28,18 @@ def sizeof(obj, seen=None):
 
     seen.add(id_)
     size = sys.getsizeof(obj)
-    if numpy is not None and isinstance(obj, numpy.ndarray):
-        return max(size, obj.nbytes)
-    if torch is not None and isinstance(obj, torch.Tensor):
-        if obj.device.type == 'cpu':
-            size += obj.numel() * obj.element_size()
+
+    if 'numpy' in sys.modules:
+        if isinstance(obj, sys.modules['numpy'].ndarray):
+            return max(size, obj.nbytes)
+
+    if 'torch' in sys.modules:
+        if isinstance(obj, sys.modules['torch'].Tensor):
+            if obj.device.type == 'cpu':
+                size += obj.numel() * obj.element_size()
+            return size
+
+    if isinstance(obj, (str, bytes, bytearray)):
         return size
 
     # protection from self-referencing
@@ -52,14 +52,13 @@ def sizeof(obj, seen=None):
 
     if isinstance(obj, dict):
         size += sum(sizeof(k, seen) + sizeof(v, seen) for k, v in obj.items())
-    elif isinstance(obj, (str, bytes, bytearray)):
-        pass
-    elif hasattr(obj, '__iter__'):
+    elif isinstance(obj, abc.Collection):
         size += sum(sizeof(item, seen=seen) for item in obj)
 
     if hasattr(obj, '__slots__'):
         size += sum(sizeof(getattr(obj, slot), seen=seen)
-                    for slot in obj.__slots__ if hasattr(obj, slot))
+                    for cls in type(obj).__mro__ if hasattr(cls, '__slots__')
+                    for slot in cls.__slots__ if hasattr(obj, slot))
     return size
 
 
