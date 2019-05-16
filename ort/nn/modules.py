@@ -61,21 +61,40 @@ class Sum(Sequential):
 class Show(Module):
     """Shows contents of tensors during forward pass"""
 
+    def __init__(self, colored=False):
+        super().__init__()
+        self.colored = colored
+
     def forward(self, x):  # pylint: disable=arguments-differ
         import cv2
         bs, ch, h, w = x.shape
 
-        arr = x.detach()
-        T.max_values()
-        arr -= arr.min(3, keepdim=True).values.min(2, keepdim=True).values
-        arr /= arr.max(3, keepdim=True).values.max(2, keepdim=True).values
-        arr = arr.mul_(255).byte().cpu()
-        arr = arr.numpy().transpose(0, 2, 1, 3).reshape(bs * h, ch * w)
+        y = x.clone().requires_grad_().detach()
+        y -= y.min(3, keepdim=True).values.min(2, keepdim=True).values
+        y /= y.max(3, keepdim=True).values.max(2, keepdim=True).values
+        y = y.mul_(255).byte().cpu().numpy()
+        if self.colored:
+            ch = (ch // 3) * 3
+            y = y[:, :ch, :, :].reshape(bs, -1, 3, h, w)
+            y = y.transpose(0, 3, 1, 4, 2).reshape(bs * h, ch * w // 3, 3)
+        else:
+            y = y.transpose(0, 2, 1, 3).reshape(bs * h, ch * w)
 
-        cv2.imshow('out', arr)
+        cv2.imshow(self.__class__.__name__, y)
         cv2.waitKey(16)
         return x
 
     def __del__(self):
         import cv2
-        cv2.destroyAllWindows()
+        cv2.destroyWindow(self.__class__.__name__)
+
+
+class Noise(Module):
+    def __init__(self, std):
+        super().__init__()
+        self.std = std
+
+    def forward(self, x):
+        if not self.training:
+            return x
+        return T.empty_like(x).normal_(std=self.std).add_(x).clamp_(0, 1)
