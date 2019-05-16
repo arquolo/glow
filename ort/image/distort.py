@@ -33,7 +33,8 @@ def dither(image, bits=3, kind='stucki'):
         for x in range(2, image.shape[1] - 2):
             old = image[y, x]
             new = np.floor(old / quant) * quant
-            image[y: y+3, x-2: x+3] += ((old - new) * mat).astype(image.dtype)
+            delta = ((old - new) * mat).astype(image.dtype)
+            image[y: y + 3, x - 2: x + 3] += delta
             image[y, x] = new
 
     image = image[:-2, 2:-2]
@@ -44,7 +45,7 @@ def bit_noise(image, keep=4, count=8, seed=None):
     rng = np.random.RandomState(seed)  # pylint: disable=no-member
     residual = image.copy()
     out = np.zeros_like(image)
-    for n in range(1, 1+count):
+    for n in range(1, 1 + count):
         thres = .5 ** n
         plane = (residual >= thres).astype(residual.dtype) * thres
         out += (plane if n <= keep

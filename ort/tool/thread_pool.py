@@ -54,8 +54,8 @@ def maps(func, *iterables, workers=None, latency=2, offload=False):
             Manager().Value('c', pickle.dumps(func))
         )
 
-    _Pool = ProcessPoolExecutor if offload else ThreadPoolExecutor
-    with _Pool(workers) as pool:
+    _pool = ProcessPoolExecutor if offload else ThreadPoolExecutor
+    with _pool(workers) as pool:
         for f in bufferize(
             (pool.submit(func, *items) for items in zip(*iterables)),
             latency=latency * workers,

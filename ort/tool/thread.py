@@ -14,10 +14,10 @@ def threadlocal(function, *args, _local=None, **kwargs):
         return functools.partial(threadlocal, function, *args,
                                  _local=local(), **kwargs)
     try:
-        obj = _local.obj
+        return _local.obj
     except AttributeError:
-        obj = _local.obj = function(*args, **kwargs)
-    return obj
+        _local.obj = function(*args, **kwargs)
+        return _local.obj
 
 
 def shared_call(wrapped=None, *,

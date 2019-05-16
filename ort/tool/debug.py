@@ -25,14 +25,13 @@ def timer(name='Task'):
 @decorator
 def profile(func, _, args, kwargs):
     with timer(f'{func.__module__}:{func.__qualname__}'):
-        result = func(*args, **kwargs)
-    return result
+        return func(*args, **kwargs)
 
 #############################################################################
 
 
-def shorten_path(path,
-                 _paths=tuple(sorted(sys.path, key=len, reverse=True))):
+def strip_dirs(path,
+               _paths=tuple(sorted(sys.path, key=len, reverse=True))):
     for prefix in _paths:
         if path.startswith(prefix):
             return path[len(prefix):]
@@ -40,11 +39,11 @@ def shorten_path(path,
 
 
 def whereami():
-    names = [f'{shorten_path(f.filename) or ""}:{f.function}:{f.lineno}'
-             for f in inspect.stack()
+    names = (f'{strip_dirs(f.filename) or ""}:{f.function}:{f.lineno}'
+             for f in reversed(inspect.stack())
              if 'importlib' not in f.filename
-                 and f.function not in {'whereami', 'trace'}]
-    return ' -> '.join(reversed(names))
+                and f.function not in ('whereami', 'trace'))
+    return ' -> '.join(names)
 
 
 @decorator
@@ -104,8 +103,10 @@ def threadsafe_coroutine(wrapped, _, args, kwargs):
         def send(self, item):
             with lock:
                 return self.__wrapped__.send(item)
+
         def __next__(self):
             return self.send(None)
+
     return Synchronized(coro)
 
 
