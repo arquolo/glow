@@ -1,3 +1,4 @@
+import pkgutil
 import sys
 
 
@@ -22,6 +23,12 @@ def export(obj):
     namespace[name] = obj
     __all__.append(name)
     return obj
+
+
+@export
+def import_submodules(__name__):
+    for _, name, __ in pkgutil.walk_packages(sys.modules[__name__].__path__):
+        __import__(__name__ + '.' + name)
 
 
 export = export(export)

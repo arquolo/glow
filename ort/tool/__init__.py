@@ -1,7 +1,3 @@
-from . import _export
-
-from . import debug
-from . import memory
-from . import thread
-from . import thread_pool
-from . import util
+__import__('importlib') \
+    .import_module('._export', package=__package__) \
+    .import_submodules(__name__)
