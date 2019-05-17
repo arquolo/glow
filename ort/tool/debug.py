@@ -1,5 +1,5 @@
 import inspect
-import sys
+import itertools
 from collections import Counter
 from contextlib import contextmanager, suppress
 from threading import RLock
@@ -38,26 +38,22 @@ def profile(func, _, args, kwargs):
 #############################################################################
 
 
-def strip_dirs(path,
-               _paths=tuple(sorted(sys.path, key=len, reverse=True))):
-    for prefix in _paths:
-        if path.startswith(prefix):
-            return path[len(prefix):]
-    return path
+def stack():
+    frame = inspect.currentframe()
+    while frame is not None:
+        f = inspect.getframeinfo(frame)
+        yield f'{inspect.getmodule(frame).__name__}:{f.function}:{f.lineno}'
+        frame = frame.f_back
 
 
-def whereami():
-    names = (f'{strip_dirs(f.filename) or ""}:{f.function}:{f.lineno}'
-             for f in reversed(inspect.stack())
-             if 'importlib' not in f.filename
-                and f.function not in ('whereami', 'trace'))
-    return ' -> '.join(names)
+def whereami(skip=2):
+    return ' -> '.join(reversed(list(itertools.islice(stack(), skip, None))))
 
 
 @export
 @decorator
 def trace(func, _, args, kwargs):
-    prints(f'<({whereami()})> : {func.__module__ or ""}.{func.__qualname__}',
+    prints(f'<({whereami(3)})> : {func.__module__ or ""}.{func.__qualname__}',
            flush=True)
     return func(*args, **kwargs)
 
