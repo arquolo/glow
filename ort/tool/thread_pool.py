@@ -34,9 +34,9 @@ def bufferize(iterable, latency=2, cleanup=None):
             for x in iter(q.get, None):  # because `iter` calls `==`, not `is`
                 yield x[0]
 
-        except:  # pylint: disable=bare-except
+        except BaseException:
             if not (task.done() and task.exception()):
-                stop.set()  # exception came from callback, terminate src thread
+                stop.set()  # exception came from callback, terminate src
                 raise
 
         finally:

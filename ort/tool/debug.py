@@ -87,11 +87,10 @@ def set_trace(obj, seen=None, prefix=None, module=None):
             if not callable(member):
                 continue
             decorated = trace(member)  # pylint: disable=no-value-for-parameter
-            name_ = (getattr(decorated, '__module__', '') or
-                     getattr(member, '__module__', '') or
-                     getattr(obj, '__module__', '') or
-                     getattr(module, '__name__', ''))
-            setattr(decorated, '__module__', name_)
+            decorated.__module__ = (getattr(decorated, '__module__', '') or
+                                    getattr(member, '__module__', '') or
+                                    getattr(obj, '__module__', '') or
+                                    getattr(module, '__name__', ''))
             setattr(obj, name, decorated)
             print(f'wraps "{module.__name__}:{obj.__qualname__}.{name}"')
 

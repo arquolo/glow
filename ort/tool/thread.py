@@ -23,9 +23,10 @@ def threadlocal(function, *args, _local=None, **kwargs):
         return _local.obj
 
 
-def shared_call(wrapped=None, *,
-                lock=None, timeout=.001, executor=ThreadPoolExecutor()):
 @export
+def shared_call(wrapped=None, *, lock=None, timeout=.001, executor=None):
+    if executor is None:
+        executor = ThreadPoolExecutor()
     if wrapped is None:
         return functools.partial(shared_call,
                                  lock=lock, timeout=timeout, executor=executor)
