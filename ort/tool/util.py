@@ -5,7 +5,10 @@ from collections.abc import Iterable
 
 from wrapt import decorator
 
+from . import export
 
+
+@export
 def unique(name, _names=Counter()):  # ! "_names" is mutable for the reason
     """Returns unique string"""
     if name is None:
@@ -14,6 +17,7 @@ def unique(name, _names=Counter()):  # ! "_names" is mutable for the reason
     return f'{name}_{_names[name]}'
 
 
+@export
 @decorator
 def once_per_instance(wrapped, instance, args, kwargs):
     instance.__dict__.setdefault('__results__', {})
@@ -22,6 +26,7 @@ def once_per_instance(wrapped, instance, args, kwargs):
     return instance.__results__[wrapped]
 
 
+@export
 def as_function(wrapped=None, factory=list):
     """Make function from generator"""
     if wrapped is None:
@@ -34,6 +39,7 @@ def as_function(wrapped=None, factory=list):
     return wrapper(wrapped)  # pylint: disable=no-value-for-parameter
 
 
+@export
 def as_iter(obj, times=None, base=Iterable):
     """Make iterator from object"""
     if obj is None:
@@ -43,6 +49,7 @@ def as_iter(obj, times=None, base=Iterable):
     return itertools.repeat(obj, times=times)
 
 
+@export
 def chunked(iterable, size):
     """Yields chunks of at most `size` items from iterable"""
     iterator = iter(iterable)

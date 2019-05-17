@@ -7,7 +7,10 @@ from weakref import WeakValueDictionary
 
 from wrapt import decorator
 
+from . import export
 
+
+@export
 def threadlocal(function, *args, _local=None, **kwargs):
     """Thread-local singleton factory, mimics `functools.partial`"""
     if args or kwargs:
@@ -22,6 +25,7 @@ def threadlocal(function, *args, _local=None, **kwargs):
 
 def shared_call(wrapped=None, *,
                 lock=None, timeout=.001, executor=ThreadPoolExecutor()):
+@export
     if wrapped is None:
         return functools.partial(shared_call,
                                  lock=lock, timeout=timeout, executor=executor)

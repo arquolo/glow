@@ -9,10 +9,11 @@ from weakref import WeakValueDictionary
 
 from wrapt import FunctionWrapper
 
-from .debug import prints
 from .util import pdict, pbytes
+from . import export, prints
 
 
+@export
 def sizeof(obj, seen=None):
     """
     Computes size of object, no matter how complex it is
@@ -71,6 +72,7 @@ class _Record:
         self.size = sizeof(self.value)
 
 
+@export
 class CacheAbc:
     _counter = itertools.count()
     _lock = RLock()
@@ -125,6 +127,7 @@ class CacheAbc:
                 prints(f' [info] {key!s}: {value!r}')
 
 
+@export
 class Cache(CacheAbc, dict):
     def get(self, key):
         return self[key]
@@ -136,6 +139,7 @@ class Cache(CacheAbc, dict):
             self._size += size
 
 
+@export
 class CacheLRU(CacheAbc, OrderedDict):
     def shrink(self, desired=0):
         if self.capacity < desired:

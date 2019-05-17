@@ -5,6 +5,8 @@ import torch as T
 import torch.nn.functional as F
 from torch.nn import Module, Sequential
 
+from ..tool import export
+
 # --------------------------------- helpers ---------------------------------
 
 
@@ -15,6 +17,7 @@ def _deserialize(name):
     return fn
 
 
+@export
 class Lambda(Module):
     def __init__(self, fn, **kwargs):
         super().__init__()
@@ -24,6 +27,7 @@ class Lambda(Module):
         return self.fn(x)
 
 
+@export
 class View(Module):
     def __init__(self, *shape):
         super().__init__()
@@ -33,6 +37,7 @@ class View(Module):
         return x.view(x.shape[0], *self.shape)
 
 
+@export
 class Cat(Sequential):
     """Helper for U-Net-like modules"""
     def forward(self, x):  # pylint: disable=arguments-differ
@@ -40,6 +45,7 @@ class Cat(Sequential):
                      dim=1)
 
 
+@export
 class Sum(Sequential):
     """Helper for ResNet-like modules"""
 
@@ -58,6 +64,7 @@ class Sum(Sequential):
                    base(x))
 
 
+@export
 class Show(Module):
     """Shows contents of tensors during forward pass"""
 
@@ -89,6 +96,7 @@ class Show(Module):
         cv2.destroyWindow(self.__class__.__name__)
 
 
+@export
 class Noise(Module):
     def __init__(self, std):
         super().__init__()

@@ -9,9 +9,16 @@ from types import ModuleType
 from wrapt import (decorator, register_post_import_hook, synchronized,
                    ObjectProxy)
 
-prints = synchronized(print)
+from . import export
 
 
+@export
+@synchronized
+def prints(*args, **kwargs):
+    print(*args, **kwargs)
+
+
+@export
 @contextmanager
 def timer(name='Task'):
     start = time()
@@ -22,6 +29,7 @@ def timer(name='Task'):
         prints(f'{name} done in {duration:.4g} seconds')
 
 
+@export
 @decorator
 def profile(func, _, args, kwargs):
     with timer(f'{func.__module__}:{func.__qualname__}'):
@@ -46,6 +54,7 @@ def whereami():
     return ' -> '.join(names)
 
 
+@export
 @decorator
 def trace(func, _, args, kwargs):
     prints(f'<({whereami()})> : {func.__module__ or ""}.{func.__qualname__}',
@@ -87,6 +96,7 @@ def set_trace(obj, seen=None, prefix=None, module=None):
             print(f'wraps "{module.__name__}:{obj.__qualname__}.{name}"')
 
 
+@export
 def trace_module(name):
     register_post_import_hook(set_trace, name)
 
@@ -110,6 +120,7 @@ def threadsafe_coroutine(wrapped, _, args, kwargs):
     return Synchronized(coro)
 
 
+@export
 @threadsafe_coroutine
 def summary():
     state = Counter()

@@ -6,6 +6,8 @@ from multiprocessing import Manager
 from queue import Queue
 from threading import Event, Thread
 
+from . import export
+
 _func = None
 
 
@@ -16,6 +18,7 @@ def worker(state, item):
     return _func(item)
 
 
+@export
 def bufferize(iterable, latency=2, cleanup=None):
     q = Queue(latency)
     stop = Event()
@@ -45,6 +48,7 @@ def bufferize(iterable, latency=2, cleanup=None):
                 raise exc from None  # rethrow source exception
 
 
+@export
 def maps(func, *iterables, workers=None, latency=2, offload=False):
     """Lazy, exception-safe, buffered and concurrent `builtins.map`"""
     workers = workers or os.cpu_count()
@@ -64,6 +68,7 @@ def maps(func, *iterables, workers=None, latency=2, offload=False):
             yield f.result()
 
 
+@export
 def map_detach(func, iterable, workers=None, latency=2, offload=False):
     def fetch():
         for _ in maps(func, iterable,
