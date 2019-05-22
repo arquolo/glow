@@ -1,3 +1,4 @@
+import collections
 import functools
 import os
 import pickle
@@ -6,7 +7,7 @@ from multiprocessing import Manager
 from queue import Queue
 from threading import Event, Thread
 
-from . import export
+from . import export, iter_none
 
 _func = None
 
@@ -19,20 +20,19 @@ def worker(state, item):
 
 
 @export
-def bufferize(iterable, latency=2, cleanup=None):
+def buffered(iterable, latency=2, cleanup=None):
     q = Queue(latency)
     stop = Event()
 
     def consume():
         for item, _ in zip(iterable, iter(stop.is_set, True)):
-            q.put((item,))
+            q.put(item)
 
     with ThreadPoolExecutor(1, 'src') as src:
         try:
             task = src.submit(consume)
             task.add_done_callback(lambda _: [q.put(None) for _ in range(2)])
-            for x in iter(q.get, None):  # because `iter` calls `==`, not `is`
-                yield x[0]
+            yield from iter_none(q.get)
 
         except BaseException:
             if not (task.done() and task.exception()):
@@ -41,27 +41,27 @@ def bufferize(iterable, latency=2, cleanup=None):
 
         finally:
             if cleanup is not None:
-                for item in iter(q.get, None):
-                    cleanup(item[0])
+                for item in iter_none(q.get):
+                    cleanup(item)
             exc = task.exception()
             if exc:
                 raise exc from None  # rethrow source exception
 
 
 @export
-def maps(func, *iterables, workers=None, latency=2, offload=False):
+def mapped(fn, *iterables, workers=None, latency=2, offload=False):
     """Lazy, exception-safe, buffered and concurrent `builtins.map`"""
     workers = workers or os.cpu_count()
     if offload:  # put function to shared memory
-        func = functools.partial(
+        fn = functools.partial(
             worker,
-            Manager().Value('c', pickle.dumps(func))
+            Manager().Value('c', pickle.dumps(fn))
         )
 
     _pool = ProcessPoolExecutor if offload else ThreadPoolExecutor
     with _pool(workers) as pool:
-        for f in bufferize(
-            (pool.submit(func, *items) for items in zip(*iterables)),
+        for f in buffered(
+            (pool.submit(fn, *items) for items in zip(*iterables)),
             latency=latency * workers,
             cleanup=lambda f: f.cancel()
         ):
@@ -69,10 +69,6 @@ def maps(func, *iterables, workers=None, latency=2, offload=False):
 
 
 @export
-def map_detach(func, iterable, workers=None, latency=2, offload=False):
-    def fetch():
-        for _ in maps(func, iterable,
-                      workers=workers, latency=latency, offload=offload):
-            pass
-
-    Thread(target=fetch, daemon=True).start()
+def detach(iterator):
+    Thread(target=collections.deque, args=(iterator,), kwargs={'maxlen': 0},
+           daemon=True).start()

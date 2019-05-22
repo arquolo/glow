@@ -68,3 +68,11 @@ def pbytes(x: int):
             return f'{x:.2f} {prefix}B'
         x = x / 1024
     return f'{x:.2f} YiB'
+
+
+@export
+def iter_none(fn):
+    return itertools.takewhile(
+        lambda r: r is not None,
+        itertools.starmap(fn, itertools.repeat(()))
+    )
