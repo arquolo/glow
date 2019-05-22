@@ -9,7 +9,7 @@ from weakref import WeakValueDictionary
 
 from wrapt import FunctionWrapper
 
-from .util import pdict, pbytes
+from .util import pretty_dict, pretty_bytes
 from . import export, prints
 
 
@@ -113,10 +113,10 @@ class CacheAbc:
         with self._lock:
             line = (f'{self.__class__.__name__}'
                     f'(items={len(self)},'
-                    f' used={pbytes(self._size)},'
-                    f' total={pbytes(self.capacity)})')
+                    f' used={pretty_bytes(self._size)},'
+                    f' total={pretty_bytes(self.capacity)})')
             if any(self._stats.values()):
-                line += f'({pdict(self._stats)})'
+                line += f'({pretty_dict(self._stats)})'
                 self._stats.clear()
             return line
 

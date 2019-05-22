@@ -57,11 +57,13 @@ def chunked(iterable, size):
                     [])
 
 
-def pdict(d: dict, sep=', '):
+@export
+def pretty_dict(d: dict, sep=', ') -> str:
     return sep.join(f'{key!s}={value!r}' for key, value in d.items())
 
 
-def pbytes(x: int):
+@export
+def pretty_bytes(x: int) -> str:
     prefixes = ('', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi')
     for prefix in prefixes:
         if x < 1024:
