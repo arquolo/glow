@@ -38,9 +38,11 @@ setuptools.setup(
             'soundfile',
         ],
         'nn': [
+            'graphviz'
             'numpy>=1.15',
             'opencv-python>=4.0',
-            'pytorch>=1.1'
+            'py3nvml',
+            'pytorch>=1.1',
         ],
     },
 )
