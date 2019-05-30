@@ -13,7 +13,7 @@ _func = None
 
 
 def worker(state, item):
-    global _func  # pylint: disable=global-statement
+    global _func
     if _func is None:
         _func = pickle.loads(state.value)
     return _func(item)

@@ -23,8 +23,8 @@ class Lambda(Module):
         super().__init__()
         self.fn = partial(_deserialize(fn), **kwargs)
 
-    def forward(self, x):  # pylint: disable=arguments-differ
         return self.fn(x)
+    def forward(self, x):
 
 
 @export
@@ -33,7 +33,7 @@ class View(Module):
         super().__init__()
         self.shape = shape
 
-    def forward(self, x):  # pylint: disable=arguments-differ
+    def forward(self, x):
         return x.view(x.shape[0], *self.shape)
 
 
@@ -72,7 +72,7 @@ class Show(Module):
         super().__init__()
         self.colored = colored
 
-    def forward(self, x):  # pylint: disable=arguments-differ
+    def forward(self, x):
         import cv2
         bs, ch, h, w = x.shape
 

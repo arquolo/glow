@@ -9,7 +9,7 @@ from . import export
 
 
 @export
-def unique(name, _names=Counter()):  # ! "_names" is mutable for the reason
+def unique(name, _names=Counter()):  # noqa: B006
     """Returns unique string"""
     if name is None:
         return None
@@ -36,7 +36,7 @@ def as_function(wrapped=None, factory=list):
     def wrapper(wrapped, _, args, kwargs):
         return factory(wrapped(*args, **kwargs))
 
-    return wrapper(wrapped)  # pylint: disable=no-value-for-parameter
+    return wrapper(wrapped)
 
 
 @export

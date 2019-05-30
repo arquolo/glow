@@ -73,7 +73,7 @@ def set_trace(obj, seen=None, prefix=None, module=None):
         return
 
     if not hasattr(obj, '__dict__'):
-        setattr(module, obj.__qualname__, trace(obj))  # pylint: disable=no-value-for-parameter
+        setattr(module, obj.__qualname__, trace(obj))
         print(f'wraps "{module.__name__}:{obj.__qualname__}"')
         return
 
@@ -82,7 +82,7 @@ def set_trace(obj, seen=None, prefix=None, module=None):
             member = getattr(obj, name)
             if not callable(member):
                 continue
-            decorated = trace(member)  # pylint: disable=no-value-for-parameter
+            decorated = trace(member)
             decorated.__module__ = (getattr(decorated, '__module__', '') or
                                     getattr(member, '__module__', '') or
                                     getattr(obj, '__module__', '') or
@@ -104,7 +104,7 @@ def threadsafe_coroutine(wrapped, _, args, kwargs):
     next(coro)
     lock = RLock()
 
-    class Synchronized(ObjectProxy):  # pylint: disable=abstract-method
+    class Synchronized(ObjectProxy):
         def send(self, item):
             with lock:
                 return self.__wrapped__.send(item)

@@ -42,7 +42,7 @@ def dither(image, bits=3, kind='stucki'):
 
 
 def bit_noise(image, keep=4, count=8, seed=None):
-    rng = np.random.RandomState(seed)  # pylint: disable=no-member
+    rng = np.random.RandomState(seed)
     residual = image.copy()
     out = np.zeros_like(image)
     for n in range(1, 1 + count):

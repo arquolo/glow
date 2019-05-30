@@ -3,7 +3,7 @@ import soundfile
 import wrapt
 
 
-class Sample(wrapt.ObjectProxy):  # pylint: disable=abstract-method
+class Sample(wrapt.ObjectProxy):
     """Wraps numpy.array to be playable as sound"""
 
     def __init__(self, data: 'numpy.ndarray', rate=44100):

@@ -46,4 +46,4 @@ def shared_call(wrapped=None, *, lock=None, timeout=.001, executor=None):
             with contextlib.suppress(_TimeoutError):  # prevent deadlock
                 return future.result(timeout=timeout)
 
-    return wrapper(wrapped)  # pylint: disable=no-value-for-parameter
+    return wrapper(wrapped)
