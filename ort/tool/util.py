@@ -73,6 +73,15 @@ def pretty_bytes(x: int) -> str:
 
 
 @export
+def sliding(iterable, size):
+    """sliding('ABCDEFG') --> ABC BCD CDE DEF EFG"""
+    return zip(*(
+        itertools.islice(it, ahead, None)
+        for ahead, it in enumerate(itertools.tee(iterable, size))
+    ))
+
+
+@export
 def iter_none(fn):
     return itertools.takewhile(
         lambda r: r is not None,
