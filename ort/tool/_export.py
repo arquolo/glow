@@ -26,9 +26,9 @@ def export(obj):
 
 
 @export
-def import_submodules(__name__):
-    for _, name, __ in pkgutil.walk_packages(sys.modules[__name__].__path__):
-        __import__(__name__ + '.' + name)
+def import_submodules(base_name):
+    for _, name, __ in pkgutil.walk_packages(sys.modules[base_name].__path__):
+        __import__(base_name + '.' + name)
 
 
 export = export(export)

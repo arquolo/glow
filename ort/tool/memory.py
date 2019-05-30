@@ -30,15 +30,15 @@ def sizeof(obj, seen=None):
     seen.add(id_)
     size = sys.getsizeof(obj)
 
-    if 'numpy' in sys.modules:
-        if isinstance(obj, sys.modules['numpy'].ndarray):
-            return max(size, obj.nbytes)
+    if 'numpy' in sys.modules \
+            and isinstance(obj, sys.modules['numpy'].ndarray):
+        return max(size, obj.nbytes)
 
-    if 'torch' in sys.modules:
-        if isinstance(obj, sys.modules['torch'].Tensor):
-            if obj.device.type == 'cpu':
-                size += obj.numel() * obj.element_size()
-            return size
+    if 'torch' in sys.modules \
+            and isinstance(obj, sys.modules['torch'].Tensor):
+        if obj.device.type == 'cpu':
+            size += obj.numel() * obj.element_size()
+        return size
 
     if isinstance(obj, (str, bytes, bytearray)):
         return size
