@@ -2,6 +2,7 @@ import inspect
 import itertools
 from collections import Counter
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from threading import RLock
 from time import time
 from types import ModuleType
@@ -10,6 +11,11 @@ from wrapt import (decorator, register_post_import_hook, synchronized,
                    ObjectProxy)
 
 from . import export
+
+
+@dataclass
+class Value:
+    value: object = None
 
 
 @export
@@ -21,11 +27,12 @@ def prints(*args, **kwargs):
 @export
 @contextmanager
 def timer(name='Task'):
+    future = Value()
     start = time()
     try:
-        yield
+        yield future
     finally:
-        duration = time() - start
+        future.value = duration = time() - start
         prints(f'{name} done in {duration:.4g} seconds')
 
 
