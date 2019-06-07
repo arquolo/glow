@@ -1,13 +1,14 @@
 #!/bin/python3
+
 import setuptools
 
 with open('README.md') as f:
     long_description = f.read()
 
 setuptools.setup(
-    name='ort',
+    name='glow',
     version='0.3',
-    url="https://github.com/arquolo/ort",
+    url='https://github.com/arquolo/glow',
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
     description='Optimized RouTines for Python',
@@ -25,20 +26,17 @@ setuptools.setup(
     python_requires='>=3.6',
     install_requires=[
         "dataclasses ; python_version<'3.7'",
-        "wrapt"
+        'wrapt',
     ],
     extras_require={
-        'image': [
+        'vision': [
             'numpy>=1.15',
-            'numba'
-        ],
-        'sound': [
-            'numpy>=1.15',
+            'numba',
             'pyaudio',
             'soundfile',
         ],
         'nn': [
-            'graphviz'
+            'graphviz',
             'numpy>=1.15',
             'opencv-python>=4.0',
             'py3nvml',

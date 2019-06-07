@@ -1,42 +1,35 @@
+__all__ = 'prints', 'timer', 'profile', 'trace', 'trace_module', 'summary'
+
 import inspect
 import itertools
+import time
 from collections import Counter
-from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from contextlib import contextmanager, suppress, ExitStack
 from threading import RLock
-from time import time
 from types import ModuleType
 
 from wrapt import (decorator, register_post_import_hook, synchronized,
                    ObjectProxy)
 
-from . import export
 
-
-@dataclass
-class Value:
-    value: object = None
-
-
-@export
 @synchronized
 def prints(*args, **kwargs):
     print(*args, **kwargs)
 
 
-@export
 @contextmanager
-def timer(name='Task'):
-    future = Value()
-    start = time()
-    try:
-        yield future
-    finally:
-        future.value = duration = time() - start
+def timer(name='Task', out: dict = None):
+    def commit(start):
+        duration = time() - start
+        if out is not None:
+            out[name] = duration
         prints(f'{name} done in {duration:.4g} seconds')
 
+    with ExitStack() as stack:
+        stack.callback(commit, time())
+        yield
 
-@export
+
 @decorator
 def profile(func, _, args, kwargs):
     with timer(f'{func.__module__}:{func.__qualname__}'):
@@ -57,7 +50,6 @@ def whereami(skip=2):
     return ' -> '.join(reversed(list(itertools.islice(stack(), skip, None))))
 
 
-@export
 @decorator
 def trace(func, _, args, kwargs):
     prints(f'<({whereami(3)})> : {func.__module__ or ""}.{func.__qualname__}',
@@ -90,15 +82,17 @@ def set_trace(obj, seen=None, prefix=None, module=None):
             if not callable(member):
                 continue
             decorated = trace(member)
-            decorated.__module__ = (getattr(decorated, '__module__', '') or
-                                    getattr(member, '__module__', '') or
-                                    getattr(obj, '__module__', '') or
-                                    getattr(module, '__name__', ''))
+
+            for m in (decorated, member, obj):
+                with suppress(AttributeError):
+                    decorated.__module__ = m.__module__
+                    break
+            else:
+                decorated.__module__ = getattr(module, '__name__', '')
             setattr(obj, name, decorated)
             print(f'wraps "{module.__name__}:{obj.__qualname__}.{name}"')
 
 
-@export
 def trace_module(name):
     register_post_import_hook(set_trace, name)
 
@@ -106,14 +100,15 @@ def trace_module(name):
 
 
 @decorator
-def threadsafe_coroutine(wrapped, _, args, kwargs):
-    coro = wrapped(*args, **kwargs)
-    next(coro)
-    lock = RLock()
+def threadsafe_coroutine(fn, _, args, kwargs):
+    coro = fn(*args, **kwargs)
+    coro.send(None)
 
     class Synchronized(ObjectProxy):
+        lock = RLock()
+
         def send(self, item):
-            with lock:
+            with self.lock:
                 return self.__wrapped__.send(item)
 
         def __next__(self):
@@ -122,7 +117,6 @@ def threadsafe_coroutine(wrapped, _, args, kwargs):
     return Synchronized(coro)
 
 
-@export
 @threadsafe_coroutine
 def summary():
     state = Counter()

@@ -1,0 +1,186 @@
+__all__ = ('linear', 'conv',
+           'Cat', 'Sum', 'DenseBlock', 'SEBlock')
+
+import random
+
+import torch
+from torch import nn
+from torch.nn import Module, Sequential
+
+from .modules import Activation
+
+_DEFAULT = object()
+
+def get_param(value, default=None):
+    return default if value is _DEFAULT else value
+
+
+class Nonlinear:
+    """`order` specifies order of blocks:
+        - `-`: weight
+        - `N`: normalization
+        - `A`: activation
+    """
+    order: str = '-NA'
+
+    @classmethod
+    def new(cls, module: type,
+            cin: int,
+            cout: int = 0, *,
+            order: str = None, **kwargs):
+        order = order or cls.order
+        assert set(order) <= set('AN-')
+        cout = cout or cin
+
+        def _to_layer(char):
+            if char == 'N':
+                if order.index('N') < order.index('-'):
+                    return nn.BatchNorm2d(cin)
+                else:
+                    return nn.BatchNorm2d(cout)
+
+            elif char == 'A':
+                return Activation.new()
+
+            bias = order.index('-') < order.index('N')
+            return module(cin, cout, **kwargs, bias=bias)
+
+        if len(order) == 1:
+            return _to_layer(order)
+        return Sequential(*(_to_layer(o) for o in order))
+
+
+def linear(cin, cout=0, **kwargs):
+    return Nonlinear.new(nn.Linear, cin, cout, **kwargs)
+
+
+def conv(cin, cout=0, stride=1, padding=1, **kwargs):
+    """
+    Convolution. Special cases:
+        - Channelwise: `padding` = 0, `stride` = 1
+
+    Kernel size equals to `stride + 2 * padding` for integer scaling
+    """
+    return Nonlinear.new(nn.Conv2d, cin, cout,
+                         kernel_size=(stride + 2 * padding),
+                         stride=stride,
+                         padding=padding, **kwargs)
+
+
+class Cat(Sequential):
+    """Helper for U-Net-like modules"""
+
+    def forward(self, x):
+        return torch.cat([x, super().forward(x)], dim=1)
+
+
+class Sum(Module):
+    """Helper for ResNet-like modules"""
+    _kinds = 'resnet', 'resnext', 'mobile', 'shuffle'
+    kind = 'resnet'
+    expansion = _DEFAULT
+    groups = _DEFAULT
+
+    def __init__(self, core: Module,
+                 tail: Module = None, ident: Module = None, skip=0.0):
+        super().__init__()
+        self.core = core
+        self.tail = tail
+        self.ident = ident
+        self.skip = skip
+
+    def forward(self, x):
+        y = self.ident(x) if self.ident else x
+        if not self.training or not self.skip or self.skip < random.random():
+            y += self.core(x)
+        return self.tail(y) if self.tail else y
+
+    @classmethod
+    def _base_2_way(cls, cin):
+        return cls(Sequential(conv(cin),
+                              conv(cin, order='-N')),
+                   tail=Activation())
+
+    @classmethod
+    def _base_3_way(cls, cin, expansion, **kwargs):
+        mid = int(cin * expansion)
+        core_modules = [conv(cin, mid, padding=0),
+                        conv(mid, mid, **kwargs),
+                        conv(mid, cin, padding=0, order='-N')]
+        joiner = SEBlock.new(cin)
+        if joiner is not None:
+            core_modules.append(joiner)
+        return cls(Sequential(*core_modules), tail=Activation.new())
+
+    @classmethod
+    def new(cls, cin):
+        factory = {'resnet': cls._new_resnet,
+                   'resnext': cls._new_resnext,
+                   'mobile': cls._new_mobile}.get(cls.kind)
+        if factory is None:
+            raise ValueError(f'Unsupported {cls.kind}')
+        return factory(cin)
+
+    @classmethod
+    def _new_resnet(cls, cin):
+        expansion = get_param(cls.expansion, default=1 / 4)
+        return cls._base_3_way(cin, expansion=expansion)
+
+    @classmethod
+    def _new_resnext(cls, cin):
+        expansion = get_param(cls.expansion, default=1 / 2)
+        groups = get_param(cls.groups, default=32)
+        return cls._base_3_way(cin, expansion=expansion, groups=groups)
+
+    @classmethod
+    def _new_mobile(cls, cin):
+        expansion = get_param(cls.expansion, default=6)
+        return cls._base_3_way(cin, expansion=expansion, groups=cin)
+
+# -------------------------------- factories --------------------------------
+
+
+class DenseBlock(Sequential):
+    def __init__(self, cin, depth=4, step=16, full=False):
+        super().__init__(*(conv(cin + step * i, step, config='NA-')
+                         for i in range(depth)))
+        self.full = full
+
+    def __repr__(self):
+        convs = [c for m in self.children() for c in m.children()
+                 if isinstance(c, nn.modules.conv._ConvNd)]
+        cin = convs[0].in_channels
+        cout = sum(c.out_channels for c in convs)
+        if self.full:
+            cout += cin
+        return f'{type(self).__name__}({cin}, {cout}, full={self.full})'
+
+    def forward(self, x):
+        ys = []
+        for module in self.children():
+            y = module(x)
+            ys.append(y)
+            x = torch.cat([x, y], dim=1)
+        return x if self.full else torch.cat(ys, dim=1)
+
+
+class SEBlock(Sequential):
+    use = False
+    reduction = _DEFAULT  # 16
+
+    @classmethod
+    def new(cls, cin):
+        if not cls.use:
+            return None
+
+        reduction = get_param(cls.reduction, 16)
+        return cls(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(cin, cin // reduction, 1, bias=False),
+            Activation.new(),
+            nn.Conv2d(cin // reduction, cin, 1, bias=False),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x):
+        return x * super().forward(x)

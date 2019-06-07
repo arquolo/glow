@@ -1,3 +1,6 @@
+from contextlib import ExitStack
+
+import numpy
 import pyaudio
 import soundfile
 import wrapt
@@ -6,12 +9,12 @@ import wrapt
 class Sample(wrapt.ObjectProxy):
     """Wraps numpy.array to be playable as sound"""
 
-    def __init__(self, data: 'numpy.ndarray', rate=44100):
-        assert data.ndim == 2
-        assert data.shape[-1] in (1, 2)
-        assert data.dtype in ('int8', 'int16', 'int32', 'float32')
+    def __init__(self, array: numpy.ndarray, rate=44100):
+        assert array.ndim == 2
+        assert array.shape[-1] in (1, 2)
+        assert array.dtype in ('int8', 'int16', 'int32', 'float32')
 
-        super().__init__(data)
+        super().__init__(array)
         self._self_rate = rate
 
     @property
@@ -28,21 +31,24 @@ class Sample(wrapt.ObjectProxy):
         pyaudio_type = f'pa{str(self.dtype).title()}'
 
         audio = pyaudio.PyAudio()
-        stream = audio.open(rate=self.rate,
-                            format=getattr(pyaudio, pyaudio_type),
-                            channels=self.shape[1], output=True)
-        try:
+        stream = audio.open(
+            rate=self.rate,
+            format=getattr(pyaudio, pyaudio_type),
+            channels=self.shape[1],
+            output=True,
+        )
+        with ExitStack() as stack:
+            stack.callback(audio.terminate)
+            stack.callback(audio.close, stream)
+
             if len(self.data) > 10 * chunk_size:
                 for offset in range(0, len(self), chunk_size):
                     stream.write(self[offset: offset + chunk_size].tobytes())
             else:
                 stream.write(self.tobytes())
-        finally:
-            audio.close(stream)
-            audio.terminate()
 
     @classmethod
     def load(cls, path) -> 'Sample':
         assert str(path).endswith('.flac')
-        data, rate = soundfile.read(str(path))
-        return Sample(data.astype('float32'), rate)
+        array, samplerate = soundfile.read(str(path))
+        return Sample(array.astype('float32'), samplerate)

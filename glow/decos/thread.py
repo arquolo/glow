@@ -1,3 +1,5 @@
+__all__ = 'threadlocal', 'shared_call'
+
 import contextlib
 import functools
 from concurrent.futures import (ThreadPoolExecutor,
@@ -7,43 +9,38 @@ from weakref import WeakValueDictionary
 
 from wrapt import decorator
 
-from . import export
 
-
-@export
-def threadlocal(function, *args, _local=None, **kwargs):
+def threadlocal(fn, *args, _local=None, **kwargs):
     """Thread-local singleton factory, mimics `functools.partial`"""
     if args or kwargs:
-        return functools.partial(threadlocal, function, *args,
+        return functools.partial(threadlocal, fn, *args,
                                  _local=local(), **kwargs)
     try:
         return _local.obj
     except AttributeError:
-        _local.obj = function(*args, **kwargs)
+        _local.obj = fn(*args, **kwargs)
         return _local.obj
 
 
-@export
-def shared_call(wrapped=None, *, lock=None, timeout=.001, executor=None):
-    if executor is None:
-        executor = ThreadPoolExecutor()
-    if wrapped is None:
+def shared_call(fn=None, *, lock=None, timeout=.001, executor=None):
+    if fn is None:
         return functools.partial(shared_call,
                                  lock=lock, timeout=timeout, executor=executor)
-    if lock is None:
-        lock = RLock()
+
+    lock = lock or RLock()
     futures = WeakValueDictionary()
+    executor = executor or ThreadPoolExecutor()
 
     @decorator
-    def wrapper(func, _, args, kwargs):
-        key = f'{func}{args or ""}{kwargs or ""}'
+    def wrapper(fn, _, args, kwargs):
+        key = f'{fn}{args}{kwargs}'
         with lock:
             try:
                 future = futures[key]
             except KeyError:
-                futures[key] = future = executor.submit(func, *args, **kwargs)
+                futures[key] = future = executor.submit(fn, *args, **kwargs)
         while True:
             with contextlib.suppress(_TimeoutError):  # prevent deadlock
                 return future.result(timeout=timeout)
 
-    return wrapper(wrapped)
+    return wrapper(fn)
