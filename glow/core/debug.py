@@ -20,13 +20,13 @@ def prints(*args, **kwargs):
 @contextmanager
 def timer(name='Task', out: dict = None):
     def commit(start):
-        duration = time() - start
+        duration = time.time() - start
         if out is not None:
             out[name] = duration
         prints(f'{name} done in {duration:.4g} seconds')
 
     with ExitStack() as stack:
-        stack.callback(commit, time())
+        stack.callback(commit, time.time())
         yield
 
 

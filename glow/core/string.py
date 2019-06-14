@@ -1,4 +1,4 @@
-__all__ = 'unique', 'prefix_si', 'repr_as_obj'
+__all__ = 'counter', 'prefix_si', 'repr_as_obj', 'unique'
 
 from collections import Counter
 
@@ -12,6 +12,26 @@ def unique(name):
         return None
     _names[name] += 1
     return f'{name}_{_names[name]}'
+
+
+def counter():
+    """Accumulates and enumerates objects. Readable alternative to `id()`.
+
+    >>> count = counter()
+    >>> count('a')
+    0
+    >>> count('b')
+    1
+    >>> count('a')
+    0
+
+    """
+    instances = {}
+
+    def call(obj):
+        return instances.setdefault(id(obj), len(instances))
+
+    return call
 
 
 def repr_as_obj(d: dict) -> str:

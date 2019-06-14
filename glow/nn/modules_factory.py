@@ -74,17 +74,16 @@ class Cat(Sequential):
         return torch.cat([x, super().forward(x)], dim=1)
 
 
-class Sum(Module):
+class Sum(Sequential):
     """Helper for ResNet-like modules"""
-    _kinds = 'resnet', 'resnext', 'mobile', 'shuffle'
     kind = 'resnet'
     expansion = _DEFAULT
     groups = _DEFAULT
+    blending = False
 
-    def __init__(self, core: Module,
+    def __init__(self, *children: Module,
                  tail: Module = None, ident: Module = None, skip=0.0):
-        super().__init__()
-        self.core = core
+        super().__init__(*children)
         self.tail = tail
         self.ident = ident
         self.skip = skip
@@ -92,48 +91,47 @@ class Sum(Module):
     def forward(self, x):
         y = self.ident(x) if self.ident else x
         if not self.training or not self.skip or self.skip < random.random():
-            y += self.core(x)
+            y += super().forward(x)
         return self.tail(y) if self.tail else y
 
     @classmethod
     def _base_2_way(cls, cin):
-        return cls(Sequential(conv(cin),
-                              conv(cin, order='-N')),
-                   tail=Activation())
+        children = [conv(cin),
+                    conv(cin, order='-N')]
+        return cls(*children, tail=Activation.new())
 
     @classmethod
     def _base_3_way(cls, cin, expansion, **kwargs):
         mid = int(cin * expansion)
-        core_modules = [conv(cin, mid, padding=0),
-                        conv(mid, mid, **kwargs),
-                        conv(mid, cin, padding=0, order='-N')]
-        joiner = SEBlock.new(cin)
-        if joiner is not None:
-            core_modules.append(joiner)
-        return cls(Sequential(*core_modules), tail=Activation.new())
+        children = [conv(cin, mid, padding=0),
+                    conv(mid, mid, **kwargs),
+                    conv(mid, cin, padding=0, order='-N')]
+        if cls.blending:
+            children.append(SEBlock.new(cin))
+        return cls(*children, tail=Activation.new())
 
     @classmethod
     def new(cls, cin):
-        factory = {'resnet': cls._new_resnet,
-                   'resnext': cls._new_resnext,
-                   'mobile': cls._new_mobile}.get(cls.kind)
+        factory = {'resnet': cls._resnet,
+                   'resnext': cls._resnext,
+                   'mobile': cls._mobile}.get(cls.kind)
         if factory is None:
             raise ValueError(f'Unsupported {cls.kind}')
         return factory(cin)
 
     @classmethod
-    def _new_resnet(cls, cin):
+    def _resnet(cls, cin):
         expansion = get_param(cls.expansion, default=1 / 4)
         return cls._base_3_way(cin, expansion=expansion)
 
     @classmethod
-    def _new_resnext(cls, cin):
+    def _resnext(cls, cin):
         expansion = get_param(cls.expansion, default=1 / 2)
         groups = get_param(cls.groups, default=32)
         return cls._base_3_way(cin, expansion=expansion, groups=groups)
 
     @classmethod
-    def _new_mobile(cls, cin):
+    def _mobile(cls, cin):
         expansion = get_param(cls.expansion, default=6)
         return cls._base_3_way(cin, expansion=expansion, groups=cin)
 
@@ -165,14 +163,10 @@ class DenseBlock(Sequential):
 
 
 class SEBlock(Sequential):
-    use = False
     reduction = _DEFAULT  # 16
 
     @classmethod
     def new(cls, cin):
-        if not cls.use:
-            return None
-
         reduction = get_param(cls.reduction, 16)
         return cls(
             nn.AdaptiveAvgPool2d(1),
