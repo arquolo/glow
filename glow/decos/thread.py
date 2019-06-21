@@ -2,12 +2,20 @@ __all__ = 'threadlocal', 'shared_call'
 
 import contextlib
 import functools
-from concurrent.futures import (ThreadPoolExecutor,
-                                TimeoutError as _TimeoutError)
+from concurrent.futures import (Future, TimeoutError as _TimeoutError)
 from threading import RLock, local
 from weakref import WeakValueDictionary
 
-from wrapt import decorator
+
+def as_future(fn, *args, **kwargs):
+    fut = Future()
+    try:
+        result = fn(*args, **kwargs)
+    except BaseException as exception:
+        fut.set_exception(exception)
+    else:
+        fut.set_result(result)
+    return fut
 
 
 def threadlocal(fn, *args, _local=None, **kwargs):
@@ -22,25 +30,23 @@ def threadlocal(fn, *args, _local=None, **kwargs):
         return _local.obj
 
 
-def shared_call(fn=None, *, lock=None, timeout=.001, executor=None):
+def shared_call(fn=None, *, lock=None, timeout=.001):
     if fn is None:
-        return functools.partial(shared_call,
-                                 lock=lock, timeout=timeout, executor=executor)
+        return functools.partial(shared_call, lock=lock, timeout=timeout)
 
     lock = lock or RLock()
     futures = WeakValueDictionary()
-    executor = executor or ThreadPoolExecutor()
 
-    @decorator
-    def wrapper(fn, _, args, kwargs):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
         key = f'{fn}{args}{kwargs}'
         with lock:
             try:
                 future = futures[key]
             except KeyError:
-                futures[key] = future = executor.submit(fn, *args, **kwargs)
+                futures[key] = future = as_future(fn, *args, **kwargs)
         while True:
             with contextlib.suppress(_TimeoutError):  # prevent deadlock
                 return future.result(timeout=timeout)
 
-    return wrapper(fn)
+    return wrapper

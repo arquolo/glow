@@ -15,15 +15,16 @@ def unique(name):
 
 
 def counter():
-    """Accumulates and enumerates objects. Readable alternative to `id()`.
+    """
+    Accumulates and enumerates objects. Readable alternative to `id()`.
 
-    >>> count = counter()
-    >>> count('a')
-    0
-    >>> count('b')
-    1
-    >>> count('a')
-    0
+        >>> count = counter()
+        >>> count('a')
+        0
+        >>> count('b')
+        1
+        >>> count('a')
+        0
 
     """
     instances = {}

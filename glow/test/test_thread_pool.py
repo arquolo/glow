@@ -42,7 +42,8 @@ class Worker:
 if __name__ == '__main__':
     n = 1000
     order = 20
-    stats = []
+    stats = [0] * order
+    sizes = [0] * order
     for m in range(order):
         worker = Worker(2 ** m)
         # worker = process
@@ -53,10 +54,10 @@ if __name__ == '__main__':
             workers=8,
             offload=True,
         )
-        with timer() as time:
+        with timer(m, stats) as time:
             assert list(res) == list(range(n))
-        stats.append((sizeof(worker), time.value))
+        sizes[m] = sizeof(worker)
 
-    P.plot(*zip(*stats))
+    P.plot(sizes, stats)
     P.loglog()
     P.show()

@@ -14,7 +14,7 @@ def export(obj):
     However it breaks intellisense.
     Example usage:
 
-    #### package/subpackage.py:
+    ### `package/subpackage.py`:
     ```python
     from glow.api import export
 
@@ -22,11 +22,11 @@ def export(obj):
     def func():
         pass
     ```
-    #### package/__init__.py:
+    ### `package/__init__.py`:
     ```python
     from . import subpackage
     ```
-    #### main.py:
+    ### `__main__.py`:
     ```python
     # not `from package.subpackage import func`
     from package import func

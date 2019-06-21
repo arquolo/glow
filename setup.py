@@ -1,9 +1,8 @@
 #!/bin/python3
 
-import setuptools
+from pathlib import Path
 
-with open('README.md') as f:
-    long_description = f.read()
+import setuptools
 
 setuptools.setup(
     name='glow',
@@ -12,7 +11,7 @@ setuptools.setup(
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
     description='Optimized RouTines for Python',
-    long_description=long_description,
+    long_description=Path('README.md').read_text(),
     long_description_content_type='text/markdown',
     classifiers=[
         'Development Status :: 3 - Alpha',

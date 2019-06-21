@@ -1,30 +1,35 @@
-__all__ = 'as_function', 'once_per_instance'
+__all__ = 'as_function', 'call_once'
 
 import functools
-from wrapt import decorator
+from concurrent.futures import ThreadPoolExecutor
+from threading import RLock
 
 
-@decorator
-def once_per_instance(method, instance, args, kwargs):
+def call_once(fn):
     """
-    Transform method so that it will be actually computed
-    only once per each instance
+    Transform `fn` so that it will be actually called only at first call
     """
-    cache = vars(instance).setdefault('__results__', {})
-    try:
-        return cache[method]
-    except KeyError:
-        cache[method] = method(*args, **kwargs)
-    return cache[method]
+    pool = ThreadPoolExecutor(1)
+    lock = RLock()
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with lock:
+            if fn.__future__ is None:
+                fn.__future__ = pool.submit(fn, *args, **kwargs)
+        return fn.__future__.result()
+
+    fn.__future__ = None
+    return wrapper
 
 
-def as_function(fn=None, factory=list):
+def as_function(gen=None, factory=list):
     """Transform generator to function"""
-    if fn is None:
+    if gen is None:
         return functools.partial(as_function, factory=factory)
 
-    @decorator
-    def wrapper(fn, _, args, kwargs):
-        return factory(fn(*args, **kwargs))
+    @functools.wraps(gen)
+    def wrapper(*args, **kwargs):
+        return factory(gen(*args, **kwargs))
 
-    return wrapper(fn)
+    return wrapper

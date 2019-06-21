@@ -1,32 +1,64 @@
-import pytest
+# import pytest
+from glow.api import Default, patch
 
-from glow.api.config import ROOT, capture
+
+class Factory:
+    param = 'default'
+
+    @classmethod
+    def new(cls, param=None):
+        if param is None:
+            return cls.param
+        return param
 
 
-@capture(prefix='test')
-def function(param='default'):
-    return param
+class FactoryPH:
+    param = Default()
+
+    @classmethod
+    def new(cls, param=None):
+        if param is None:
+            return cls.param.get_or('default')
+        return param
 
 
 def test_default():
-    assert function() == 'default'
+    assert Factory.new() == 'default'
+
+
+def test_default_ph():
+    assert FactoryPH.new() == 'default'
 
 
 def test_custom():
-    assert function(param='custom') == 'custom'
+    assert Factory.new(param='custom') == 'custom'
+
+
+def test_custom_ph():
+    assert FactoryPH.new(param='custom') == 'custom'
 
 
 def test_override_default():
-    with ROOT.test(param='override'):
-        assert function() == 'override'
+    with patch(Factory, param='override'):
+        assert Factory.new() == 'override'
+
+
+def test_override_default_ph():
+    with patch(FactoryPH, param='override'):
+        assert FactoryPH.new() == 'override'
 
 
 def test_never_override_custom():
-    with ROOT.test(param='override'):
-        assert function(param='custom') == 'custom'
+    with patch(Factory, param='override'):
+        assert Factory.new(param='custom') == 'custom'
 
 
-def test_react_to_wrong_keyword():
-    with pytest.raises(SyntaxError):
-        with ROOT.test(value=10):
-            function()
+def test_never_override_custom_ph():
+    with patch(FactoryPH, param='override'):
+        assert FactoryPH.new(param='custom') == 'custom'
+
+
+# def test_react_to_wrong_keyword():
+#     with pytest.raises(SyntaxError):
+#         with ROOT.test(value=10):
+#             function()

@@ -7,12 +7,8 @@ import torch
 from torch import nn
 from torch.nn import Module, Sequential
 
+from ..config import Default
 from .modules import Activation
-
-_DEFAULT = object()
-
-def get_param(value, default=None):
-    return default if value is _DEFAULT else value
 
 
 class Nonlinear:
@@ -68,7 +64,16 @@ def conv(cin, cout=0, stride=1, padding=1, **kwargs):
 
 
 class Cat(Sequential):
-    """Helper for U-Net-like modules"""
+    """
+    Helper for U-Net-like modules
+
+        >>> conv = torch.nn.Conv1d(4, 4, 1)
+        >>> cat = Cat(conv)
+        >>> x = torch.randn(1, 4, 16)
+        >>> (cat(x) == torch.cat([x, conv(x)])).all()
+        True
+
+    """
 
     def forward(self, x):
         return torch.cat([x, super().forward(x)], dim=1)
@@ -77,8 +82,8 @@ class Cat(Sequential):
 class Sum(Sequential):
     """Helper for ResNet-like modules"""
     kind = 'resnet'
-    expansion = _DEFAULT
-    groups = _DEFAULT
+    expansion = Default()
+    groups = Default()
     blending = False
 
     def __init__(self, *children: Module,
@@ -121,18 +126,18 @@ class Sum(Sequential):
 
     @classmethod
     def _resnet(cls, cin):
-        expansion = get_param(cls.expansion, default=1 / 4)
+        expansion = cls.expansion.get_or(1 / 4)
         return cls._base_3_way(cin, expansion=expansion)
 
     @classmethod
     def _resnext(cls, cin):
-        expansion = get_param(cls.expansion, default=1 / 2)
-        groups = get_param(cls.groups, default=32)
+        expansion = cls.expansion.get_or(1 / 2)
+        groups = cls.groups.get_or(32)
         return cls._base_3_way(cin, expansion=expansion, groups=groups)
 
     @classmethod
     def _mobile(cls, cin):
-        expansion = get_param(cls.expansion, default=6)
+        expansion = cls.expansion.get_or(6)
         return cls._base_3_way(cin, expansion=expansion, groups=cin)
 
 # -------------------------------- factories --------------------------------
@@ -163,16 +168,15 @@ class DenseBlock(Sequential):
 
 
 class SEBlock(Sequential):
-    reduction = _DEFAULT  # 16
+    reduction = 16
 
     @classmethod
     def new(cls, cin):
-        reduction = get_param(cls.reduction, 16)
         return cls(
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(cin, cin // reduction, 1, bias=False),
+            nn.Conv2d(cin, cin // cls.reduction, 1, bias=False),
             Activation.new(),
-            nn.Conv2d(cin // reduction, cin, 1, bias=False),
+            nn.Conv2d(cin // cls.reduction, cin, 1, bias=False),
             nn.Sigmoid(),
         )
 

@@ -1,39 +1,40 @@
-__all__ = 'prints', 'timer', 'profile', 'trace', 'trace_module', 'summary'
+__all__ = 'print_', 'trace', 'trace_module', 'summary'
 
+import functools
 import inspect
 import itertools
-import time
 from collections import Counter
-from contextlib import contextmanager, suppress, ExitStack
+from contextlib import suppress
 from threading import RLock
 from types import ModuleType
 
-from wrapt import (decorator, register_post_import_hook, synchronized,
+from wrapt import (decorator, register_post_import_hook,
                    ObjectProxy)
 
 
-@synchronized
-def prints(*args, **kwargs):
-    print(*args, **kwargs)
+class Printer:
+    """Thread-safe version of `print` function. Supports `tqdm` module"""
+    lock = RLock()
+    tqdm = None
+
+    @functools.wraps(print)
+    def __call__(self, *args, **kwargs):
+        with self.lock:
+            print(*args, **kwargs)
+
+    @functools.wraps(print)
+    def __call_tqdm__(self, *args, sep=' ', flush=False, **kwargs):
+        self.tqdm.write(sep.join(map(str, args)), **kwargs)
+
+    @classmethod
+    def patch(cls, tqdm: ModuleType):
+        cls.tqdm = tqdm.tqdm
+        cls.__call__ = cls.__call_tqdm__
 
 
-@contextmanager
-def timer(name='Task', out: dict = None):
-    def commit(start):
-        duration = time.time() - start
-        if out is not None:
-            out[name] = duration
-        prints(f'{name} done in {duration:.4g} seconds')
+print_ = Printer()
+register_post_import_hook(Printer.patch, 'tqdm')
 
-    with ExitStack() as stack:
-        stack.callback(commit, time.time())
-        yield
-
-
-@decorator
-def profile(func, _, args, kwargs):
-    with timer(f'{func.__module__}:{func.__qualname__}'):
-        return func(*args, **kwargs)
 
 #############################################################################
 
@@ -51,10 +52,10 @@ def whereami(skip=2):
 
 
 @decorator
-def trace(func, _, args, kwargs):
-    prints(f'<({whereami(3)})> : {func.__module__ or ""}.{func.__qualname__}',
+def trace(fn, _, args, kwargs):
+    print_(f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
            flush=True)
-    return func(*args, **kwargs)
+    return fn(*args, **kwargs)
 
 
 def set_trace(obj, seen=None, prefix=None, module=None):

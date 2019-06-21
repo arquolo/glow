@@ -9,7 +9,7 @@ from multiprocessing import Manager
 from queue import Queue
 from threading import Event, Thread
 
-from ..core import Timed
+from ..decos import Timed
 from .more import iter_none
 
 
