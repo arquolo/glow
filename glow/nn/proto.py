@@ -3,7 +3,7 @@ import itertools
 from torch import nn
 
 from ..iters import windowed
-from .. import Cat, DenseBlock, conv
+from . import Cat, DenseBlock, conv
 
 
 def tiramisu(cin, cout, init=48, depths=(4, 4), step=12):
@@ -19,7 +19,7 @@ def tiramisu(cin, cout, init=48, depths=(4, 4), step=12):
         core = [
             DenseBlock(f_in, depth=depth, step=step, full=True),
             Cat(nn.Sequential(
-                conv(f_middle, padding=0, config='NA-'),
+                conv(f_middle, padding=0, order='NA-'),
                 nn.MaxPool2d(2),
                 *core,
                 nn.ConvTranspose2d(f_delta, f_delta, 2, stride=2),

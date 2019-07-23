@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from torch.nn import Module, Sequential
 
-from ..config import Default
+from ..api import Default
 from .modules import Activation
 
 
@@ -145,7 +145,7 @@ class Sum(Sequential):
 
 class DenseBlock(Sequential):
     def __init__(self, cin, depth=4, step=16, full=False):
-        super().__init__(*(conv(cin + step * i, step, config='NA-')
+        super().__init__(*(conv(cin + step * i, step, order='NA-')
                          for i in range(depth)))
         self.full = full
 
