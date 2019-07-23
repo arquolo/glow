@@ -6,7 +6,7 @@ import setuptools
 
 setuptools.setup(
     name='glow',
-    version='0.4',
+    version='0.4.1',
     url='https://github.com/arquolo/glow',
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
@@ -21,7 +21,7 @@ setuptools.setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    packages=setuptools.find_namespace_packages(),
+    packages=setuptools.find_namespace_packages(exclude=['glow.test']),
     python_requires='>=3.6',
     install_requires=[
         "dataclasses ; python_version<'3.7'",
