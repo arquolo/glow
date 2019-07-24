@@ -1,6 +1,8 @@
 __all__ = 'buffered', 'detach', 'mapped'
 
+import atexit
 import collections
+import functools
 import os
 import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -30,6 +32,16 @@ class _SharedWorker:
         return self._fn(*args)
 
 
+def close_at_exit(gen):
+    @functools.wraps(gen)
+    def wrapper(*args, **kwargs):
+        it = gen(*args, **kwargs)
+        atexit.register(it.close)
+        return it
+    return wrapper
+
+
+@close_at_exit
 def buffered(iterable, latency=2, cleanup=None):
     q = Queue(latency)
     stop = Event()
@@ -44,7 +56,7 @@ def buffered(iterable, latency=2, cleanup=None):
     with ThreadPoolExecutor(1, 'src') as src:
         with ExitStack() as pull:
             if cleanup is not None:
-                pull.callback(lambda: {cleanup(f) for f in iter_none(q.get)})
+                pull.callback(lambda: set(map(cleanup, iter_none(q.get))))
             pull.callback(stop.set)
 
             task = src.submit(consume)
@@ -52,6 +64,7 @@ def buffered(iterable, latency=2, cleanup=None):
             task.result()  # if `consume` dies, never called
 
 
+@close_at_exit
 def mapped(fn, *iterables, workers=None, latency=2, offload=False):
     """Lazy, exception-safe, buffered and concurrent `builtins.map`"""
     workers = workers or os.cpu_count()
