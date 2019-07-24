@@ -1,4 +1,4 @@
-__all__ = 'as_function',
+__all__ = ('as_function', )
 
 import functools
 

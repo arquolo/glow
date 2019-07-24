@@ -25,9 +25,9 @@ class CacheAbc:
     _refs = WeakValueDictionary()
 
     capacity: int
-    size: int = 0
-    _lock: RLock = field(default_factory=RLock)
-    _stats: dict = field(default_factory=Counter)
+    size: int = field(default=0, init=False)
+    _lock: RLock = field(default_factory=RLock, init=False)
+    _stats: dict = field(default_factory=Counter, init=False)
 
     def __post_init__(self):
         self._refs[id(self)] = self
