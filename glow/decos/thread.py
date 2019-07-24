@@ -20,13 +20,19 @@ def threadlocal(fn, *args, _local=None, **kwargs):
         return _local.obj
 
 
-def _defer(fn, future, *args, **kwargs):
-    try:
-        result = fn(*args, **kwargs)
-    except BaseException as exc:
-        future.set_exception(exc)
-    else:
-        future.set_result(result)
+class Stack(ExitStack):
+    def defer(self, fn, *args, **kwargs):
+        def apply(future):
+            try:
+                result = fn(*args, **kwargs)
+            except BaseException as exc:
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+
+        future = Future()
+        self.callback(apply, future)
+        return future
 
 
 def call_once(fn):
@@ -35,11 +41,10 @@ def call_once(fn):
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        with ExitStack() as stack:
+        with Stack() as stack:
             with lock:
                 if fn.__future__ is None:
-                    fn.__future__ = Future()
-                    stack.callback(_defer, fn, fn.__future__, *args, **kwargs)
+                    fn.__future__ = stack.defer(fn, *args, **kwargs)
 
         return fn.__future__.result()
 
@@ -48,10 +53,7 @@ def call_once(fn):
 
 
 def shared_call(fn=None, *, lock=None):
-    """
-    Makes `fn()` callable a timed singleton.
-    Allows reuse of result of `fn` among callers.
-    """
+    """Merges concurrent calls to `fn` with the same `args` to single one"""
     if fn is None:
         return functools.partial(shared_call, lock=lock)
 
@@ -62,13 +64,12 @@ def shared_call(fn=None, *, lock=None):
     def wrapper(*args, **kwargs):
         key = f'{fn}{args}{kwargs}'
 
-        with ExitStack() as stack:
+        with Stack() as stack:
             with lock:
                 try:
                     future = futures[key]
                 except KeyError:
-                    futures[key] = future = Future()
-                    stack.callback(_defer, fn, future, *args, **kwargs)
+                    futures[key] = future = stack.defer(fn, *args, **kwargs)
 
         return future.result()
 
