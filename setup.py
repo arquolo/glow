@@ -25,18 +25,18 @@ setuptools.setup(
     python_requires='>=3.6',
     install_requires=[
         "dataclasses ; python_version<'3.7'",
+        'numba',
+        'numpy>=1.15',
         'wrapt',
     ],
     extras_require={
-        'vision': [
-            'numpy>=1.15',
-            'numba',
+        'io': [
+            'opencv-python>=4.0',
             'pyaudio',
             'soundfile',
         ],
         'nn': [
             'graphviz',
-            'numpy>=1.15',
             'opencv-python>=4.0',
             'py3nvml',
             'pytorch>=1.1',

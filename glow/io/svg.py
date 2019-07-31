@@ -28,6 +28,7 @@ for (let group of svg.getElementsByTagName("g")) {
 };
 """
 
+
 def hsv_colors(count):
     for hue in np.linspace(0, 360, num=count, endpoint=False, dtype='int32'):
         yield f'hsl({hue},100%,50%)'
@@ -69,14 +70,13 @@ class Svg:
             if uniq == 0:  # skip background
                 continue
             *_, contours, _2 = cv2.findContours(
-                (mask == uniq).astype('u1'),
-                cv2.RETR_CCOMP, cv2.CHAIN_APPROX_TC89_L1
+                (mask == uniq).astype('u1'), cv2.RETR_CCOMP,
+                cv2.CHAIN_APPROX_TC89_L1
             )
             group = Element('g', {'class': classes[uniq - 1]})
             group.extend(
                 Element('polygon', points=' '.join(map(str, contour.ravel())))
-                for contour in contours
-                if len(contour) >= 3
+                for contour in contours if len(contour) >= 3
             )
             root.append(group)
 

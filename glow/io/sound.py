@@ -1,3 +1,5 @@
+__all__ = ('Sound', )
+
 from contextlib import ExitStack
 
 import numpy
@@ -6,7 +8,7 @@ import soundfile
 import wrapt
 
 
-class Sample(wrapt.ObjectProxy):
+class Sound(wrapt.ObjectProxy):
     """Wraps numpy.array to be playable as sound"""
 
     def __init__(self, array: numpy.ndarray, rate=44100):
@@ -30,16 +32,17 @@ class Sample(wrapt.ObjectProxy):
     def play(self, chunk_size=1024) -> None:
         pyaudio_type = f'pa{str(self.dtype).title()}'
 
-        audio = pyaudio.PyAudio()
-        stream = audio.open(
-            rate=self.rate,
-            format=getattr(pyaudio, pyaudio_type),
-            channels=self.shape[1],
-            output=True,
-        )
         with ExitStack() as stack:
+            audio = pyaudio.PyAudio()
             stack.callback(audio.terminate)
-            stack.callback(audio.close, stream)
+
+            stream = audio.open(
+                rate=self.rate,
+                format=getattr(pyaudio, pyaudio_type),
+                channels=self.shape[1],
+                output=True,
+            )
+            stack.callback(stream.close)
 
             if len(self.data) > 10 * chunk_size:
                 for offset in range(0, len(self), chunk_size):
@@ -48,7 +51,7 @@ class Sample(wrapt.ObjectProxy):
                 stream.write(self.tobytes())
 
     @classmethod
-    def load(cls, path) -> 'Sample':
+    def load(cls, path) -> 'Sound':
         assert str(path).endswith('.flac')
         array, samplerate = soundfile.read(str(path))
-        return Sample(array.astype('float32'), samplerate)
+        return cls(array.astype('float32'), samplerate)
