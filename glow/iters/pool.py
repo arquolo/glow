@@ -1,8 +1,6 @@
 __all__ = 'buffered', 'detach', 'mapped'
 
-import atexit
 import collections
-import functools
 import os
 import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -11,7 +9,7 @@ from multiprocessing import Manager
 from queue import Queue
 from threading import Event, Thread
 
-from ..decos import Timed
+from ..decos import Timed, close_at_exit
 from .more import iter_none
 
 
@@ -30,15 +28,6 @@ class _SharedWorker:
         if self._fn is None:
             type(self)._fn = staticmethod(pickle.loads(self._shared.value))
         return self._fn(*args)
-
-
-def close_at_exit(gen):
-    @functools.wraps(gen)
-    def wrapper(*args, **kwargs):
-        it = gen(*args, **kwargs)
-        atexit.register(it.close)
-        return it
-    return wrapper
 
 
 @close_at_exit

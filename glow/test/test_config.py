@@ -1,5 +1,5 @@
-# import pytest
 from glow.api import Default, patch
+# import pytest
 
 
 class Factory:

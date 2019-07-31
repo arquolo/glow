@@ -1,19 +1,21 @@
 import numpy as np
 from numba import jit
 
+_MATRICES = {
+    'jarvis-judice-ninke':
+        [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]],
+    'sierra':
+        [[0, 0, 0, 5, 3], [2, 4, 5, 4, 2], [0, 2, 3, 2, 0]],
+    'stucki':
+        [[0, 0, 0, 8, 4], [2, 4, 8, 4, 2], [1, 2, 4, 2, 1]],
+}
+_MATRICES = {key: np.array(mat, dtype='f') for key, mat in _MATRICES.items()}
+_MATRICES = {key: mat / mat.sum() for key, mat in _MATRICES.items()}
+
 
 @jit
 def dither(image, bits=3, kind='stucki'):
-    mat = np.array({
-        'jarvis-judice-ninke':
-            [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]],
-        'sierra':
-            [[0, 0, 0, 5, 3], [2, 4, 5, 4, 2], [0, 2, 3, 2, 0]],
-        'stucki':
-            [[0, 0, 0, 8, 4], [2, 4, 8, 4, 2], [1, 2, 4, 2, 1]],
-    }[kind], dtype='f')
-    mat /= mat.sum()
-
+    mat = _MATRICES[kind]
     if image.ndim == 3:
         mat = mat[..., None]
         channel_pad = [(0, 0)]

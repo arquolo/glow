@@ -1,4 +1,4 @@
-__all__ = 'Default', 'patch',
+__all__ = 'Default', 'patch'
 
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass
@@ -21,10 +21,10 @@ class Default:
 def patch(obj, **kwargs):
     with ExitStack() as stack:
         for key, value in kwargs.items():
-            handle = getattr(obj, key)
+            proxy = getattr(obj, key)
             stack.enter_context(
-                mock.patch.object(handle, 'value', value)
-                if isinstance(handle, Default)
-                else mock.patch.object(obj, key, value)
-            )
+                mock.patch.object(
+                    *((proxy, 'value') if isinstance(proxy, Default)
+                      else (obj, key)),
+                    value))
         yield
