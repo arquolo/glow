@@ -7,7 +7,7 @@ from weakref import WeakValueDictionary
 
 from wrapt import FunctionWrapper
 
-from ..core import prefix_si, repr_as_obj, sizeof
+from ..core import decimate, repr_as_obj, sizeof
 
 
 @dataclass
@@ -58,8 +58,8 @@ class CacheAbc:
         with self._lock:
             line = (f'{self.__class__.__name__}' +
                     f'(items={len(self)},' +
-                    f' used={prefix_si(self.size)}B,' +
-                    f' total={prefix_si(self.capacity)}B)')
+                    f' used={decimate(self.size)}B,' +
+                    f' total={decimate(self.capacity)}B)')
             if any(self._stats.values()):
                 line += f'({repr_as_obj(self._stats)})'
                 self._stats.clear()

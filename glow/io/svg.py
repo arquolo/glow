@@ -37,7 +37,7 @@ def hsv_colors(count):
 def indent(elem, level=0):
     """Fixes indentation in ElementTree"""
     i = '\n' + level * '  '
-    if len(elem):
+    if len(elem) != 0:
         if not elem.text or not elem.text.strip():
             elem.text = i + '  '
         for e in elem:

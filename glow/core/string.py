@@ -1,4 +1,4 @@
-__all__ = 'counter', 'prefix_si', 'repr_as_obj', 'unique'
+__all__ = 'counter', 'decimate', 'repr_as_obj', 'unique'
 
 from collections import Counter
 
@@ -39,7 +39,7 @@ def repr_as_obj(d: dict) -> str:
     return ', '.join(f'{key}={value!r}' for key, value in d.items())
 
 
-def prefix_si(value: int, base=1024) -> str:
+def decimate(value: int, base=1024) -> str:
     prefixes = 'KMGTPEZY'
     scale, prefix = max(((i, p) for i, p in enumerate(prefixes, 1)
                          if base ** i <= value), default=(0, ''))

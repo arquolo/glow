@@ -1,16 +1,21 @@
+from types import MappingProxyType
+
+import cv2
 import numpy as np
 from numba import jit
 
-_MATRICES = {
-    'jarvis-judice-ninke':
-        [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]],
-    'sierra':
-        [[0, 0, 0, 5, 3], [2, 4, 5, 4, 2], [0, 2, 3, 2, 0]],
-    'stucki':
-        [[0, 0, 0, 8, 4], [2, 4, 8, 4, 2], [1, 2, 4, 2, 1]],
-}
-_MATRICES = {key: np.array(mat, dtype='f') for key, mat in _MATRICES.items()}
-_MATRICES = {key: mat / mat.sum() for key, mat in _MATRICES.items()}
+
+_MATRICES = MappingProxyType({
+    key: cv2.normalize(np.float32(mat), None, norm_type=cv2.NORM_L1)
+    for key, mat in {
+        'jarvis-judice-ninke':
+            [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]],
+        'sierra':
+            [[0, 0, 0, 5, 3], [2, 4, 5, 4, 2], [0, 2, 3, 2, 0]],
+        'stucki':
+            [[0, 0, 0, 8, 4], [2, 4, 8, 4, 2], [1, 2, 4, 2, 1]],
+    }
+})
 
 
 @jit
