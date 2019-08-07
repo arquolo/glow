@@ -43,7 +43,8 @@ def stack():
     frame = inspect.currentframe()
     while frame is not None:
         f = inspect.getframeinfo(frame)
-        yield f'{inspect.getmodule(frame).__name__}:{f.function}:{f.lineno}'
+        module_name = inspect.getmodulename(f.filename)
+        yield f'{module_name}:{f.function}:{f.lineno}'
         frame = frame.f_back
 
 

@@ -20,7 +20,7 @@ class Show(Module):
     def forward(self, inputs: torch.Tensor):
         bs, ch, h, w = inputs.shape
 
-        image = torch.new_tensor(inputs)
+        image = torch.tensor(inputs)
 
         bias = image.mean([-2, -1], keepdim=True)
         scale = image.std([-2, -1], keepdim=True)

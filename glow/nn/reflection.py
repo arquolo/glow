@@ -32,7 +32,7 @@ def get_gpu_state():
 
 
 def id_(x):
-    return f'0x{id(x):x}'
+    return hex(id(x))
 
 
 def as_tuple(x):

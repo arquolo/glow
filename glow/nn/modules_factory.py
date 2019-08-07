@@ -96,7 +96,10 @@ class Sum(Sequential):
     def forward(self, x):
         y = self.ident(x) if self.ident else x
         if not self.training or not self.skip or self.skip < random.random():
-            y += super().forward(x)
+            if y.is_leaf or y.requires_grad:
+                y = y + super().forward(x)
+            else:                
+                y += super().forward(x)
         return self.tail(y) if self.tail else y
 
     @classmethod
@@ -138,7 +141,7 @@ class Sum(Sequential):
     @classmethod
     def _mobile(cls, cin):
         expansion = cls.expansion.get_or(6)
-        return cls._base_3_way(cin, expansion=expansion, groups=cin)
+        return cls._base_3_way(cin, expansion=expansion, groups=cin * expansion)
 
 # -------------------------------- factories --------------------------------
 
