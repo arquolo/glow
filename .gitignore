@@ -1,11 +1,13 @@
+**/__pycache__
+**/.ipynb_checkpoints
+**/.mypy_cache
+**/.pytest_cache
+**/.vscode
+
 /build
 /dist
 /*.egg-info
-/*.pytest_cache
 
-**/.vscode
-**/__pycache__
-**/.ipynb_checkpoints
 *.py[cod]
 *$py.class
 *.cprof
