@@ -1,11 +1,10 @@
-__all__ = 'CacheAbc', 'CacheLRU', 'Cache'
+__all__ = 'Cache', 'CacheAbc', 'CacheLRU', 'CacheMRU'
 
+import functools
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from threading import RLock
 from weakref import WeakValueDictionary
-
-from wrapt import FunctionWrapper
 
 from ..core import decimate, repr_as_obj, sizeof
 
@@ -39,7 +38,11 @@ class CacheAbc:
         raise NotImplementedError
 
     def __call__(self, fn):
-        def wrapper(fn, _, args, kwargs):
+        if not self.capacity:
+            return fn
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
             key = f'{fn}{args}{kwargs}'
             try:
                 with self._lock:
@@ -52,14 +55,17 @@ class CacheAbc:
                     self.put(key, value)
             return value
 
-        return FunctionWrapper(fn, wrapper, bool(self.capacity))
+        wrapper.cache = self
+        return wrapper
 
     def __repr__(self):
         with self._lock:
-            line = (f'{self.__class__.__name__}' +
-                    f'(items={len(self)},' +
-                    f' used={decimate(self.size)}B,' +
-                    f' total={decimate(self.capacity)}B)')
+            line = (
+                f'{type(self).__name__}' +
+                f'(items={len(self)},' +
+                ' used={:.4g} {}B,'.format(*decimate(self.size)) +
+                ' total={:.4g} {}B)'.format(*decimate(self.capacity))
+            )
             if any(self._stats.values()):
                 line += f'({repr_as_obj(self._stats)})'
                 self._stats.clear()
@@ -68,31 +74,33 @@ class CacheAbc:
     @classmethod
     def status(cls) -> str:
         with cls._shared_lock:
-            return '\n'.join(f'0x{addr:x}: {value!r}'
+            return '\n'.join(f'{hex(addr)}: {value!r}'
                              for addr, value in sorted(cls._refs.items()))
 
 
-class Cache(CacheAbc, dict):
-    def can_fit(self, record: Record):
-        return self.size + record.size <= self.capacity
-
-    def get(self, key):
-        return self[key]
-
+class _DictCache(CacheAbc):
     def put(self, key, value):
         record = Record(value)
-        if self.can_fit(record):
+        if self.release(record.size):
             self[key] = value
             self.size += record.size
 
 
-class CacheLRU(CacheAbc, OrderedDict):
-    def can_fit(self, record: Record):
-        if record.size > self.capacity:
+class Cache(_DictCache, dict):
+    def release(self, size):
+        return self.size + size <= self.capacity
+
+    def get(self, key):
+        return self[key]
+
+
+class _OrderedCache(_DictCache, OrderedDict):
+    def release(self, size):
+        if size > self.capacity:
             return False
 
-        while self.size + record.size > self.capacity:
-            self.size -= self.popitem(last=False)[1].size
+        while self.size + size > self.capacity:
+            self.size -= self.popitem(last=self.drop_recent)[1].size
             self._stats['dropped'] += 1
         return True
 
@@ -101,8 +109,10 @@ class CacheLRU(CacheAbc, OrderedDict):
         self[key] = record = self.pop(key)
         return record.value
 
-    def put(self, key, value):
-        record = Record(value)
-        if self.can_fit(record):
-            self[key] = record
-            self.size += record.size
+
+class CacheLRU(_OrderedCache):
+    drop_recent = False
+
+
+class CacheMRU(_OrderedCache):
+    drop_recent = True
