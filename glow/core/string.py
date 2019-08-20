@@ -1,4 +1,4 @@
-__all__ = 'counter', 'decimate', 'repr_as_obj', 'unique'
+__all__ = 'countable', 'decimate', 'mangle', 'repr_as_obj'
 
 from collections import Counter
 
@@ -6,42 +6,57 @@ from collections import Counter
 _names = Counter()
 
 
-def unique(name):
-    """Returns unique string"""
-    if name is None:
-        return None
-    _names[name] += 1
-    return f'{name}_{_names[name]}'
+def mangle():
+    """
+    Appends number to already seen strings, making them distinct
+
+        >>> mangled = mangle()
+        >>> mangled('a')
+        'a'
+        >>> mangled('b')
+        'b'
+        >>> mangled('a')
+        'a:1'
+    """
+    store = Counter()
+
+    def call(name: str):
+        if name is None:
+            return None
+
+        seen = store[name]
+        if seen:
+            name = f'{name}:{seen}'
+        store[name] += 1
+        return name
+
+    return call
 
 
-def counter():
+def countable():
     """
     Accumulates and enumerates objects. Readable alternative to `id()`.
 
-        >>> count = counter()
-        >>> count('a')
+        >>> id_ = countable()
+        >>> id_('a')
         0
-        >>> count('b')
+        >>> id_('b')
         1
-        >>> count('a')
+        >>> id_('a')
         0
 
     """
     instances = {}
-
-    def call(obj):
-        return instances.setdefault(id(obj), len(instances))
-
-    return call
+    return (lambda obj: instances.setdefault(id(obj), len(instances)))
 
 
 def repr_as_obj(d: dict) -> str:
     return ', '.join(f'{key}={value!r}' for key, value in d.items())
 
 
-def decimate(value: int, base=1024) -> str:
-    prefixes = 'KMGTPEZY'
-    scale, prefix = max(((i, p) for i, p in enumerate(prefixes, 1)
-                         if base ** i <= value), default=(0, ''))
-    value = value / base ** scale
-    return f'{value:.4g} {prefix}'
+def decimate(val: int, base=1024) -> tuple:
+    """Converts value to prefixed string, like `decimate(2**20) -> (1, 'M')`"""
+    suffixes = 'KMGTPEZY'
+    suffixes = ((i, p) for i, p in enumerate(suffixes, 1) if base ** i <= val)
+    scale, suffix = max(suffixes, default=(0, ''))
+    return (val / base ** scale, suffix)

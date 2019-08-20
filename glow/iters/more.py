@@ -1,5 +1,6 @@
-__all__ = 'as_iter', 'chunked', 'iter_none', 'windowed'
+__all__ = 'as_iter', 'chunked', 'eat', 'iter_none', 'windowed'
 
+import collections
 import itertools
 from collections.abc import Iterable
 
@@ -29,3 +30,7 @@ def windowed(iterable, size):
 def iter_none(fn):
     return itertools.takewhile(lambda r: r is not None,
                                itertools.starmap(fn, itertools.repeat(())))
+
+
+def eat(iterable):
+    collections.deque(iterable, maxlen=0)

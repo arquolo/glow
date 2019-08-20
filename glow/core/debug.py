@@ -43,13 +43,13 @@ def stack():
     frame = inspect.currentframe()
     while frame is not None:
         f = inspect.getframeinfo(frame)
-        module_name = inspect.getmodulename(f.filename)
-        yield f'{module_name}:{f.function}:{f.lineno}'
+        module = getattr(inspect.getmodule(frame), '__name__', '-')
+        yield f'{module}:{f.function}:{f.lineno}'
         frame = frame.f_back
 
 
 def whereami(skip=2):
-    return ' -> '.join(reversed(list(itertools.islice(stack(), skip, None))))
+    return '\n -> '.join(reversed(list(itertools.islice(stack(), skip, None))))
 
 
 @decorator
