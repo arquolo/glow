@@ -138,7 +138,9 @@ class Sum(Sequential):
     @classmethod
     def _mobile(cls, cin):
         expansion = cls.expansion.get_or(6)
-        return cls._base_3_way(cin, expansion=expansion, groups=cin * expansion)
+        return cls._base_3_way(
+            cin, expansion=expansion, groups=cin * expansion
+        )
 
 # -------------------------------- factories --------------------------------
 

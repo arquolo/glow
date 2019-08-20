@@ -6,14 +6,14 @@ from torch.nn import Module, ModuleDict
 from dataclasses import dataclass, field
 from typing import List
 
-from ..core import counter
+from ..core import countable
 
 
 class Model(ModuleDict):
     def __init__(self, inputs: 'List[Input]', outputs: 'List[Input]'):
         super().__init__()
 
-        count = counter()
+        count = countable()
         self.inputs = [str(count(x)) for x in inputs]
 
         roots = list(inputs)
@@ -72,9 +72,9 @@ class ModuleWrapper:
     args: tuple = None
     kwargs: dict = None
 
-    def __call__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
+    def __call__(self, *_args, **_kwargs):
+        self.args = _args
+        self.kwargs = _kwargs
         return self
 
 
