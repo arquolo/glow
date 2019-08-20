@@ -21,7 +21,7 @@ setuptools.setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    packages=setuptools.find_namespace_packages(exclude=['glow.test']),
+    packages=setuptools.find_packages(exclude=['glow.test']),
     python_requires='>=3.6',
     install_requires=[
         "dataclasses ; python_version<'3.7'",
