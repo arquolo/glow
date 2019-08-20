@@ -47,7 +47,7 @@ class Noise(Module):
     def forward(self, x):
         if not self.training:
             return x
-        return torch.empty_like(x).normal_(std=self.std).add_(x).clamp_(0, 1)
+        return torch.empty_like(x).normal_(std=self.std).add_(x)
 
     def extra_repr(self):
         return f'std={self.std}'
