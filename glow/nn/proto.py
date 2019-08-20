@@ -3,7 +3,7 @@ import itertools
 from torch import nn
 
 from ..iters import windowed
-from . import Cat, DenseBlock, conv
+from . import Cat, DenseBlock, conv, param_count
 
 
 def tiramisu(cin, cout, init=48, depths=(4, 4), step=12):
@@ -27,8 +27,12 @@ def tiramisu(cin, cout, init=48, depths=(4, 4), step=12):
             DenseBlock(f_out, depth=depth, step=step, full=is_last),
         ]
 
-    return nn.Sequential(
+    model = nn.Sequential(
         nn.Conv2d(cin, init, 3, padding=1),
         *core,
         nn.Conv2d(f_out + depth * step, cout, 1),
     )
+    layers = sum(1 for m in model.modules() if isinstance(m, nn.Conv2d))
+    params = param_count(model)
+    model.name = f'tiramisu_{layers}_{params}'
+    return model
