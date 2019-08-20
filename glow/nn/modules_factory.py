@@ -95,11 +95,8 @@ class Sum(Sequential):
 
     def forward(self, x):
         y = self.ident(x) if self.ident else x
-        if not self.training or not self.skip or self.skip < random.random():
-            if y.is_leaf or y.requires_grad:
-                y = y + super().forward(x)
-            else:                
-                y += super().forward(x)
+        if not self.training or self.skip == 0 or self.skip < random.random():
+            y = super().forward(x).add_(y)
         return self.tail(y) if self.tail else y
 
     @classmethod
