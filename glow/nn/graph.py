@@ -62,10 +62,10 @@ class Builder:
         except KeyError:
             label, root = '', self.dot
 
-        label += f'\n{tuple(var.shape)}'
-        label += '{:.2g}{}'.format(*decimate(var.numel() * var.element_size()))
+        label += f'{tuple(var.shape)}\n'
+        label += '{:d}{}'.format(*decimate(var.numel() * var.element_size()))
         color = 'yellow' if id(var) in map(id, self.inputs) else 'lightblue'
-        root.node(id_(grad), label.strip, fillcolor=color)
+        root.node(id_(grad), label, fillcolor=color)
 
     def _traverse(self, grad, depth=0):
         if grad is None or grad in self._seen:
@@ -88,7 +88,7 @@ class Builder:
         for ch, _ in getattr(grad, 'next_functions', ()):
             if ch is None:
                 continue
-            yield from self._traverse(ch, depth=depth + 1)
+            yield from self._traverse(ch, depth + 1)
 
             tail = self._seen.get(ch)
             if tail is not None and tail != root.name:
@@ -109,7 +109,7 @@ class Builder:
         for t in as_tuple(ts):
             if t.grad_fn is not None:
                 self._shapes[t.grad_fn] = t.shape
-                edges.extend(self._traverse(t.grad_fn, None))
+                edges.extend(self._traverse(t.grad_fn))
         if not edges:
             return
 
