@@ -16,9 +16,13 @@ def as_iter(obj, times=None, base=Iterable):
 
 def chunked(iterable, size):
     """Yields chunks of at most `size` items from iterable"""
-    iterator = iter(iterable)
-    return iter(lambda: list(itertools.islice(iterator, size)),
-                [])
+    try:
+        count = len(iterable)
+        return (iterable[init: init + size] for init in range(0, count, size))
+    except TypeError:
+        iterator = iter(iterable)
+        return iter(lambda: list(itertools.islice(iterator, size)),
+                    [])
 
 
 def windowed(iterable, size):
