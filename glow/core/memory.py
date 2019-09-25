@@ -37,7 +37,7 @@ def sizeof(obj, seen=None):
     # protection from self-referencing
     if hasattr(obj, '__dict__'):
         for d in (vars(cl)['__dict__']
-                  for cl in type(obj).mro() if '__dict__' in vars(cl)):
+                  for cl in obj.__class__.__mro__ if '__dict__' in vars(cl)):
             if isgetsetdescriptor(d) or ismemberdescriptor(d):
                 size += sizeof(vars(obj), seen=seen)
             break
