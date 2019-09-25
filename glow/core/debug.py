@@ -2,7 +2,6 @@ __all__ = ('print_', 'trace', 'trace_module', 'summary')
 
 import functools
 import inspect
-import itertools
 from collections import Counter
 from contextlib import suppress
 from threading import RLock
@@ -39,17 +38,23 @@ register_post_import_hook(Printer.patch, 'tqdm')
 #############################################################################
 
 
-def stack():
-    frame = inspect.currentframe()
-    while frame is not None:
-        f = inspect.getframeinfo(frame)
-        module = getattr(inspect.getmodule(frame), '__name__', '-')
-        yield f'{module}:{f.function}:{f.lineno}'
-        frame = frame.f_back
+def _break_on_globe(frame_infos):
+    for info in frame_infos:
+        yield info
+        if info.function == '<module>':
+            return
 
 
 def whereami(skip=2):
-    return '\n -> '.join(reversed(list(itertools.islice(stack(), skip, None))))
+    frame_infos = _break_on_globe(inspect.stack()[skip:])
+    return ' -> '.join(
+        ':'.join((
+            getattr(inspect.getmodule(info.frame), '__name__', '[root]'),
+            info.function,
+            str(info.lineno),
+        ))
+        for info in list(frame_infos)[::-1]
+    )
 
 
 @decorator
