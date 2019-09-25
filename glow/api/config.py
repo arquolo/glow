@@ -1,4 +1,4 @@
-__all__ = 'Default', 'patch'
+__all__ = ('Default', 'patch')
 
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass

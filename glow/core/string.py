@@ -1,4 +1,4 @@
-__all__ = 'countable', 'decimate', 'mangle', 'repr_as_obj'
+__all__ = ('countable', 'decimate', 'mangle', 'repr_as_obj')
 
 from collections import Counter
 

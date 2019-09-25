@@ -1,4 +1,4 @@
-__all__ = 'Cache', 'CacheAbc', 'CacheLRU', 'CacheMRU'
+__all__ = ('Cache', 'CacheAbc', 'CacheLRU', 'CacheMRU')
 
 import functools
 from collections import Counter, OrderedDict

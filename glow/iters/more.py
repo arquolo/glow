@@ -1,4 +1,4 @@
-__all__ = 'as_iter', 'chunked', 'eat', 'iter_none', 'windowed'
+__all__ = ('as_iter', 'chunked', 'eat', 'iter_none', 'windowed')
 
 import collections
 import itertools

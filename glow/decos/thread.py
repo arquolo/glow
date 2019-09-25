@@ -1,4 +1,4 @@
-__all__ = 'call_once', 'threadlocal', 'shared_call'
+__all__ = ('call_once', 'threadlocal', 'shared_call')
 
 import functools
 from concurrent.futures import Future

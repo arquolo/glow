@@ -1,4 +1,4 @@
-__all__ = 'print_', 'trace', 'trace_module', 'summary'
+__all__ = ('print_', 'trace', 'trace_module', 'summary')
 
 import functools
 import inspect

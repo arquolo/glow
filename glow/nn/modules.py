@@ -1,4 +1,4 @@
-__all__ = 'Activation', 'View', 'Noise'
+__all__ = ('Activation', 'View', 'Noise')
 
 import functools
 

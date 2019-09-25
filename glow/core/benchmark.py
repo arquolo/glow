@@ -1,4 +1,4 @@
-__all__ = 'timer', 'time_this'
+__all__ = ('timer', 'time_this')
 
 import atexit
 import functools

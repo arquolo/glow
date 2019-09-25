@@ -1,4 +1,4 @@
-__all__ = 'as_function', 'close_at_exit'
+__all__ = ('as_function', 'close_at_exit')
 
 import atexit
 import functools

@@ -1,4 +1,4 @@
-__all__ = 'buffered', 'detach', 'mapped'
+__all__ = ('buffered', 'detach', 'mapped')
 
 import os
 import pickle
