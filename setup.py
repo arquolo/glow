@@ -31,15 +31,19 @@ setuptools.setup(
     ],
     extras_require={
         'io': [
-            'opencv-python>=4.0',
+            'opencv-python>=4',
             'pyaudio',
             'soundfile',
         ],
         'nn': [
+            'future',  # torch.utils.tensorboard dies if missing
             'graphviz',
-            'opencv-python>=4.0',
+            'opencv-python>=4',
             'py3nvml',
-            'pytorch>=1.1',
+            'torch>=1.2',
         ],
     },
+    dependency_links=[
+        'https://download.pytorch.org/whl/torch_stable.html',
+    ]
 )
