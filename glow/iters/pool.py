@@ -1,38 +1,75 @@
 __all__ = ('buffered', 'detach', 'mapped')
 
 import os
-import pickle
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
+import signal
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+from itertools import islice
 from multiprocessing import Manager
 from queue import Queue
 from threading import Event, Thread
+from typing import Callable, Iterable, Iterator, Optional, TypeVar
 
-from ..decos import Timed, close_at_exit
+import loky
+
+from ..core import sizeof
+from ..decos import Reusable, close_at_exit
 from .more import chunked, eat, iter_none
 
+T = TypeVar('T')
+loky.backend.context.set_start_method('loky_init_main')
 
-class Worker:
-    """Lazy worker. Shares state of `fn` between subprocesses"""
+
+class Chunker:
+    """Applies `fn` to chunk"""
+    __slots__ = ('_fn',)
+
+    def __init__(self, fn):
+        self._fn = fn
+
+    @property
+    def fn(self) -> Callable:
+        return self._fn
+
+    def __call__(self, *args_tuple):
+        fn = self.fn
+        return tuple(fn(*args) for args in args_tuple)
+
+
+class ChunkerShared(Chunker):
+    """Applies `fn` to chunk. Shares state of `fn` between subprocesses"""
+    __slots__ = ('_shared', '_parent')
     _manager = None
-    _fn = None
+    _saved_fn = None
+    _saved_parent = 0
 
     def __init__(self, fn):
         if self._manager is None:
-            type(self)._manager = Timed(factory=Manager, timeout=10)
-        manager = self._manager.get()
-        self._shared = manager.Value('c', pickle.dumps(fn, protocol=-1))
-        # ? maybe use:
-        # (self._shared := manager.namespace).fn = fn
+            type(self)._manager = Reusable(Manager, timeout=60)
 
-    def __call__(self, *args_tuple):
-        if self._fn is None:
-            type(self)._fn = staticmethod(pickle.loads(self._shared.value))
-        return tuple(self._fn(*args) for args in args_tuple)
+        self._shared = self._manager.get().Namespace()
+        self._shared.fn = fn
+        self._parent = id(self)
+
+    @property
+    def fn(self) -> Callable:
+        if (self._saved_fn is None or  # not initialized
+                self._saved_parent != self._parent):  # or outdated
+            # # read from namespace, keep id
+            type(self)._saved_fn = staticmethod(self._shared.fn)
+            type(self)._saved_parent = self._parent
+
+            # suppresses KeyboardInterrupt in child processes
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+        return self._saved_fn
 
 
 @close_at_exit
-def buffered(iterable, latency=2, cleanup=None):
+def buffered(iterable: Iterable[T],
+             latency: int = 2,
+             finalize: Optional[Callable[[T], None]] = None) -> Iterator[T]:
     """
     Moves iteration over iterable to another thread. Returns new iterable.
 
@@ -45,30 +82,36 @@ def buffered(iterable, latency=2, cleanup=None):
     """
     q = Queue(latency)
     stop = Event()
+    marker = object()
+    if finalize is None:
+        def finalize(_):
+            pass
 
     def consume():
         with ExitStack() as push:
-            push.callback(q.put, None)
-            push.callback(q.put, None)
+            push.callback(q.put, marker)
+            push.callback(q.put, marker)
             for item, _ in zip(iterable, iter(stop.is_set, True)):
                 q.put(item)
 
     with ExitStack() as pull:
         src = pull.enter_context(ThreadPoolExecutor(1))
-        if cleanup is not None:  # maybe useless
-            pull.callback(lambda: eat(cleanup(x) for x in iter_none(q.get)))
+        pull.callback(eat, map(finalize, iter_none(q.get, marker)))
         pull.callback(stop.set)
 
         task = src.submit(consume)
-        yield from iter_none(q.get)
+        yield from iter_none(q.get, marker)
         task.result()  # throws if `consume` is dead
 
 
 @close_at_exit
-def mapped(fn, *iterables, workers=None, latency=2, offload=0):
+def mapped(fn: Callable[..., T], *iterables: Iterable,
+           workers: Optional[int] = None,
+           latency: int = 2,
+           offload: int = 0) -> Iterator[T]:
     """
     Concurrently applies `fn` callable to each element in zipped `iterables`.
-    Keeps order. Never hang. Friendly to CTRL+C.
+    Keeps order. Never hang. Friendly to CTRL+C. Uses all processing power.
 
     Parameters
     ----------
@@ -81,24 +124,29 @@ def mapped(fn, *iterables, workers=None, latency=2, offload=0):
             number means chunk size for each Process, by default 0
     """
     workers = workers or os.cpu_count()
+    latency *= workers
+    iterable = zip(*iterables)
 
     with ExitStack() as stack:
-        iterable = zip(*iterables)
         if offload:
-            fn = Worker(fn)
-            pool = stack.enter_context(ProcessPoolExecutor(workers))
+            pool = loky.get_reusable_executor(max_workers=workers, timeout=60)
             iterable = chunked(iterable, size=offload)
+            fn = (Chunker if sizeof(fn) < 2e5 else ChunkerShared)(fn)
         else:
-            pool = stack.enter_context(ThreadPoolExecutor(workers))
+            pool = ThreadPoolExecutor(workers)
+            pool = stack.enter_context(pool)
 
-        fs = (pool.submit(fn, *items) for items in iterable)
-        fs = buffered(fs, latency=latency * workers, cleanup=Future.cancel)
-        results = (future.result() for future in fs)
+        fs = deque(maxlen=latency)
+        stack.callback(eat, (fut.cancel() for fut in reversed(fs)))
 
-        if offload:
-            results = (r for rs in results for r in rs)
-        yield from results
+        fs_submit = (pool.submit(fn, *items) for items in iterable)
+        fs.extend(islice(fs_submit, latency))
+
+        while fs:
+            result = fs.popleft().result()
+            fs.extend(islice(fs_submit, 1))
+            yield from (result if offload else [result])
 
 
-def detach(iterable):
+def detach(iterable: Iterable) -> None:
     Thread(target=eat, args=(iterable,), daemon=True).start()
