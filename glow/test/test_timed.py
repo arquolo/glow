@@ -1,31 +1,40 @@
 import time
-from enum import Enum
+from dataclasses import dataclass
+from itertools import count
 
-import pytest
-from glow.decos import Timed
+from glow import Reusable
 
 
-class Status(Enum):
-    SUCCESS = 'success'
-    FAIL = 'fail'
+@dataclass
+class Value:
+    value: int
 
 
 def test_fail():
-    value = Timed(Status.FAIL, timeout=.03)
+    counter = count()
+    ref = Reusable(lambda: Value(next(counter)), timeout=.03)
+    assert ref.get().value == 0
+
     time.sleep(.06)
-    with pytest.raises(TimeoutError):
-        value.get()
+    assert ref.get().value == 1
 
 
 def test_success():
-    value = Timed(Status.SUCCESS, timeout=.06)
+    counter = count()
+    ref = Reusable(lambda: Value(next(counter)), timeout=.06)
+    assert ref.get().value == 0
+
     time.sleep(.03)
-    assert value.get() == Status.SUCCESS
+    assert ref.get().value == 0
 
 
 def test_success_double():
-    value = Timed(Status.SUCCESS, timeout=.06)
+    counter = count()
+    ref = Reusable(lambda: Value(next(counter)), timeout=.06)
+    assert ref.get().value == 0
+
     time.sleep(.03)
-    value.get()
+    assert ref.get().value == 0
+
     time.sleep(.03)
-    assert value.get() == Status.SUCCESS
+    assert ref.get().value == 0
