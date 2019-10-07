@@ -18,6 +18,7 @@ from ..decos import Reusable, close_at_exit
 from .more import chunked, eat, iter_none
 
 T = TypeVar('T')
+loky.set_loky_pickler('pickle')
 loky.backend.context.set_start_method('loky_init_main')
 
 
