@@ -1,29 +1,33 @@
-__all__ = ('LazyLoader', )
+__all__ = ('Loader', )
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Iterator, Tuple
+from typing import Generic, Iterable, Iterator, Mapping, Tuple, TypeVar
 
 import torch
-from torch.utils.data import (Dataset as _Dataset, Sampler as _Sampler)
 
 from ..iters import mapped, chunked
 
-
-def _to_tensor(x) -> torch.Tensor:
-    return x if torch.is_tensor(x) else torch.tensor(x)
+KT = TypeVar('KT')
 
 
-def _get_sample(dataset, index) -> Tuple[torch.Tensor]:
-    return tuple(_to_tensor(item) for item in dataset[index])
+def _get_sample(dataset, index):
+    return tuple(torch.as_tensor(item) for item in dataset[index])
 
 
 @dataclass
-class LazyLoader:
-    dataset: _Dataset
-    sampler: _Sampler
+class Loader(Generic[KT]):
+    dataset: Mapping[KT, Tuple]
+    sampler: Iterable[KT] = None
     batch_size: int = 1
-    chunk_size: int = 0
+    chunk_size: int = None
+    workers: int = None
+
+    def __post_init__(self):
+        if self.sampler is None:
+            self.sampler = range(len(self.dataset))
+        if self.chunk_size is None:
+            self.chunk_size = self.batch_size
 
     def __len__(self) -> int:
         batches, remainder = divmod(len(self.sampler), self.batch_size)
@@ -33,7 +37,8 @@ class LazyLoader:
         samples = mapped(
             partial(_get_sample, self.dataset),
             self.sampler,
-            offload=self.chunk_size or self.batch_size,
+            offload=self.chunk_size,
+            workers=self.workers,
         )
         for batch in chunked(samples, self.batch_size):
             yield tuple(torch.stack(row) for row in zip(*batch))
