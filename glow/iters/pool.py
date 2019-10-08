@@ -124,6 +124,10 @@ def mapped(fn: Callable[..., T], *iterables: Iterable,
             if not zero enables usage of `Process` instead of `Thread`,
             number means chunk size for each Process, by default 0
     """
+    if workers == 0:
+        yield from map(fn, *iterables)
+        return
+
     workers = workers or os.cpu_count()
     latency *= workers
     iterable = zip(*iterables)
