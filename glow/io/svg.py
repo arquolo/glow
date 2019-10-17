@@ -57,9 +57,10 @@ class Svg:
     or names of `set.union(set(np.unique(m)) for m in masks)`.
 
     Usage:
-        >>> mask = cv2.imread('sample.png', cv2.IMREAD_GRAYSCALE)
-        >>> Svg(mask, ['neg', 'pos']).save('sample.svg')
-
+    ```
+        mask = cv2.imread('sample.png', cv2.IMREAD_GRAYSCALE)
+        Svg(mask, ['pos', 'neg']).save('sample.svg')
+    ```
     """
 
     def __init__(self, mask: np.ndarray, classes: List[str]):

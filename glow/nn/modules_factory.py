@@ -67,14 +67,12 @@ class Cat(Sequential):
     """
     Helper for U-Net-like modules
 
-        >>> conv = torch.nn.Conv1d(4, 4, 1)
-        >>> cat = Cat(conv)
-        >>> x = torch.randn(1, 4, 16)
-        >>> (cat(x) == torch.cat([x, conv(x)])).all()
-        True
-
+    >>> conv = torch.nn.Conv1d(4, 4, 1)
+    >>> cat = Cat(conv)
+    >>> x = torch.randn(1, 4, 16)
+    >>> torch.equal(cat(x), torch.cat([x, conv(x)], dim=1))
+    True
     """
-
     def forward(self, x):
         return torch.cat([x, super().forward(x)], dim=1)
 

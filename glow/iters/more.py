@@ -91,6 +91,7 @@ def windowed(iterable: Iterable[T], size: int) -> Iterator[Tuple[T]]:
 
 def iter_none(fn: Callable[[], T],
               marker: Any = None) -> Iterator[T]:
+    """Yields `fn()` until it is `marker`"""
     return itertools.takewhile(lambda r: r is not marker,
                                itertools.starmap(fn, itertools.repeat(())))
 

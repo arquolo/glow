@@ -26,7 +26,17 @@ def make_loader(dataset: Mapping[KT, Tuple],
                 batch_size: int = 1,
                 chunk_size: int = None,
                 workers: int = None) -> Iterable[Tuple[torch.Tensor]]:
+    """Yields batches of `batch_size` from `dataset` in order from  `sampler`.
 
+    Parameters:
+      - `batch_size` - size of batch
+        (default: `1`)
+      - `chunk_size` - size of chunk to pass for each worker
+        If `0`, threads are used
+        (default: same as `batch_size`)
+      - `workers` - count of workers
+        (default: same as `os.cpu_count()`)
+    """
     if sampler is None:
         sampler = range(len(dataset))
     if chunk_size is None:

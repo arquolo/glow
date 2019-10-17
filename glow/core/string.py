@@ -10,13 +10,13 @@ def mangle():
     """
     Appends number to already seen strings, making them distinct
 
-        >>> mangled = mangle()
-        >>> mangled('a')
-        'a'
-        >>> mangled('b')
-        'b'
-        >>> mangled('a')
-        'a:1'
+    >>> mangled = mangle()
+    >>> mangled('a')
+    'a'
+    >>> mangled('b')
+    'b'
+    >>> mangled('a')
+    'a:1'
     """
     store = Counter()
 
@@ -37,14 +37,13 @@ def countable():
     """
     Accumulates and enumerates objects. Readable alternative to `id()`.
 
-        >>> id_ = countable()
-        >>> id_('a')
-        0
-        >>> id_('b')
-        1
-        >>> id_('a')
-        0
-
+    >>> id_ = countable()
+    >>> id_('a')
+    0
+    >>> id_('b')
+    1
+    >>> id_('a')
+    0
     """
     instances = {}
     return (lambda obj: instances.setdefault(id(obj), len(instances)))

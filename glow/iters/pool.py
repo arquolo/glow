@@ -73,15 +73,13 @@ class ChunkerShared(Chunker):
 def buffered(iterable: Iterable[T],
              latency: int = 2,
              finalize: Optional[Callable[[T], None]] = None) -> Iterator[T]:
-    """
-    Moves iteration over iterable to another thread. Returns new iterable.
+    """Moves iteration over iterable to another thread. Returns new iterable.
 
-    Parameters
-    ----------
-        latency
-            count of items can go ahead, by default 2.
-        cleanup
-            callback to apply for each `item` if failure happens
+    Parameters:
+      - `latency` - count of items can go ahead
+        (default: `2`)
+      - `finalize` - callback to apply for each `item` if failure happens
+        (default: `None`)
     """
     q = Queue(latency)
     stop = Event()
@@ -117,15 +115,13 @@ def mapped(fn: Callable[..., T], *iterables: Iterable,
     Concurrently applies `fn` callable to each element in zipped `iterables`.
     Keeps order. Never hang. Friendly to CTRL+C. Uses all processing power.
 
-    Parameters
-    ----------
-        workers
-            count of workers, by default `os.cpu_count()`
-        latency
-            count of tasks each workers can grab, by default 2.
-        offload
-            if not zero enables usage of `Process` instead of `Thread`,
-            number means chunk size for each Process, by default 0
+    Parameters:
+      - `workers` - count of workers
+        (default: same as `os.cpu_count()`)
+      - `latency` - count of tasks each workers can grab
+        (default: `2`)
+      - `offload` - size of chunk to pass to each `Process`, if not `0`
+        (default: `0`)
     """
     if workers == 0:
         yield from map(fn, *iterables)
@@ -157,4 +153,5 @@ def mapped(fn: Callable[..., T], *iterables: Iterable,
 
 
 def detach(iterable: Iterable) -> None:
+    """Consume `iterable` asynchronously"""
     Thread(target=eat, args=(iterable,), daemon=True).start()

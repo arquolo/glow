@@ -29,6 +29,22 @@ def default_hint(*args, **_):
 
 
 def make_sized(gen=None, *, hint=default_hint):
+    """Packs generator function with size hint, thus making it sized.
+
+    If `hint` is passed, it should have same signature as `gen`.
+
+    >>> @make_sized(hint=lambda n: n)
+    ... def gen_fn(n):
+    ...    return (x for x in range(n))
+    ...
+    >>> gen = gen_fn(5)
+    >>> list(gen)
+    [0, 1, 2, 3, 4]
+    >>> list(gen)
+    [0, 1, 2, 3, 4]
+    >>> len(gen)
+    5
+    """
     if gen is None:
         return partial(make_sized, hint=hint)
 
