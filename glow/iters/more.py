@@ -10,11 +10,9 @@ __all__ = (
 import collections
 import itertools
 from collections import abc
-from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
-    Generic,
     Iterable,
     Iterator,
     Optional,
@@ -23,6 +21,8 @@ from typing import (
     TypeVar,
     Union,
 )
+
+from .size_hint import make_sized
 
 T = TypeVar('T')
 
@@ -36,18 +36,6 @@ def as_iter(obj: Union[Iterable[T], T, None],
     if isinstance(obj, base):
         return obj
     return itertools.repeat(obj, times=times)
-
-
-@dataclass
-class SizedSequence(Generic[T]):
-    iterator: Iterable[T]
-    total: int = 0
-
-    def __iter__(self) -> Iterator[T]:
-        yield from self.iterator
-
-    def __len__(self) -> int:
-        return self.total
 
 
 def _chunked_greedy(iterable: Iterable[T],
@@ -75,25 +63,26 @@ def _chunked_lazy(iterable: Iterable[T],
         next(itertools.islice(iterator, size, size), None)
 
 
+def _chunk_size_hint(iterable, size, *_, **__):
+    return len(range(0, len(iterable), size))
+
+
+@make_sized(hint=_chunk_size_hint)
 def chunked(iterable: Iterable[T],
             size: int,
             lazy: bool = False) -> Iterator[Iterable[T]]:
     """Yields chunks of at most `size` items from iterable"""
     fn = _chunked_lazy if lazy else _chunked_greedy
-    iterator = fn(iterable, size)
-    try:
-        chunks, remainder = divmod(len(iterable), size)
-        return SizedSequence(iterator, total=chunks + bool(remainder))
-    except TypeError:
-        return iterator
+    return fn(iterable, size)
 
 
-def sliced(iterable: Sequence[T], size: int) -> Iterator[Sequence[T]]:
+@make_sized(hint=_chunk_size_hint)
+def sliced(seq: Sequence[T], size: int) -> Iterator[Sequence[T]]:
     """Yields slices of at most `size` items from iterable"""
-    return (iterable[offset: offset + size]
-            for offset in range(0, len(iterable), size))
+    return (seq[offset: offset + size] for offset in range(0, len(seq), size))
 
 
+@make_sized(hint=lambda iterable, size: len(iterable) + 1 - size)
 def windowed(iterable: Iterable[T], size: int) -> Iterator[Tuple[T]]:
     """windowed('ABCDEFG') --> ABC BCD CDE DEF EFG"""
     return zip(*(itertools.islice(it, ahead, None)

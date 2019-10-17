@@ -16,6 +16,7 @@ import loky
 from ..core import sizeof
 from ..decos import Reusable, close_at_exit
 from .more import chunked, eat, iter_none
+from .size_hint import make_sized
 
 T = TypeVar('T')
 loky.set_loky_pickler('pickle')
@@ -67,6 +68,7 @@ class ChunkerShared(Chunker):
         return self._saved_fn
 
 
+@make_sized
 @close_at_exit
 def buffered(iterable: Iterable[T],
              latency: int = 2,
@@ -105,6 +107,7 @@ def buffered(iterable: Iterable[T],
         task.result()  # throws if `consume` is dead
 
 
+@make_sized
 @close_at_exit
 def mapped(fn: Callable[..., T], *iterables: Iterable,
            workers: Optional[int] = None,
