@@ -1,12 +1,11 @@
-__all__ = ('Loader', )
+__all__ = ('make_loader', )
 
-from dataclasses import dataclass
 from functools import partial
-from typing import Generic, Iterable, Iterator, Mapping, Tuple, TypeVar
+from typing import Iterable, Mapping, Tuple, TypeVar
 
 import torch
 
-from ..iters import mapped, chunked
+from ..iters import make_sized, mapped, chunked
 
 KT = TypeVar('KT')
 
@@ -15,30 +14,29 @@ def _get_sample(dataset, index):
     return tuple(torch.as_tensor(item) for item in dataset[index])
 
 
-@dataclass
-class Loader(Generic[KT]):
-    dataset: Mapping[KT, Tuple]
-    sampler: Iterable[KT] = None
-    batch_size: int = 1
-    chunk_size: int = None
-    workers: int = None
+def size_hint(dataset, sampler=None, batch_size=1, **_):
+    if sampler is None:
+        sampler = range(len(dataset))
+    return len(range(0, len(sampler), batch_size))
 
-    def __post_init__(self):
-        if self.sampler is None:
-            self.sampler = range(len(self.dataset))
-        if self.chunk_size is None:
-            self.chunk_size = self.batch_size
 
-    def __len__(self) -> int:
-        batches, remainder = divmod(len(self.sampler), self.batch_size)
-        return batches + bool(remainder)
+@make_sized(hint=size_hint)
+def make_loader(dataset: Mapping[KT, Tuple],
+                sampler: Iterable[KT] = None,
+                batch_size: int = 1,
+                chunk_size: int = None,
+                workers: int = None) -> Iterable[Tuple[torch.Tensor]]:
 
-    def __iter__(self) -> Iterator[Tuple[torch.Tensor]]:
-        samples = mapped(
-            partial(_get_sample, self.dataset),
-            self.sampler,
-            offload=self.chunk_size,
-            workers=self.workers,
-        )
-        for batch in chunked(samples, self.batch_size):
-            yield tuple(torch.stack(row) for row in zip(*batch))
+    if sampler is None:
+        sampler = range(len(dataset))
+    if chunk_size is None:
+        chunk_size = batch_size
+
+    samples = mapped(
+        partial(_get_sample, dataset),
+        sampler,
+        offload=chunk_size,
+        workers=workers,
+    )
+    for batch in chunked(samples, batch_size):
+        yield tuple(torch.stack(row) for row in zip(*batch))
