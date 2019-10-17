@@ -12,7 +12,9 @@ from ..core import decimate, mangle
 
 
 def id_(x):
-    return hex(id(x))
+    if hasattr(x, 'variable'):
+        x = x.variable
+    return hex(x.storage().data_ptr() if torch.is_tensor(x) else id(x))
 
 
 def as_tuple(xs):
@@ -23,6 +25,12 @@ def as_tuple(xs):
     return (xs, )
 
 
+def sized(var: torch.Tensor):
+    if sum(1 for s in var.shape if s != 1) <= 1:
+        return f'{tuple(var.shape)}'
+    return '{}\n{:.0f}{}'.format(tuple(var.shape), *decimate(var.numel()))
+
+
 class Builder:
     flat = False
 
@@ -31,7 +39,7 @@ class Builder:
         self.params = params
 
         self._mangle = mangle()
-        self._seen: Dict[Function, str] = {}
+        self._seen: Dict[str, str] = {}
         self._shapes: Dict[Function, str] = {}
         self.stack = [graphviz.Digraph(
             name='root',
@@ -53,13 +61,9 @@ class Builder:
             },
         )]
 
-    def _sized(self, var):
-        if sum(1 for s in var.shape if s != 1) <= 1:
-            return f'{tuple(var.shape)}'
-        return '{}\n{:.0f}{}'.format(tuple(var.shape), *decimate(var.numel()))
-
     def _add_node(self, grad):
         root = self.stack[-1]
+        # doesn't have variable, so it's "operation"
         if not hasattr(grad, 'variable'):
             label = type(grad).__name__.replace('Backward', '')
             if grad in self._shapes:
@@ -67,33 +71,53 @@ class Builder:
             root.node(id_(grad), label)
             return False
 
+        # have variable, so it's either Parameter or Variable
         var, label = grad.variable, ''
         try:
             name = self.params[id(var)] + '\n'
             label = (name.partition if self.flat else name.rpartition)('.')[-1]
         except KeyError:
             root = self.stack[0]  # unnamed, that's why external
+        label += hex(var.storage().data_ptr()) + '\n'
 
         color = 'yellow' if id(var) in self.inputs else 'lightblue'
-        root.node(id_(grad), label + self._sized(var), fillcolor=color)
+        root.node(id_(grad), label + sized(var), fillcolor=color)
         return True
 
+    def _traverse_saved(self, grad):
+        saved_tensors = grad.saved_tensors or ()
+        saved_tensors = [var for var in saved_tensors if torch.is_tensor(var)]
+        if not saved_tensors:
+            return
+        with self.stack[-1].subgraph() as s:
+            s.attr(rank='same')
+            for var in saved_tensors:
+                label = hex(var.storage().data_ptr()) + '\n' + sized(var)
+                # label = sized(var)
+                if id_(var) not in self._seen:
+                    s.node(id_(var), label, fillcolor='orange')
+                s.edge(id_(var), id_(grad))
+
     def _traverse(self, grad, depth=0):
-        if grad is None or grad in self._seen:
+        if grad is None or id_(grad) in self._seen:
             return
 
         root = self.stack[-1]
-        self._seen[grad] = root.name
+        self._seen[id_(grad)] = head = root.name
         if self._add_node(grad):
             yield (depth - 1, None, grad)
             return
+
+        # TODO : add merging of tensors with same data
+        if hasattr(grad, 'saved_tensors'):
+            self._traverse_saved(grad)
 
         for ch, _ in getattr(grad, 'next_functions', ()):
             if ch is None:
                 continue
             yield from self._traverse(ch, depth + 1)
 
-            tail, head = self._seen.get(ch), root.name
+            tail = self._seen.get(id_(ch))
             if tail is not None and not (head.startswith(tail) or
                                          tail.startswith(head)):
                 yield (depth, ch, grad)  # leafs, yield for depth-check
@@ -101,16 +125,11 @@ class Builder:
 
             name = self.params.get(id(getattr(ch, 'variable', None)))
             if not self.flat and name and name.rpartition('.')[0] == head:
-                with self.stack[-1].subgraph() as s:
+                with root.subgraph() as s:
                     s.attr(rank='same')
                     s.edge(id_(ch), id_(grad))  # same module, same rank
             else:
                 self.stack[0].edge(id_(ch), id_(grad))
-
-        for var in getattr(grad, 'saved_tensors', ()) or ():
-            if torch.is_tensor(var):
-                root.node(id_(var), self._sized(var), fillcolor='orange')
-                self.stack[0].edge(id_(var), id_(grad))
 
     def _mark(self, ts):
         edges = []
@@ -172,7 +191,7 @@ def plot_model(model: torch.nn.Module, *input_shapes: tuple, device='cpu'):
     dot = hk.stack.pop()
     assert not hk.stack
 
-    dot.filename = getattr(model, 'name', type(model).__name__)
+    dot.filename = getattr(model, 'name', type(model).__qualname__)
     dot.directory = 'graphs'
     dot.format = 'svg'
 
