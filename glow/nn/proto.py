@@ -1,3 +1,5 @@
+__all__ = ('tiramisu', )
+
 import itertools
 
 from torch import nn

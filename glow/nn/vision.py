@@ -7,6 +7,7 @@ import torch
 from torch.nn import Module
 
 
+# TODO: rewrite like `def traced(nn.Module) -> nn.Module`
 class Show(Module):
     """Shows contents of tensors during forward pass"""
     sigmas = 2
