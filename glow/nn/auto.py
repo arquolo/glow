@@ -3,9 +3,11 @@ __all__ = ('Input', 'Model')
 import torch
 from torch.nn import Module, ModuleDict
 
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import List
 
+from ..api import get_wild_imports
 from ..core import countable
 
 
@@ -79,10 +81,14 @@ class ModuleWrapper:
 
 
 def __dir__():
-    return __all__ + tuple(dir(torch.nn))
+    return __all__ + get_wild_imports(torch.nn)
 
 
 def __getattr__(name):
-    if name not in dir(torch.nn):
+    if name in get_wild_imports(torch.nn):
+        return ModuleWrapper(getattr(torch.nn, name))
+
+    with suppress(KeyError):
         return globals()[name]
-    return ModuleWrapper(getattr(torch.nn, name))
+
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

@@ -1,7 +1,9 @@
-__all__ = ('export', 'import_tree')
+__all__ = ('export', 'import_tree', 'get_wild_imports')
 
 import pkgutil
 import sys
+from types import ModuleType
+from typing import Tuple
 
 
 class ExportError(Exception):
@@ -63,3 +65,11 @@ def import_tree(pkg: str):
     for _, name, __ in pkgutil.walk_packages(sys.modules[pkg].__path__):
         subpkg = pkg + '.' + name
         __import__(subpkg)
+
+
+def get_wild_imports(module: ModuleType) -> Tuple[str]:
+    """Get contents of `module.__all__` if possible"""
+    try:
+        return module.__all__
+    except AttributeError:
+        return tuple(name for name in dir(module) if not name.startswith('_'))
