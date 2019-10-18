@@ -28,6 +28,7 @@ setuptools.setup(
         'loky',
         'numba',
         'numpy>=1.15',
+        'psutil',
         'wrapt',
     ],
     extras_require={
