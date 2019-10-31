@@ -1,12 +1,12 @@
 __all__ = ('sizeof', 'Size')
 
 import sys
+import functools
 from collections.abc import Collection
 from inspect import isgetsetdescriptor, ismemberdescriptor
 
 import wrapt
 
-def sizeof(obj, seen=None):
 
 class Size(wrapt.ObjectProxy):
     """Converts value to prefixed string
@@ -32,30 +32,33 @@ class Size(wrapt.ObjectProxy):
 
     def __repr__(self):
         return f'Size({self}, base={self._self_base})'
+
+
+def for_unseen(fn, default=Size):
+    @functools.wraps(fn)
+    def wrapper(obj, seen=None):
+        if seen is None:
+            seen = set()
+        id_ = id(obj)
+        if id_ in seen:
+            return default()
+
+        seen.add(id_)
+        return fn(obj, seen)
+
+    return wrapper
+
+
+@functools.singledispatch
+@for_unseen
+def sizeof(obj, seen=None) -> Size:
     """
     Computes size of object, no matter how complex it is
 
     Inspired by
     [PySize](https://github.com/bosswissam/pysize/blob/master/pysize.py)
     """
-    if seen is None:
-        seen = set()
-    id_ = id(obj)
-    if id_ in seen:
-        return 0
-
-    seen.add(id_)
-    size = sys.getsizeof(obj)
-
-    if ('numpy' in sys.modules
-            and isinstance(obj, sys.modules['numpy'].ndarray)):
-        return max(size, obj.nbytes)
-
-    if ('torch' in sys.modules
-            and sys.modules['torch'].is_tensor(obj)):
-        if not obj.is_cuda:
-            size += obj.numel() * obj.element_size()
-        return size  # TODO: test, maybe useless when grads are attached
+    size = Size(sys.getsizeof(obj))
 
     if isinstance(obj, (str, bytes, bytearray)):
         return size
@@ -75,6 +78,25 @@ class Size(wrapt.ObjectProxy):
 
     if hasattr(obj, '__slots__'):
         size += sum(sizeof(getattr(obj, slot, None), seen=seen)
-                    for cl in type(obj).mro()
-                    for slot in getattr(cl, '__slots__', ()))
+                    for class_ in type(obj).mro()
+                    for slot in getattr(class_, '__slots__', ()))
     return size
+
+
+@wrapt.when_imported('numpy')
+def _numpy(numpy):
+    @sizeof.register(numpy.ndarray)
+    @for_unseen
+    def _sizeof(obj, seen=None) -> Size:
+        return Size(max(sys.getsizeof(obj), obj.nbytes))
+
+
+@wrapt.when_imported('torch')
+def _torch(torch):
+    @sizeof.register(torch.Tensor)
+    @for_unseen
+    def _sizeof(obj, seen=None) -> Size:
+        size = sys.getsizeof(obj)
+        if not obj.is_cuda:
+            size += obj.numel() * obj.element_size()
+        return Size(size)  # TODO: test, maybe useless when grads are attached
