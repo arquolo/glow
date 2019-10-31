@@ -1,34 +1,43 @@
 __all__ = ('Cache', 'CacheAbc', 'CacheLRU', 'CacheMRU')
 
 import functools
+from argparse import Namespace
 from collections import Counter, OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from threading import RLock
+from typing import Any
 from weakref import WeakValueDictionary
 
-from ..core import decimate, repr_as_obj, sizeof
+from ..core import Size, sizeof
+from .thread import interpreter_lock
 
 
 @dataclass
 class Record:
-    value: object
-    size: int = field(init=False)
+    __slots__ = ('value', 'size')
 
-    def __post_init__(self):
-        self.size = sizeof(self.value)
+    def __init__(self, value):
+        self.value = value
+        self.size = sizeof(value)
 
 
-@dataclass
+class Stats(Namespace):
+    def __init__(self, **kwargs):
+        self.__dict__ = Counter()
+        self.__dict__.update(**kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return self.__dict__[name]
+
+
 class CacheAbc:
-    _shared_lock = RLock()
     _refs = WeakValueDictionary()
 
-    capacity: int
-    size: int = field(default=0, init=False)
-    _lock: RLock = field(default_factory=RLock, init=False)
-    _stats: dict = field(default_factory=Counter, init=False)
-
-    def __post_init__(self):
+    def __init__(self, capacity):
+        self.capacity = Size(capacity)
+        self.size = Size()
+        self._lock = RLock()
+        self._stats = Stats()
         self._refs[id(self)] = self
 
     def get(self, key):
@@ -47,11 +56,11 @@ class CacheAbc:
             try:
                 with self._lock:
                     value = self.get(key)
-                    self._stats['hits'] += 1
+                    self._stats.hits += 1
             except KeyError:
                 value = fn(*args, **kwargs)
                 with self._lock:
-                    self._stats['misses'] += 1
+                    self._stats.misses += 1
                     self.put(key, value)
             return value
 
@@ -61,19 +70,16 @@ class CacheAbc:
     def __repr__(self):
         with self._lock:
             line = (
-                f'{type(self).__name__}' +
-                f'(items={len(self)},' +
-                ' used={:.4g} {}B,'.format(*decimate(self.size)) +
-                ' total={:.4g} {}B)'.format(*decimate(self.capacity))
+                f'{type(self).__name__}'
+                f'(items={len(self)}, used={self.size}, total={self.capacity})'
             )
-            if any(self._stats.values()):
-                line += f'({repr_as_obj(self._stats)})'
-                self._stats.clear()
+            if any(vars(self._stats).values()):
+                line += f'-{self._stats}'
             return line
 
     @classmethod
     def status(cls) -> str:
-        with cls._shared_lock:
+        with interpreter_lock():
             return '\n'.join(f'{hex(addr)}: {value!r}'
                              for addr, value in sorted(cls._refs.items()))
 
@@ -82,7 +88,7 @@ class _DictCache(CacheAbc):
     def put(self, key, value):
         record = Record(value)
         if self.release(record.size):
-            self[key] = value
+            self[key] = record
             self.size += record.size
 
 
@@ -101,11 +107,11 @@ class _OrderedCache(_DictCache, OrderedDict):
 
         while self.size + size > self.capacity:
             self.size -= self.popitem(last=self.drop_recent)[1].size
-            self._stats['dropped'] += 1
+            self._stats.dropped += 1
         return True
 
     def get(self, key):
-        # TODO in python3.8: `return (self[key] := self.pop(key)).value`
+        # TODO in py3.8: `return (self[key] := self.pop(key)).value`
         self[key] = record = self.pop(key)
         return record.value
 
