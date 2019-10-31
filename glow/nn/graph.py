@@ -8,7 +8,7 @@ import graphviz
 import torch
 from torch.autograd import Function
 
-from ..core import decimate, mangle
+from ..core import Size, mangle
 
 
 def id_(x):
@@ -28,7 +28,7 @@ def as_tuple(xs):
 def sized(var: torch.Tensor):
     if sum(1 for s in var.shape if s != 1) <= 1:
         return f'{tuple(var.shape)}'
-    return '{}\n{:.0f}{}'.format(tuple(var.shape), *decimate(var.numel()))
+    return f'{tuple(var.shape)}\n{Size(var.numel())}'
 
 
 class Builder:
@@ -205,6 +205,4 @@ def plot_model(model: torch.nn.Module, *input_shapes: tuple, device='cpu'):
 
 
 def param_count(module: torch.nn.Module):
-    return '{:.0f}{}'.format(
-        *decimate(sum(p.numel() for p in module.parameters()), base=1000)
-    )
+    return Size(sum(p.numel() for p in module.parameters()), base=1000)
