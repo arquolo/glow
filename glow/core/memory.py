@@ -1,11 +1,37 @@
-__all__ = ('sizeof', )
+__all__ = ('sizeof', 'Size')
 
 import sys
 from collections.abc import Collection
 from inspect import isgetsetdescriptor, ismemberdescriptor
 
+import wrapt
 
 def sizeof(obj, seen=None):
+
+class Size(wrapt.ObjectProxy):
+    """Converts value to prefixed string
+
+    >>> s = Size(2**20)
+    >>> s
+    Size(1M, base=1024)
+    >>> print(s)
+    1M
+    """
+    _suffixes = tuple(enumerate('KMGTPEZY', 1))
+
+    def __init__(self, value: int = 0, base: int = 1024):
+        super().__init__(value)
+        self._self_base = base
+
+    def __str__(self):
+        for order, suffix in reversed(self._suffixes):
+            scaled = self.__wrapped__ / self._self_base ** order
+            if scaled >= 1:
+                return f'{scaled:.4g}{suffix}'
+        return f'{self.__wrapped__}'
+
+    def __repr__(self):
+        return f'Size({self}, base={self._self_base})'
     """
     Computes size of object, no matter how complex it is
 

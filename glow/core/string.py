@@ -1,4 +1,4 @@
-__all__ = ('countable', 'decimate', 'mangle', 'repr_as_obj')
+__all__ = ('countable', 'mangle', 'repr_as_obj')
 
 from collections import Counter
 
@@ -50,12 +50,9 @@ def countable():
 
 
 def repr_as_obj(d: dict) -> str:
+    """Returns pretty representation of dict.
+
+    >>> repr_as_obj({'a': 1, 'b': 2})
+    'a=1, b=2'
+    """
     return ', '.join(f'{key}={value!r}' for key, value in d.items())
-
-
-def decimate(val: int, base=1024) -> tuple:
-    """Converts value to prefixed string, like `decimate(2**20) -> (1, 'M')`"""
-    suffixes = 'KMGTPEZY'
-    suffixes = ((i, p) for i, p in enumerate(suffixes, 1) if base ** i <= val)
-    scale, suffix = max(suffixes, default=(0, ''))
-    return (val / base ** scale, suffix)
