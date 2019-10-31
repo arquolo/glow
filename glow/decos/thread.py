@@ -1,8 +1,9 @@
-__all__ = ('call_once', 'threadlocal', 'shared_call')
+__all__ = ('call_once', 'threadlocal', 'interpreter_lock', 'shared_call')
 
+import sys
 import functools
 from concurrent.futures import Future
-from contextlib import ExitStack
+from contextlib import contextmanager, ExitStack
 from threading import RLock, local
 from weakref import WeakValueDictionary
 
@@ -18,6 +19,41 @@ def threadlocal(fn, *args, _local=None, **kwargs):
     except AttributeError:
         _local.obj = fn(*args, **kwargs)
         return _local.obj
+
+
+@contextmanager
+def interpreter_lock(timeout=1_000):
+    """
+    Completely forbids thread switching in underlying scope.
+    Thus makes it fully thread-safe, although adds high performance penalty.
+
+    >>> import threading, time
+    >>> from concurrent.futures import ThreadPoolExecutor
+    >>> value = 0
+    >>> steps = 1_000_000
+    >>> def writer(_):
+    ...     nonlocal value
+    ...     with interpreter_lock():  # increment by 2
+    ...         value += 1
+    ...         # <- won't switch here ->
+    ...         value += 1
+    ...
+    >>> def reader(_):
+    ...     time.sleep(0)
+    ...     return value % 2  # should be 0
+    ...
+    >>> with ThreadPoolExecutor() as pool:
+    ...     pool.map(writer, range(steps))
+    ...     sum(f.result() for f in pool.map(reader, range(steps)))
+    ...
+    0
+    """
+    default = sys.getswitchinterval()
+    sys.setswitchinterval(timeout)
+    try:
+        yield
+    finally:
+        sys.setswitchinterval(default)
 
 
 class Stack(ExitStack):
