@@ -14,6 +14,10 @@ def _get_sample(dataset, index):
     return tuple(torch.as_tensor(item) for item in dataset[index])
 
 
+def _collate_fn(batch):
+    return tuple(torch.stack(row) for row in zip(*batch))
+
+
 def size_hint(dataset, sampler=None, batch_size=1, **_):
     if sampler is None:
         sampler = range(len(dataset))
@@ -48,5 +52,4 @@ def make_loader(dataset: Mapping[KT, Tuple],
         offload=chunk_size,
         workers=workers,
     )
-    for batch in chunked(samples, batch_size):
-        yield tuple(torch.stack(row) for row in zip(*batch))
+    return mapped(_collate_fn, chunked(samples, batch_size), workers=0)

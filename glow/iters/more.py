@@ -22,7 +22,7 @@ from typing import (
     Union,
 )
 
-from .size_hint import make_sized
+from .size_hint import make_sized, SizedIter
 
 T = TypeVar('T')
 
@@ -57,7 +57,7 @@ def _chunked_lazy(iterable: Iterable[T],
 
         # Clone the source and yield an n-length slice
         iterator, it = itertools.tee(itertools.chain([item], iterator))
-        yield itertools.islice(it, size)
+        yield SizedIter(itertools.islice(it, size), length=size)
 
         # Advance the source iterable
         next(itertools.islice(iterator, size, size), None)
