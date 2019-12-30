@@ -1,14 +1,12 @@
 __all__ = ('print_', 'trace', 'trace_module', 'summary')
 
-import functools
+import contextlib
 import inspect
-from collections import Counter
-from contextlib import suppress
-from threading import RLock
-from types import ModuleType
+import threading
+import types
+from typing import Counter, Generator, TypeVar
 
-from wrapt import (decorator, register_post_import_hook,
-                   ObjectProxy)
+import wrapt
 
 
 class Printer:
@@ -36,6 +34,7 @@ register_post_import_hook(Printer.patch, 'tqdm')
 
 
 #############################################################################
+_T = TypeVar('_T')
 
 
 def _break_on_globe(frame_infos):
@@ -57,15 +56,15 @@ def whereami(skip=2):
     )
 
 
-@decorator
+@wrapt.decorator
 def trace(fn, _, args, kwargs):
-    print_(f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
-           flush=True)
+    print(f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
+          flush=True)
     return fn(*args, **kwargs)
 
 
 def set_trace(obj, seen=None, prefix=None, module=None):
-    if isinstance(obj, ModuleType):
+    if isinstance(obj, types.ModuleType):
         if seen is None:
             seen = set()
             prefix = obj.__name__
@@ -84,14 +83,14 @@ def set_trace(obj, seen=None, prefix=None, module=None):
         return
 
     for name in obj.__dict__:
-        with suppress(AttributeError, TypeError):
+        with contextlib.suppress(AttributeError, TypeError):
             member = getattr(obj, name)
             if not callable(member):
                 continue
             decorated = trace(member)
 
             for m in (decorated, member, obj):
-                with suppress(AttributeError):
+                with contextlib.suppress(AttributeError):
                     decorated.__module__ = m.__module__
                     break
             else:
@@ -101,18 +100,18 @@ def set_trace(obj, seen=None, prefix=None, module=None):
 
 
 def trace_module(name):
-    register_post_import_hook(set_trace, name)
+    wrapt.register_post_import_hook(set_trace, name)
 
 #############################################################################
 
 
-@decorator
+@wrapt.decorator
 def threadsafe_coroutine(fn, _, args, kwargs):
     coro = fn(*args, **kwargs)
     coro.send(None)
 
-    class Synchronized(ObjectProxy):
-        lock = RLock()
+    class Synchronized(wrapt.ObjectProxy):
+        lock = threading.RLock()
 
         def send(self, item):
             with self.lock:
@@ -125,8 +124,8 @@ def threadsafe_coroutine(fn, _, args, kwargs):
 
 
 @threadsafe_coroutine
-def summary():
-    state = Counter()
+def summary() -> Generator[None, _T, None]:
+    state = Counter[_T]()
     while True:
         key = yield
         if key is None:

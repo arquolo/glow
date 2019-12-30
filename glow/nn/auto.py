@@ -1,18 +1,18 @@
 __all__ = ('Input', 'Model')
 
-import torch
-from torch.nn import Module, ModuleDict
-
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
+
+import torch
+from torch.nn import Module, ModuleDict
 
 from ..api import get_wild_imports
 from ..core import countable
 
 
 class Model(ModuleDict):
-    def __init__(self, inputs: 'List[Input]', outputs: 'List[Input]'):
+    def __init__(self, inputs: List['Input'], outputs: List['Input']):
         super().__init__()
 
         count = countable()
@@ -47,8 +47,8 @@ class Model(ModuleDict):
 @dataclass
 class Input:
     channels: int = 0
-    module: Module = None
-    leaves: 'List[Input]' = field(default_factory=list, init=False)
+    module: Optional[Module] = None
+    leaves: List['Input'] = field(default_factory=list, init=False)
 
     def __or__(self, node):
         channels = self.channels
@@ -71,8 +71,8 @@ class Input:
 @dataclass
 class ModuleWrapper:
     module: type
-    args: tuple = None
-    kwargs: dict = None
+    args: Optional[tuple] = None
+    kwargs: Optional[dict] = None
 
     def __call__(self, *_args, **_kwargs):
         self.args = _args

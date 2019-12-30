@@ -1,9 +1,8 @@
 __all__ = ('countable', 'mangle', 'repr_as_obj')
 
-from collections import Counter
+from typing import Counter
 
-
-_names = Counter()
+_names: Counter[str] = Counter()
 
 
 def mangle():
@@ -46,7 +45,7 @@ def countable():
     0
     """
     instances = {}
-    return (lambda obj: instances.setdefault(id(obj), len(instances)))
+    return lambda obj: instances.setdefault(id(obj), len(instances))
 
 
 def repr_as_obj(d: dict) -> str:

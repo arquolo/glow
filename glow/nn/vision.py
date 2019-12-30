@@ -3,6 +3,7 @@ __all__ = ('Show', )
 import weakref
 
 import cv2
+import numpy as np
 import torch
 from torch.nn import Module
 
@@ -21,14 +22,14 @@ class Show(Module):
     def forward(self, inputs: torch.Tensor):
         bs, ch, h, w = inputs.shape
 
-        image = torch.tensor(inputs)
+        ten = torch.tensor(inputs)
 
-        bias = image.mean([-2, -1], keepdim=True)
-        scale = image.std([-2, -1], keepdim=True)
+        bias = ten.mean([-2, -1], keepdim=True)
+        scale = ten.std([-2, -1], keepdim=True)
         scale = scale.mul_(self.sigmas / 128).clamp_(1e-5).inverse()
 
-        image = image.sub_(bias).mul_(scale).add_(128).clamp_(0, 255)
-        image = image.byte().cpu().numpy()
+        ten = ten.sub_(bias).mul_(scale).add_(128).clamp_(0, 255)
+        image: np.ndarray = ten.byte().cpu().numpy()
 
         # TODO: test numpy.reshape vs torch.permute
         if self.colored:

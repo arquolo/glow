@@ -2,7 +2,7 @@ __all__ = ('sizeof', 'Size')
 
 import sys
 import functools
-from collections.abc import Collection
+from collections import abc
 from inspect import isgetsetdescriptor, ismemberdescriptor
 
 import wrapt
@@ -72,14 +72,16 @@ def sizeof(obj, seen=None) -> Size:
             break
 
     if isinstance(obj, dict):
-        size += sum(sizeof(k, seen) + sizeof(v, seen) for k, v in obj.items())
-    elif isinstance(obj, Collection):
-        size += sum(sizeof(item, seen=seen) for item in obj)
+        size += sum((sizeof(k, seen) for k in obj.keys()), Size())
+        size += sum((sizeof(v, seen) for v in obj.values()), Size())
+    elif isinstance(obj, abc.Collection):
+        size += sum((sizeof(item, seen) for item in obj), Size())
 
     if hasattr(obj, '__slots__'):
-        size += sum(sizeof(getattr(obj, slot, None), seen=seen)
-                    for class_ in type(obj).mro()
-                    for slot in getattr(class_, '__slots__', ()))
+        size += sum((sizeof(getattr(obj, slot, None), seen=seen)
+                     for class_ in type(obj).mro()
+                     for slot in getattr(class_, '__slots__', ())),
+                    Size())
     return size
 
 

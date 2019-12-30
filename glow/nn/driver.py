@@ -1,6 +1,7 @@
 __all__ = ('get_gpu_state', )
 
 import os
+from typing import Iterable
 
 
 def get_gpu_state():
@@ -12,6 +13,7 @@ def get_gpu_state():
         nvmlDeviceGetMemoryInfo,
     )
     nvmlInit()
+    indices: Iterable[int]
     try:
         indices = map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(','))
     except KeyError:
