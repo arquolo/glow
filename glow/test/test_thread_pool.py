@@ -1,7 +1,9 @@
 import numpy as np
-from matplotlib import pyplot as P
-
 from glow import buffered, mapped, timer, sizeof
+try:
+    from matplotlib import pyplot as plt
+except ImportError:
+    plt = None
 
 DEATH_RATE = 0
 SIZE = 100
@@ -9,7 +11,7 @@ SIZE = 100
 
 class Worker:
     def __init__(self, n):
-        self.array = np.random.rand(n)
+        self.array = np.random.rand(int(n))
 
     def __call__(self, _):
         return
@@ -17,22 +19,25 @@ class Worker:
 
 def test_ipc_speed():
     order = 25
-    stats = [0] * order
-    sizes = [0] * order
-    for m in reversed(range(order)):
-        worker = Worker(2 ** m)
-        sizes[m] = sizeof(worker)
-        with timer(m, stats):
-            for _ in mapped(worker, range(10), workers=1, offload=True):
+    hops = 5
+    stats, sizes = {}, {}
+    for m in [order * hops - 1] + list(range(order * hops))[::-1]:
+        worker = Worker(2 ** (m / hops))
+        sizes[m / hops] = sizeof(worker)
+        it = mapped(worker, range(10), workers=1, chunk_size=1)
+        with timer(m / hops, stats):
+            for _ in it:
                 pass
 
-    P.figure(figsize=(4, 4))
-    P.plot(sizes, stats)
-    P.ylim((0.001, 10))
-    P.ylabel('time')
-    P.xlabel('size of worker')
-    P.loglog()
-    P.show()
+    if plt is None:
+        return
+    plt.figure(figsize=(4, 4))
+    plt.plot(list(sizes.values()), list(stats.values()))
+    plt.ylim((0.001, 10))
+    plt.ylabel('time')
+    plt.xlabel('size of worker')
+    plt.loglog()
+    plt.show()
 
 
 def source(size):
@@ -62,7 +67,8 @@ def _test_interrupt():
         source(SIZE),
         np.random.randint(2 ** 10, size=SIZE),
     )
-    res = mapped(do_work, *map(buffered, sources), offload=True)
+    # sources = map(buffered, sources)
+    res = mapped(do_work, *sources, chunk_size=1, ordered=False)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')
@@ -78,15 +84,19 @@ def _test_interrupt():
 
 def test_interrupt():
     ls = _test_interrupt()
-    assert list(ls) == list(range(SIZE))
+    rs = list(ls)
+    assert set(rs) == set(range(SIZE))
+    # assert rs == list(range(SIZE))
 
 
 def test_interrupt_with_buffer():
     ls = buffered(_test_interrupt())
-    assert list(ls) == list(range(SIZE))
+    rs = list(ls)
+    assert set(rs) == set(range(SIZE))
+    # assert rs == list(range(SIZE))
 
 
 if __name__ == '__main__':
-    test_interrupt()
-    test_interrupt_with_buffer()
+    # test_interrupt()
+    # test_interrupt_with_buffer()
     test_ipc_speed()

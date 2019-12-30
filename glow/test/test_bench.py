@@ -1,6 +1,6 @@
 from itertools import islice
 
-from tqdm.autonotebook import tqdm
+from tqdm.auto import tqdm
 from glow.core import time_this
 
 

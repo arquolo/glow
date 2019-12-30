@@ -1,5 +1,5 @@
+import pytest
 from glow.api import Default, patch
-# import pytest
 
 
 class Factory:
@@ -22,40 +22,21 @@ class FactoryPH:
         return param
 
 
-def test_default():
-    assert Factory.new() == 'default'
+@pytest.mark.parametrize('test_cls', [Factory, FactoryPH])
+@pytest.mark.parametrize(
+    'param,expected', [(None, 'default'), ('custom', 'custom')]
+)
+def test_default(test_cls, param, expected):
+    assert test_cls.new(param=param) == expected
 
 
-def test_default_ph():
-    assert FactoryPH.new() == 'default'
-
-
-def test_custom():
-    assert Factory.new(param='custom') == 'custom'
-
-
-def test_custom_ph():
-    assert FactoryPH.new(param='custom') == 'custom'
-
-
-def test_override_default():
-    with patch(Factory, param='override'):
-        assert Factory.new() == 'override'
-
-
-def test_override_default_ph():
-    with patch(FactoryPH, param='override'):
-        assert FactoryPH.new() == 'override'
-
-
-def test_never_override_custom():
-    with patch(Factory, param='override'):
-        assert Factory.new(param='custom') == 'custom'
-
-
-def test_never_override_custom_ph():
-    with patch(FactoryPH, param='override'):
-        assert FactoryPH.new(param='custom') == 'custom'
+@pytest.mark.parametrize('test_cls', [Factory, FactoryPH])
+@pytest.mark.parametrize(
+    'param,expected', [(None, 'override'), ('custom', 'custom')]
+)
+def test_override_default(test_cls, param, expected):
+    with patch(test_cls, param='override'):
+        assert test_cls.new(param=param) == expected
 
 
 # def test_react_to_wrong_keyword():
