@@ -25,23 +25,21 @@ setuptools.setup(
     python_requires='>=3.6',
     install_requires=[
         "dataclasses ; python_version<'3.7'",
+        "pickle5 ; python_version<'3.8'",
         'loky',
-        'numba',
         'numpy>=1.15',
         'psutil',
         'wrapt',
     ],
     extras_require={
-        'io': [
-            'opencv-python>=4',
-            'pyaudio',
-            'soundfile',
-        ],
-        'nn': [
+        'cv': [
             'future',  # torch.utils.tensorboard dies if missing
             'graphviz',
+            'numba',
             'opencv-python>=4',
             'py3nvml',
+            'pyaudio',
+            'soundfile',
             'torch>=1.2',
         ],
     },
