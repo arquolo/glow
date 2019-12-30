@@ -1,13 +1,15 @@
 __all__ = ('make_loader', )
 
-from functools import partial
-from typing import Iterable, Mapping, Tuple, TypeVar
+import os
+import functools
+from typing import Iterable, Mapping, Optional, Sequence, TypeVar
 
 import torch
 
-from ..iters import make_sized, mapped, chunked
+from ..iters import chunked, repeatable, mapped
 
-KT = TypeVar('KT')
+_KT = TypeVar('_KT')
+_NUM_CPUS: int = os.cpu_count()  # type: ignore
 
 
 def _get_sample(dataset, index):
@@ -24,12 +26,12 @@ def size_hint(dataset, sampler=None, batch_size=1, **_):
     return len(range(0, len(sampler), batch_size))
 
 
-@make_sized(hint=size_hint)
-def make_loader(dataset: Mapping[KT, Tuple],
-                sampler: Iterable[KT] = None,
+@repeatable(hint=size_hint)
+def make_loader(dataset: Mapping[_KT, Sequence],
+                sampler: Optional[Iterable[_KT]] = None,
                 batch_size: int = 1,
-                chunk_size: int = None,
-                workers: int = None) -> Iterable[Tuple[torch.Tensor]]:
+                chunk_size: Optional[int] = None,
+                workers: int = _NUM_CPUS) -> Iterable[Sequence[torch.Tensor]]:
     """Yields batches of `batch_size` from `dataset` in order from  `sampler`.
 
     Parameters:
@@ -42,14 +44,15 @@ def make_loader(dataset: Mapping[KT, Tuple],
         (default: same as `os.cpu_count()`)
     """
     if sampler is None:
-        sampler = range(len(dataset))
+        sampler = range(len(dataset))  # type: ignore
     if chunk_size is None:
         chunk_size = batch_size
 
+    assert sampler is not None
     samples = mapped(
-        partial(_get_sample, dataset),
+        functools.partial(_get_sample, dataset),
         sampler,
-        offload=chunk_size,
+        chunk_size=chunk_size,
         workers=workers,
     )
     return mapped(_collate_fn, chunked(samples, batch_size), workers=0)
