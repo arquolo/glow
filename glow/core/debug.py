@@ -1,4 +1,4 @@
-__all__ = ('print_', 'trace', 'trace_module', 'summary')
+__all__ = ('trace', 'trace_module', 'summary')
 
 import contextlib
 import inspect
@@ -8,32 +8,6 @@ from typing import Counter, Generator, TypeVar
 
 import wrapt
 
-
-class Printer:
-    """Thread-safe version of `print` function. Supports `tqdm` module"""
-    lock = RLock()
-    tqdm = None
-
-    @functools.wraps(print)
-    def __call__(self, *args, **kwargs):
-        with self.lock:
-            print(*args, **kwargs)
-
-    @functools.wraps(print)
-    def __call_tqdm__(self, *args, sep=' ', flush=False, **kwargs):
-        self.tqdm.write(sep.join(map(str, args)), **kwargs)
-
-    @classmethod
-    def patch(cls, tqdm: ModuleType):
-        cls.tqdm = tqdm.tqdm
-        cls.__call__ = cls.__call_tqdm__
-
-
-print_ = Printer()
-register_post_import_hook(Printer.patch, 'tqdm')
-
-
-#############################################################################
 _T = TypeVar('_T')
 
 
