@@ -2,99 +2,136 @@ __all__ = (
     'as_iter',
     'chunked',
     'eat',
+    'eat_detach',
+    'ichunked',
     'iter_none',
     'sliced',
     'windowed',
 )
 
 import collections
-import itertools
-from collections import abc
+import collections.abc
+import enum
+import threading
+from itertools import (
+    count, chain, islice, repeat, starmap, takewhile, tee
+)
 from typing import (
-    Any,
-    Callable,
-    Iterable,
-    Iterator,
-    Optional,
-    Sequence,
-    Tuple,
-    TypeVar,
-    Union,
+    Callable, Iterable, Iterator, Optional, Sequence, TypeVar, Union, overload
 )
 
-from .size_hint import make_sized, SizedIter
+from ._len_helpers import SizedIter, as_sized
 
-T = TypeVar('T')
+_T = TypeVar('_T')
+_U = TypeVar('_U')
 
 
-def as_iter(obj: Union[Iterable[T], T, None],
-            times: Optional[int] = None,
-            base=abc.Iterable) -> Iterable[T]:
+class _Empty(enum.Enum):
+    token = 0
+
+
+def as_iter(obj: Union[Iterable[_T], _T, None],
+            times: Optional[int] = None) -> Iterable[_T]:
     """Make iterator from object"""
     if obj is None:
         return ()
-    if isinstance(obj, base):
-        return obj
-    return itertools.repeat(obj, times=times)
+    if isinstance(obj, collections.abc.Iterable):
+        return islice(obj, times)
+    return repeat(obj) if times is None else repeat(obj, times)
 
 
-def _chunked_greedy(iterable: Iterable[T],
-                    size: int) -> Iterator[Tuple[T]]:
-    iterator = iter(iterable)
-    return iter(lambda: tuple(itertools.islice(iterator, size)),
-                ())
+def windowed(it: Iterable[_T], size: int) -> Iterable[Sequence[_T]]:
+    """
+    >>> list(Windowed(range(5), 3))
+    [(0, 1, 2), (1, 2, 3), (2, 3, 4)]
+    """
+    iters = tee(it, size)
+    slices = map(islice, iters, count(), repeat(None))
+    return zip(*slices)
 
 
-def _chunked_lazy(iterable: Iterable[T],
-                  size: int) -> Iterator[Iterable[T]]:
-    iterator = iter(iterable)
-    marker = object()
+def sliced(it: Sequence[_T], size: int) -> Iterator[Sequence[_T]]:
+    """
+    Yields slices of at most `size` items from `sequence`.
+
+    >>> s = sliced(range(10), 3)
+    >>> len(s)
+    4
+    >>> list(s)
+    [range(0, 3), range(3, 6), range(6, 9), range(9, 10)]
+    """
+    offsets = range(len(it) + size)
+    slices = map(slice, offsets[0::size], offsets[size::size])
+    return map(it.__getitem__, slices)
+
+
+def chunk_hint(it, size):
+    return len(range(0, len(it), size))
+
+
+@as_sized(hint=chunk_hint)
+def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
+    """
+    Iterates over `iterable` packing consecutive items to chunks
+    with size at most of `size`.
+
+    >>> s = chunked(range(10), 3)
+    >>> len(s)
+    4
+    >>> list(s)
+    [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
+    """
+    chunks = map(islice, repeat(iter(it)), repeat(size))
+    return iter(map(tuple, chunks).__next__, ())  # type: ignore
+
+
+@as_sized(hint=chunk_hint)
+def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
+    """
+    Iterates over `iterable` packing consecutive items to chunks
+    with size at most of `size`. Yields iterators.
+
+    >>> s = ichunked(range(10), 3)
+    >>> len(s)
+    4
+    >>> chunks = list(s)
+    >>> [tuple(chunk) for chunk in chunks]
+    [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
+    """
+    iter_ = iter(it)
     while True:
-        # Check to see whether we're at the end of the source iterable
-        item = next(iterator, marker)
-        if item is marker:
+        item: Union[_T, _Empty] = next(iter_, _Empty.token)
+        if item is _Empty.token:  # check that end reached
             return
 
-        # Clone the source and yield an n-length slice
-        iterator, it = itertools.tee(itertools.chain([item], iterator))
-        yield SizedIter(itertools.islice(it, size), length=size)
+        iter_, rest = tee(chain([item], iter_))  # clone source
+        yield SizedIter(islice(iter_, size), size)
 
-        # Advance the source iterable
-        next(itertools.islice(iterator, size, size), None)
+        it = islice(rest, size, None)
 
 
-def _chunk_size_hint(iterable, size, *_, **__):
-    return len(range(0, len(iterable), size))
+@overload
+def iter_none(fn: Callable[[], Optional[_T]],
+              empty: None = ...) -> Iterator[_T]:
+    ...
 
 
-@make_sized(hint=_chunk_size_hint)
-def chunked(iterable: Iterable[T],
-            size: int,
-            lazy: bool = False) -> Iterator[Iterable[T]]:
-    """Yields chunks of at most `size` items from iterable"""
-    fn = _chunked_lazy if lazy else _chunked_greedy
-    return fn(iterable, size)
+@overload
+def iter_none(fn: Callable[[], Union[_T, _U]],
+              empty: _U = ...) -> Iterator[_T]:
+    ...
 
 
-@make_sized(hint=_chunk_size_hint)
-def sliced(seq: Sequence[T], size: int) -> Iterator[Sequence[T]]:
-    """Yields slices of at most `size` items from iterable"""
-    return (seq[offset: offset + size] for offset in range(0, len(seq), size))
-
-
-@make_sized(hint=lambda iterable, size: len(iterable) + 1 - size)
-def windowed(iterable: Iterable[T], size: int) -> Iterator[Tuple[T]]:
-    """windowed('ABCDEFG') --> ABC BCD CDE DEF EFG"""
-    return zip(*(itertools.islice(it, ahead, None)
-                 for ahead, it in enumerate(itertools.tee(iterable, size))))
-
-
-def iter_none(fn: Callable[[], T],
-              marker: Any = None) -> Iterator[T]:
+def iter_none(fn, empty=None):
     """Yields `fn()` until it is `marker`"""
-    return itertools.takewhile(lambda r: r is not marker,
-                               itertools.starmap(fn, itertools.repeat(())))
+    return takewhile(lambda r: r is not empty, starmap(fn, repeat(())))
 
 
 def eat(iterable: Iterable) -> None:
+    """Consume `iterable` synchronously"""
     collections.deque(iterable, maxlen=0)
+
+
+def eat_detach(iterable: Iterable) -> None:
+    """Consume `iterable` asynchronously"""
+    threading.Thread(target=eat, args=(iterable,), daemon=True).start()
