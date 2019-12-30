@@ -4,6 +4,7 @@ from .frontend import *
 from .graph import *
 from .modules import *
 from .modules_factory import *
+from .optimizers import *
 from .vision import *
 
 __all__ = (
@@ -12,5 +13,6 @@ __all__ = (
     frontend.__all__ +
     modules.__all__ +
     modules_factory.__all__ +
+    optimizers.__all__ +
     vision.__all__
 )
