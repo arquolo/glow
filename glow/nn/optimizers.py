@@ -5,8 +5,6 @@ from torch.optim import optimizer
 
 
 class RAdam(optimizer.Optimizer):
-    _bufsize = 10
-
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), weight_decay=0):
         self._step = 0
         defaults = {'lr': lr, 'betas': betas, 'weight_decay': weight_decay}
@@ -30,10 +28,10 @@ class RAdam(optimizer.Optimizer):
 
     def _update_group(self, group):
         beta1, beta2 = group['betas']
-        bias_correction1 = 1 - beta1**self._step
-        bias_correction2 = 1 - beta2**self._step
+        bias_correction1 = 1 - beta1 ** self._step
+        bias_correction2 = 1 - beta2 ** self._step
 
-        beta2_t = beta2**self._step
+        beta2_t = beta2 ** self._step
         n_sma_max = 2 / (1 - beta2) - 1
         n_sma = n_sma_max - 2 * self._step * beta2_t / bias_correction2
 
@@ -42,7 +40,7 @@ class RAdam(optimizer.Optimizer):
         if n_sma >= 5:
             k = (n_sma - 4) * (n_sma - 2) / n_sma
             k_max = (n_sma_max - 4) * (n_sma_max - 2) / n_sma_max
-            step_size = ((1 - beta2_t) * k / k_max)**.5
+            step_size = ((1 - beta2_t) * k / k_max) ** 0.5
 
         return n_sma, (step_size / bias_correction1)
 

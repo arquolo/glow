@@ -13,9 +13,9 @@ class Activation(Module):
     closure = staticmethod(functional.relu)
 
     @classmethod
-    def new(cls):
+    def new(cls, inplace=True):
         module = cls()
-        module.closure = functools.partial(cls.closure, inplace=True)
+        module.closure = functools.partial(cls.closure, inplace=inplace)
         return module
 
     def forward(self, x):

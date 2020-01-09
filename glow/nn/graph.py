@@ -1,12 +1,12 @@
 __all__ = ('param_count', 'plot_model')
 
-from contextlib import ExitStack
-from functools import partial
-from typing import Dict
+import contextlib
+import functools
+from typing import Dict, Tuple
 
 import graphviz
 import torch
-from torch.autograd import Function
+from torch import autograd, nn
 
 from ..core import Size, mangle
 
@@ -40,7 +40,7 @@ class Builder:
 
         self._mangle = mangle()
         self._seen: Dict[str, str] = {}
-        self._shapes: Dict[Function, str] = {}
+        self._shapes: Dict[autograd.Function, str] = {}
         self.stack = [graphviz.Digraph(
             name='root',
             graph_attr={
@@ -165,7 +165,7 @@ class Builder:
         # -------- end node --------
 
 
-def plot_model(model: torch.nn.Module, *input_shapes: tuple, device='cpu'):
+def plot_model(model: nn.Module, *input_shapes: Tuple[int, ...], device='cpu'):
     """Produces Graphviz representation of PyTorch autograd graph
 
     Blue nodes are the Variables that require grad, orange are Tensors
@@ -178,11 +178,11 @@ def plot_model(model: torch.nn.Module, *input_shapes: tuple, device='cpu'):
         {id(var) for var in inputs},
         {id(var): name for name, var in params.items()},
     )
-    with ExitStack() as stack:
+    with contextlib.ExitStack() as stack:
         model.dump_patches = True
         for name, m in model.named_modules(prefix='root'):
             for handle in (
-                m.register_forward_pre_hook(partial(hk.forward_pre, name)),
+                m.register_forward_pre_hook(functools.partial(hk.forward_pre, name)),
                 m.register_forward_hook(hk.forward),
             ):
                 stack.callback(handle.remove)
@@ -204,5 +204,5 @@ def plot_model(model: torch.nn.Module, *input_shapes: tuple, device='cpu'):
     return dot
 
 
-def param_count(module: torch.nn.Module):
+def param_count(module: nn.Module):
     return Size(sum(p.numel() for p in module.parameters()), base=1000)

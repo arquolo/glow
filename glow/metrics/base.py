@@ -10,7 +10,7 @@ _EPS = torch.finfo(torch.float).eps  # type: ignore
 _MetricFn = Callable[..., Tensor]
 
 
-class Metric(metaclass=abc.ABCMeta):
+class Metric(abc.ABC):
     @abc.abstractmethod
     def __call__(self, pred, true) -> Tensor:
         raise NotImplementedError

@@ -101,7 +101,7 @@ class Sum(Sequential):
     def _base_2_way(cls, cin):
         children = [conv(cin),
                     conv(cin, order='-N')]
-        return cls(*children, tail=Activation.new())
+        return cls(*children, tail=Activation.new(inplace=False))
 
     @classmethod
     def _base_3_way(cls, cin, expansion, **kwargs):
@@ -111,7 +111,7 @@ class Sum(Sequential):
                     conv(mid, cin, padding=0, order='-N')]
         if cls.blending:
             children.append(SEBlock.new(cin))
-        return cls(*children, tail=Activation.new())
+        return cls(*children, tail=Activation.new(inplace=False))
 
     @classmethod
     def new(cls, cin):

@@ -1,14 +1,16 @@
-__all__ = ('trace', 'trace_module', 'summary')
+__all__ = ('coroutine', 'summary', 'trace', 'trace_module')
 
 import contextlib
+import functools
 import inspect
 import threading
 import types
-from typing import Counter, Generator, TypeVar
+from typing import Callable, Counter, Generator, TypeVar, cast
 
 import wrapt
 
 _T = TypeVar('_T')
+_F = TypeVar('_F', bound=Callable[..., Generator])
 
 
 def _break_on_globe(frame_infos):
@@ -35,6 +37,7 @@ def trace(fn, _, args, kwargs):
     print(f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
           flush=True)
     return fn(*args, **kwargs)
+
 
 # TODO: rewrite using unittest.mock
 
@@ -108,3 +111,12 @@ def summary() -> Generator[None, _T, None]:
             continue
         state[key] += 1
         print(dict(state), flush=True, end='\r')
+
+
+def coroutine(fn: _F) -> _F:
+    def wrapper(*args, **kwargs):
+        coro = fn(*args, **kwargs)
+        coro.send(None)
+        return coro
+
+    return cast(_F, functools.update_wrapper(wrapper, fn))

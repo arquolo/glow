@@ -21,4 +21,4 @@ def get_gpu_state():
     devices = [nvmlDeviceGetHandleByIndex(i) for i in indices]
     limit = sum(nvmlDeviceGetMemoryInfo(dev).free for dev in devices)
     nvmlShutdown()
-    return (limit // 2**20), len(devices)
+    return (limit // 2 ** 20), len(devices)
