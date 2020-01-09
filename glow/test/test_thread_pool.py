@@ -1,3 +1,5 @@
+from pprint import pprint
+
 import numpy as np
 from glow import buffered, mapped, timer, sizeof
 try:
@@ -11,25 +13,26 @@ SIZE = 100
 
 class Worker:
     def __init__(self, n):
-        self.array = np.random.rand(int(n))
+        self.array = np.random.rand(int(n)).astype('f4')
 
     def __call__(self, _):
         return
 
 
 def test_ipc_speed():
-    order = 25
+    order = 26
     hops = 5
     stats, sizes = {}, {}
     for m in [order * hops - 1] + list(range(order * hops))[::-1]:
         worker = Worker(2 ** (m / hops))
         sizes[m / hops] = sizeof(worker)
         it = mapped(worker, range(10), workers=1, chunk_size=1)
-        with timer(m / hops, stats):
+        with timer(callback=lambda t: stats.__setitem__(m / hops, t)):
             for _ in it:
                 pass
 
     if plt is None:
+        pprint(stats)
         return
     plt.figure(figsize=(4, 4))
     plt.plot(list(sizes.values()), list(stats.values()))
@@ -41,7 +44,7 @@ def test_ipc_speed():
 
 
 def source(size):
-    deads = np.random.uniform(size=size)
+    deads = np.random.uniform(size=size).astype('f4')
     print(np.where(deads < DEATH_RATE)[0].tolist()[:10])
     for seed, death in enumerate(deads):
         if death < DEATH_RATE:
@@ -53,8 +56,8 @@ def source(size):
 def do_work(seed, offset):
     rng = np.random.RandomState(seed + offset)
     n = 10
-    a = rng.rand(2 ** n, 2 ** n)
-    b = rng.rand(2 ** n, 2 ** n)
+    a = rng.rand(2 ** n, 2 ** n).astype('f4')
+    b = rng.rand(2 ** n, 2 ** n).astype('f4')
     (a @ b).sum()
     if rng.uniform() < DEATH_RATE:
         raise ValueError(f'Worker died: {seed}') from None
@@ -74,8 +77,8 @@ def _test_interrupt():
         print(end=f'\rmain {r} computes...')
         rng = np.random.RandomState(r)
         n = 10
-        a = rng.rand(2 ** n, 2 ** n)
-        b = rng.rand(2 ** n, 2 ** n)
+        a = rng.rand(2 ** n, 2 ** n).astype('f4')
+        b = rng.rand(2 ** n, 2 ** n).astype('f4')
         (a @ b).sum()
         yield r
         print(end=f'\rmain {r} waits...')

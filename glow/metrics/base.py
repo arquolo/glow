@@ -1,13 +1,19 @@
 import abc
 import itertools
-from dataclasses import dataclass
-from typing import Callable, Dict, Generator, Tuple
+from typing import Dict, Generator, Tuple
+from typing_extensions import Protocol
 
 import torch
 from torch import LongTensor, Tensor
 
 _EPS = torch.finfo(torch.float).eps  # type: ignore
-_MetricFn = Callable[..., Tensor]
+
+
+class _MetricFn(Protocol):
+    __name__: str
+
+    def __call__(self, _input: Tensor, _target: Tensor) -> Tensor:
+        ...
 
 
 class Metric(abc.ABC):
@@ -19,15 +25,20 @@ class Metric(abc.ABC):
         raise state
 
 
-@dataclass
 class MetricFn(Metric):
-    fn: _MetricFn
+    def __init__(self, *funcs: _MetricFn, **named_funcs: _MetricFn):
+        funcs_: Dict[str, _MetricFn] = {
+            **{func.__name__: func for func in funcs},
+            **named_funcs
+        }
+        assert len(funcs_) == 1
+        (self.name, self.func), = funcs_.items()
 
     def __call__(self, pred, true) -> Tensor:
-        return self.fn(pred, true)
+        return self.func(pred, true)
 
     def collect(self, state):
-        return {self.fn.__name__: state}
+        return {self.name: state}
 
 
 def _to_index(pred, true) -> Tuple[int, LongTensor, LongTensor]:
