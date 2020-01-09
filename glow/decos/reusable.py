@@ -3,14 +3,14 @@ __all__ = ('Reusable', )
 import asyncio
 import threading
 import weakref
-from typing import Any, Callable, Generic, List, Optional, TypeVar
-
-from .thread import call_once
+from dataclasses import dataclass, field
+from typing import Any, Callable, ClassVar, Generic, List, Optional, TypeVar
+from typing_extensions import Protocol
 
 _T = TypeVar('_T')
+_T_co = TypeVar('_T_co', covariant=True)
 
 
-@call_once
 def make_loop() -> asyncio.AbstractEventLoop:
     def start_loop(loop):
         asyncio.set_event_loop(loop)
@@ -25,19 +25,23 @@ def _finalize(_: Any) -> None:
     pass
 
 
-class Reusable(Generic[_T]):
-    def __init__(self,
-                 factory: Callable[[], _T],
-                 finalize: Callable[[_T], None] = _finalize,
-                 timeout=0.0):
-        self.factory = factory
-        self.finalize = finalize
-        self.timeout = timeout
+class _Factory(Protocol[_T_co]):
+    def __call__(self) -> _T_co:
+        ...
 
-        self._loop = make_loop()
-        self._lock = asyncio.Lock(loop=self._loop)
-        self._deleter: Optional[asyncio.TimerHandle] = None
-        self._bx: List[_T] = []
+
+@dataclass
+class Reusable(Generic[_T]):
+    factory: _Factory[_T]
+    finalize: Callable[[_T], None] = _finalize
+    delay: float = 0.0
+
+    _loop: ClassVar[asyncio.AbstractEventLoop] = make_loop()
+    _lock: asyncio.Lock = field(
+        default_factory=lambda: asyncio.Lock(loop=Reusable._loop)
+    )
+    _deleter: Optional[asyncio.TimerHandle] = None
+    _box: List[_T] = field(default_factory=list)
 
     def get(self) -> _T:
         """Returns inner object, or recreates it"""
@@ -54,12 +58,12 @@ class Reusable(Generic[_T]):
             # reschedule finalizer
             if self._deleter is not None:
                 self._deleter.cancel()
-            self._deleter = self._loop.call_later(self.timeout, self._bx.clear)
+            self._deleter = self._loop.call_later(self.delay, self._box.clear)
 
             # recreate object, if nessessary
-            if not self._bx:
+            if not self._box:
                 obj = self.factory()
                 weakref.finalize(obj, self._finalize, weakref.ref(obj))
-                self._bx.append(obj)
+                self._box.append(obj)
 
-            return self._bx[0]
+            return self._box[0]

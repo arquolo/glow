@@ -12,7 +12,7 @@ class Value:
 
 def test_fail():
     counter = count()
-    ref = glow.Reusable(lambda: Value(next(counter)), timeout=.05)
+    ref = glow.Reusable(lambda: Value(next(counter)), delay=.05)
     assert ref.get().value == 0
 
     time.sleep(.10)
@@ -21,7 +21,7 @@ def test_fail():
 
 def test_success() -> None:
     counter = count()
-    ref = glow.Reusable(lambda: Value(next(counter)), timeout=.10)
+    ref = glow.Reusable(lambda: Value(next(counter)), delay=.10)
     assert ref.get().value == 0
 
     time.sleep(.05)
@@ -30,7 +30,7 @@ def test_success() -> None:
 
 def test_success_double():
     counter = count()
-    ref = glow.Reusable(lambda: Value(next(counter)), timeout=.10)
+    ref = glow.Reusable(lambda: Value(next(counter)), delay=.10)
     assert ref.get().value == 0
 
     time.sleep(.05)
