@@ -36,6 +36,7 @@ def trace(fn, _, args, kwargs):
           flush=True)
     return fn(*args, **kwargs)
 
+# TODO: rewrite using unittest.mock
 
 def set_trace(obj, seen=None, prefix=None, module=None):
     if isinstance(obj, types.ModuleType):
