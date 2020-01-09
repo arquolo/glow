@@ -1,16 +1,21 @@
 __all__ = ('serialize', )
 
-import collections
+import copyreg
+import io
 import mmap
 import os
 import pathlib
 import sys
 import tempfile
 import weakref
+from dataclasses import dataclass, field, InitVar
 from itertools import starmap
-from typing import Optional
+from typing import (
+    Any, Callable, ClassVar, Hashable, List, NamedTuple, Optional
+)
 
 import loky
+import wrapt
 
 from ..decos import Reusable
 
@@ -23,9 +28,13 @@ else:
     import pickle5 as pickle
     loky.set_loky_pickler('pickle5')
 
-_Item = collections.namedtuple('_Item', ['item', 'id'])
+GC_TIMEOUT = 10
+dispatch_table = copyreg.dispatch_table.copy()  # type: ignore
 
-_GC_TIMEOUT = 10
+
+class _Item(NamedTuple):
+    item: Callable
+    uid: Hashable
 
 
 def _get_dict():
@@ -33,91 +42,123 @@ def _get_dict():
 
 
 class _CallableMixin:
+    def load(self) -> Callable:
+        ...
+
     def __call__(self, *chunk):
-        return tuple(starmap(self.item, chunk))
+        return tuple(starmap(self.load(), chunk))
 
 
 class _SimpleProxy(_CallableMixin):
     def __init__(self, item):
-        self.item = item
-
-
-class _RemoteCacheMixin:
-    saved: Optional[_Item] = None
-
-    def __init__(self, id_):
-        self.id = id_
+        self._item = item
 
     def load(self):
-        raise NotImplementedError
+        return self._item
 
-    @property
-    def item(self):
-        if self.saved is None or self.saved.id != self.id:
-            type(self).saved = _Item(self.load(), self.id)
+
+@dataclass
+class _RemoteCacheMixin:
+    uid: Hashable
+    saved: ClassVar[Optional[_Item]] = None
+
+    def _load(self) -> Callable:
+        ...
+
+    def load(self):
+        if self.saved is None or self.saved.uid != self.uid:
+            self.__class__.saved = _Item(self._load(), self.uid)
+
         assert self.saved is not None
         return self.saved.item
 
 
 class _ManagedProxy(_RemoteCacheMixin, _CallableMixin):
     """Uses manager-process. Slowest one"""
-    manager: Optional[Reusable] = None
+    manager: ClassVar[Reusable] = Reusable(_get_dict, delay=GC_TIMEOUT)
 
     def __init__(self, item):
         super().__init__(id(item))
-        if self.manager is None:
-            type(self).manager = Reusable(_get_dict, timeout=_GC_TIMEOUT)
-        assert self.manager is not None
         self.shared = self.manager.get()
         self.shared[id(item)] = item
 
-    def load(self):
-        return self.shared[self.id]
+    def _load(self):
+        return self.shared[self.uid]
 
 
-class _MmapProxyBase(_RemoteCacheMixin, _CallableMixin):
-    _access = mmap.ACCESS_READ
+@dataclass
+class _Mmap:
+    size: int
+    tag: str
+    create: InitVar[bool] = False
+    buf: mmap.mmap = field(init=False)
 
-    def __init__(self, size, id_, create=False):
-        super().__init__(id_)
+    @classmethod
+    def from_bytes(cls, data: bytes, tag: str) -> '_Mmap':
+        mv = cls(len(data), f'shm-{tag}', create=True)
+        mv.buf[:] = data
+        return mv
+
+    def __post_init__(self, create):
+        access = mmap.ACCESS_WRITE if create else mmap.ACCESS_READ
+
         if sys.platform == 'win32':
-            self.buf = self._buf_win(size, id_, create=create)
+            args = (-1, self.size, self.tag)
         else:
-            self.buf = self._buf_posix(size, id_, create=create)
+            args = self._posix_args(create)
+
+        self.buf = mmap.mmap(*args, access=access)
         weakref.finalize(self, self.buf.close)
 
-    def _buf_win(self, size, id_, create=False):
+    def _posix_args(self, create):
+        filepath = pathlib.Path(tempfile.gettempdir(), self.tag)
         if create:
-            self._access = mmap.ACCESS_WRITE
-        return mmap.mmap(-1, size, f'shm-{id_}', access=self._access)
-
-    def _buf_posix(self, size, id_, create=False):
-        filepath = pathlib.Path(tempfile.gettempdir(), f'shm-{id_}')
-        if create:
-            self._access = mmap.ACCESS_WRITE
-
             fd = os.open(filepath, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-            os.ftruncate(fd, size)
+            os.ftruncate(fd, self.size)
             weakref.finalize(self, filepath.unlink)
         else:
             fd = os.open(filepath, os.O_RDONLY)
 
         weakref.finalize(self, os.close, fd)
-        return mmap.mmap(fd, size, access=self._access)
+        return (fd, self.size)
 
     def __reduce__(self):
-        return _MmapProxyBase, (self.buf.size(), self.id)
-
-    def load(self):
-        return pickle.loads(self.buf)
+        return _Mmap, (self.size, self.tag)
 
 
-class _MmapProxy(_MmapProxyBase):
+@wrapt.when_imported('torch')
+def _(torch):
+    dispatch_table.update({
+        torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
+        torch.Storage: torch.multiprocessing.reductions.reduce_storage,
+    })
+
+
+def _dumps(obj: Any,
+           callback: Optional[Callable[[pickle.PickleBuffer], Any]] = None
+           ) -> bytes:
+    fp = io.BytesIO()
+    p = pickle.Pickler(fp, -1, buffer_callback=callback)
+    p.dispatch_table = dispatch_table
+    p.dump(obj)
+    return fp.getvalue()
+
+
+class _MmapProxy(_RemoteCacheMixin, _CallableMixin):
     """Fallback for sharedmemory for Python<3.8"""
     def __init__(self, item):
-        data = pickle.dumps(item, -1)
-        super().__init__(len(data), f'{os.getpid()}-{id(item):x}', create=True)
-        self.buf[:] = data
+        super().__init__(id(item))
+
+        buffers: List[pickle.PickleBuffer] = []
+        self.root = _dumps(item, callback=buffers.append)
+        self.memos = [
+            _Mmap.from_bytes(buf.raw(), f'{os.getpid()}-{self.uid:x}-{i}')
+            for i, buf in enumerate(buffers)
+        ]
+
+    def _load(self):
+        buffers = [m.buf[:m.size] for m in self.memos]
+        return pickle.loads(self.root, buffers=buffers)
 
 
 class _SharedPickleProxy(_CallableMixin):
@@ -125,15 +166,14 @@ class _SharedPickleProxy(_CallableMixin):
     def __init__(self, item):
         assert sys.version_info >= (3, 8)
         buffers = []
-        self.root = pickle.dumps(item, -1, buffer_callback=buffers.append)
+        self.root = _dumps(item, buffer_callback=buffers.append)
         self.memos = []
         for buf in buffers:
             memo = SharedMemory(create=True, size=len(buf.raw()))
             memo.buf[:] = buf.raw()
             self.memos.append((memo, memo.size))
 
-    @property
-    def item(self):
+    def load(self):
         buffers = [s.buf[:size] for s, size in self.memos]
         return pickle.loads(self.root, buffers=buffers)
 

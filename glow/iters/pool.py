@@ -1,22 +1,21 @@
 __all__ = ('mapped', )
 
+import contextlib
 import os
 import queue
 import signal
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import ExitStack
 from itertools import chain, islice
 from typing import Callable, Deque, Iterable, Iterator, Set, TypeVar
 
 import loky
 
 from ._len_helpers import as_sized
-from ._pickle_proxy import serialize, _GC_TIMEOUT
+from ._pickle_proxy import GC_TIMEOUT, dispatch_table, serialize
 from .more import chunked
 
 _T = TypeVar('_T')
 _R = TypeVar('_R')
-
 _NUM_CPUS = os.cpu_count()
 
 loky.backend.context.set_start_method('loky_init_main')
@@ -29,12 +28,16 @@ def _initializer():
 
 def _get_pool(workers):
     return loky.get_reusable_executor(
-        workers, timeout=_GC_TIMEOUT, initializer=_initializer
+        workers,
+        timeout=GC_TIMEOUT,
+        job_reducers=dispatch_table,
+        result_reducers=dispatch_table,
+        initializer=_initializer,
     )
 
 
 def _reduce_ordered(fs_submit: Iterator['Future[_T]'],
-                    stack: ExitStack,
+                    stack: contextlib.ExitStack,
                     latency: int) -> Iterator[_T]:
     fs = Deque['Future[_T]']()
     stack.callback(lambda: {fut.cancel() for fut in reversed(fs)})
@@ -46,7 +49,7 @@ def _reduce_ordered(fs_submit: Iterator['Future[_T]'],
 
 
 def _reduce_completed(fs_submit: Iterator['Future[_T]'],
-                      stack: ExitStack,
+                      stack: contextlib.ExitStack,
                       latency: int) -> Iterator[_T]:
     fs: Set['Future[_T]'] = set()
     stack.callback(lambda: {fut.cancel() for fut in fs})
@@ -89,7 +92,7 @@ def mapped(fn: Callable[..., _R], *iterables: Iterable[_T],
     if workers == 0:
         return map(fn, *iterables)
 
-    stack = ExitStack()
+    stack = contextlib.ExitStack()
     if chunk_size:
         pool = _get_pool(workers)
         proxy = serialize(fn)
