@@ -6,7 +6,7 @@ import setuptools
 
 setuptools.setup(
     name='glow',
-    version='0.7',
+    version='0.7.1',
     url='https://github.com/arquolo/glow',
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
@@ -29,6 +29,7 @@ setuptools.setup(
         'loky',
         'numpy>=1.15',
         'psutil',
+        'typing-extensions',
         'wrapt',
     ],
     extras_require={
