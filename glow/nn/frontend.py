@@ -20,13 +20,6 @@ def _collate_fn(batch):
     return tuple(torch.stack(row) for row in zip(*batch))
 
 
-def size_hint(dataset, sampler=None, batch_size=1, **_):
-    if sampler is None:
-        sampler = range(len(dataset))
-    return len(range(0, len(sampler), batch_size))
-
-
-@repeatable(hint=size_hint)
 def make_loader(dataset: Mapping[_KT, Sequence],
                 sampler: Optional[Iterable[_KT]] = None,
                 batch_size: int = 1,
@@ -49,10 +42,17 @@ def make_loader(dataset: Mapping[_KT, Sequence],
         chunk_size = batch_size
 
     assert sampler is not None
-    samples = mapped(
-        functools.partial(_get_sample, dataset),
-        sampler,
-        chunk_size=chunk_size,
-        workers=workers,
-    )
-    return mapped(_collate_fn, chunked(samples, batch_size), workers=0)
+    size = len(range(0, len(sampler), batch_size))  # type: ignore
+    getter = functools.partial(_get_sample, dataset)
+
+    @repeatable(hint=lambda: size)
+    def loop():
+        samples = mapped(
+            getter,
+            sampler,
+            chunk_size=chunk_size,
+            workers=workers,
+        )
+        return mapped(_collate_fn, chunked(samples, batch_size), workers=0)
+
+    return loop()
