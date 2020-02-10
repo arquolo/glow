@@ -2,7 +2,8 @@ import argparse
 import pathlib
 from typing import DefaultDict, List
 
-import glow.nn
+import glow
+import glow.nn as gnn
 import glow.metrics as m
 import torch
 import torch.nn as nn
@@ -14,17 +15,18 @@ from tqdm.auto import tqdm
 
 def make_model_default():
     return nn.Sequential(
-        nn.Conv2d(3, 6, 5),     # > 28^2
+        nn.Conv2d(3, 6, 5),  # > 28^2
         nn.ReLU(),
-        nn.MaxPool2d(2),        # > 14^2
-        nn.Conv2d(6, 16, 5),    # > 10^2
+        nn.MaxPool2d(2),  # > 14^2
+        nn.Conv2d(6, 16, 5),  # > 10^2
         nn.ReLU(),
-        nn.MaxPool2d(2),        # > 5^2
-        nn.Conv2d(16, 120, 5),  # > 1
+        nn.MaxPool2d(2),  # > 5^2
+        gnn.View(-1),  # > 1:400
+        nn.Linear(400, 120),
         nn.ReLU(),
-        nn.Conv2d(120, 84, 1),
+        nn.Linear(120, 84),
         nn.ReLU(),
-        nn.Conv2d(84, 10, 1),
+        nn.Linear(84, 10),
     )
 
 
@@ -33,8 +35,8 @@ def make_model_new(init=16):
         cout = cout or cin
         ksize = stride + pad * 2
         return nn.Sequential(
-            nn.Conv2d(cin, cout, ksize, stride,
-                      padding=pad, bias=False, groups=groups),
+            nn.Conv2d(
+                cin, cout, ksize, stride, pad, groups=groups, bias=False),
             nn.BatchNorm2d(cout),
             nn.ReLU(inplace=True),
         )
@@ -43,39 +45,42 @@ def make_model_new(init=16):
         cout = cout or cin
         return nn.Sequential(
             conv(cin, cout, pad=1, stride=2),
-            glow.nn.Sum(
+            gnn.Sum(
                 conv(cout, cout * 2),
                 conv(cout * 2, pad=2, groups=cout * 2),
-                conv(cout * 2, cout)[:-1], tail=nn.ReLU(), skip=0.1
-            ),
-        )
+                conv(cout * 2, cout)[:-1],
+                tail=nn.ReLU(),
+                skip=0.1))
 
     return nn.Sequential(
-        conv_down(3, init),             # > 16^2
-        conv_down(init, init * 2),      # > 8^2
-        conv_down(init * 2, init * 4),  # > 4^2
+        # > 32^2
+        # nn.ZeroPad2d(2),
+        # > 16^2
+        # conv_down(1, init),
+        # > 16^2
+        conv_down(3, init),
+        # > 8^2
+        conv_down(init, init * 2),
+        # > 4^2
+        conv_down(init * 2, init * 4),
         conv(init * 4, init * 8, pad=2),
-        nn.AvgPool2d(4),                # > 1
-        nn.Conv2d(init * 8, 10, 1),
+        # > 1
+        nn.AdaptiveAvgPool2d(1),
+        gnn.View(-1),
+        nn.Linear(init * 8, 10),
     )
 
 
-def loop(loader, step_fn, metrics, name=None):
-    updates = [m.batch_averaged(f) for f in metrics]
-    r = {}
-
-    for data, target in tqdm(loader, desc=name, leave=False):
-        data, target = data.cuda(), target[:, None, None].cuda()
+def loop(loader, step_fn, metrics):
+    meter = m.compose(*metrics)
+    for data, target in loader:
+        data, target = data.cuda(), target.cuda()
         out = step_fn(data, target)
-        with torch.no_grad():
-            r.update({
-                k: v.item() for u in updates
-                for k, v in u.send((out, target)).items() if v.numel() == 1
-            })
-    return r
+        scores = meter.send((out, target))
+        yield {k: v.item() for k, v in scores.items() if v.numel() == 1}
 
 
-def main(root: pathlib.Path, batch_size: int):
+def main(root: pathlib.Path, batch_size: int, width: int, epochs: int):
     tft = tfs.Compose([
         tfs.RandomCrop(32, padding=4),
         tfs.RandomHorizontalFlip(),
@@ -89,27 +94,29 @@ def main(root: pathlib.Path, batch_size: int):
     path = root / 'cifar10'
     tset = datasets.CIFAR10(path, transform=tft, train=True, download=True)
     vset = datasets.CIFAR10(path, transform=tfv, train=False)
-
+    """
+    tf = tfs.Compose([
+        tfs.ToTensor(),
+        tfs.Normalize((0.5,), (0.5,)),
+    ])
+    tset = datasets.MNIST(root, transform=tf, train=True, download=True)
+    vset = datasets.MNIST(root, transform=tf, train=False)
+    """
     @glow.repeatable(hint=tset.__len__)
     def sampler():
         return torch.randperm(len(tset))
 
-    tload = glow.nn.make_loader(tset, sampler(),
-                                batch_size=batch_size, chunk_size=0)
-    vload = glow.nn.make_loader(vset, batch_size=200, chunk_size=0)
+    tload = gnn.make_loader(
+        tset, sampler(), batch_size=batch_size, chunk_size=0)
+    vload = gnn.make_loader(vset, batch_size=200, chunk_size=0)
 
     # net = make_model_default()
-    net = make_model_new()
+    net = make_model_new(init=width)
     net.cuda()
-    print('params:', glow.Size(sum(p.numel() for p in net.parameters())))
+    print('params:', gnn.param_count(net))
 
-    optim = glow.nn.RAdam(net.parameters())
+    optim = gnn.RAdam(net.parameters())
     loss_fn = nn.CrossEntropyLoss()
-
-    # def loss_fn(y_pred, y_true):
-    #     labels = torch.zeros_like(y_pred)
-    #     labels.scatter_(1, y_true[:, None, ...], 1)
-    #     return torch.nn.BCEWithLogitsLoss()(y_pred, labels)
 
     metrics = [
         m.Lambda(loss_fn, name='loss'),
@@ -120,8 +127,7 @@ def main(root: pathlib.Path, batch_size: int):
         net.train()
         optim.zero_grad()
         out = net(data)
-        loss = loss_fn(out, target)
-        loss.backward()
+        loss_fn(out, target).backward()
         optim.step()
         return out.detach()
 
@@ -131,23 +137,25 @@ def main(root: pathlib.Path, batch_size: int):
             return net(data)
 
     scores = DefaultDict[str, List](list)
-    for _ in tqdm(range(20), desc='epochs'):
-        splits = glow.ichunked(tload, 8000 // batch_size)
-        for split in tqdm(splits, desc='sub-epochs', leave=False):
-            mt_, mv_ = (
-                loop(split, train_step, metrics, name='train'),
-                loop(vload, val_step, metrics, name='val'),
-            )
-            names = sorted({*mt_} & {*mv_})
-            print(', '.join(f'{k}: {mt_[k]:.3f}/{mv_[k]:.3f}' for k in names))
+    for _ in tqdm(range(epochs), desc='epochs'):
+        for split in glow.ichunked(
+                tqdm(tload, desc='train', leave=False),
+                size=8000 // batch_size):
+            *_, mt = loop(split, train_step, metrics)
+            *_, mv = loop(
+                tqdm(vload, desc='val', leave=False), val_step, metrics)
+
+            names = sorted({*mt} & {*mv})
+            # print(', '.join(f'{k}: {mt[k]:.3f}/{mv[k]:.3f}' for k in names))
             for name in names:
-                scores[name].append([mt_[name], mv_[name]])
+                scores[name].append([mt[name], mv[name]])
 
     _, axes = plt.subplots(ncols=len(scores))
     for (title, data), ax in zip(scores.items(), axes):
         ax.legend(ax.plot(data), ['train', 'val'])
         ax.set_title(title)
     plt.show()
+    return [max(ks) for ks in zip(*scores['kappa'])]
 
 
 if __name__ == '__main__':
@@ -156,5 +164,8 @@ if __name__ == '__main__':
         'root', type=pathlib.Path, help='location to store dataset')
     parser.add_argument(
         '--batch-size', type=int, default=4, help='batch size for train')
+    parser.add_argument('--epochs', type=int, default=2, help='epochs')
+    parser.add_argument(
+        '--width', type=int, default=32, help='width of network')
     args = parser.parse_args()
     main(**vars(args))

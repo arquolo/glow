@@ -8,7 +8,6 @@ from tqdm.auto import tqdm
 import glow.nn
 from glow import metrics as m
 
-
 metrics: Tuple[m.Metric, ...] = (
     m.Lambda(m.accuracy_),
     m.Confusion(
@@ -61,8 +60,7 @@ with tqdm(range(32)) as pbar:
         plt.pause(1e-2)
 
 with torch.no_grad():
-    updates = [m.batch_averaged(fn) for fn in metrics]
-    for u in updates:
-        d = u.send((pred, true))
-        print(', '.join(f'{k}: {v.item():.3f}'
-                        for k, v in d.items() if v.numel() == 1))
+    meter = m.compose(*metrics)
+    d = meter.send((pred, true))
+    print(', '.join(
+        f'{k}: {v.item():.3f}' for k, v in d.items() if v.numel() == 1))
