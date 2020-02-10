@@ -3,12 +3,9 @@ __all__ = ()
 import builtins
 import functools
 import operator
-from itertools import (
-    accumulate, count, cycle, islice, product, repeat, starmap, tee,
-    zip_longest
-)
+from itertools import (accumulate, count, cycle, islice, product, repeat,
+                       starmap, tee, zip_longest)
 from typing import Iterable, List, Type
-
 
 # --------------------------------- builtins ---------------------------------
 
@@ -41,6 +38,7 @@ def _len_map(x):
 
 # --------------------------- itertools.infinite ---------------------------
 
+
 @len_hint.register(count)
 def _len_count(_):
     return float('+Inf')
@@ -48,7 +46,7 @@ def _len_count(_):
 
 @len_hint.register(cycle)
 def _len_cycle(x):
-    _, [iterable], [buf, pos] = x.__reduce__()
+    _, [iterable], (buf, pos) = x.__reduce__()
     if buf or len(iterable):
         return float('+Inf')
     return 0
@@ -58,6 +56,7 @@ def _len_cycle(x):
 def _len_repeat(x):
     _, (obj, *left) = x.__reduce__()
     return left[0] if left else float('+Inf')
+
 
 # ---------------------------- itertools.finite ----------------------------
 
@@ -73,7 +72,7 @@ def _len_accumulate(x):
 
 @len_hint.register(islice)
 def _len_islice(x):
-    _, [src, start, *stop_step], done = x.__reduce__()
+    _, (src, start, *stop_step), done = x.__reduce__()
     if not stop_step:
         return 0
     total = len(src) + done
@@ -90,8 +89,8 @@ def _len_starmap(x):
 
 @len_hint.register(_tee)
 def _len_tee(x):
-    _, [empty_tuple], [dataobject, pos] = x.__reduce__()
-    _, [src, buf, none] = dataobject.__reduce__()
+    _, [empty_tuple], (dataobject, pos) = x.__reduce__()
+    _, (src, buf, none) = dataobject.__reduce__()
     return len(src) + len(buf) - pos
 
 
@@ -100,13 +99,14 @@ def _len_zip_longest(x):
     _, seqs, _pad = x.__reduce__()
     return max(map(len, seqs))
 
+
 # -------------------------- itertools.combinatoric -------------------------
 
 
 @len_hint.register(product)
 def _len_product(x):
     _, seqs, *pos = x.__reduce__()
-    lens = tuple(map(len, seqs))
+    lens = *map(len, seqs),
     total = functools.reduce(operator.mul, lens, 1)
     if not pos:
         return total

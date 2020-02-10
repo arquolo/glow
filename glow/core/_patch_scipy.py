@@ -21,8 +21,8 @@ def patch_handler() -> None:
             ctypes.CDLL(dllpath.as_posix())
 
     # Picked from (stackoverflow)[https://stackoverflow.com/a/39021051/9868257]
-    handler = ctypes.cast(
-        ctypes.windll.kernel32.SetConsoleCtrlHandler, ctypes.c_void_p)
+    handler = ctypes.cast(ctypes.windll.kernel32.SetConsoleCtrlHandler,
+                          ctypes.c_void_p)
 
     code: bytearray = ctypes.windll.kernel32.VirtualProtect(  # type: ignore
         handler,

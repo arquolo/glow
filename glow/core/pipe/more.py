@@ -13,14 +13,11 @@ import collections
 import collections.abc
 import enum
 import threading
-from itertools import (
-    count, chain, islice, repeat, starmap, takewhile, tee
-)
-from typing import (
-    Callable, Iterable, Iterator, Optional, Sequence, TypeVar, Union, overload
-)
+from itertools import chain, count, islice, repeat, starmap, takewhile, tee
+from typing import (Callable, Iterable, Iterator, Optional, Sequence, TypeVar,
+                    Union, overload)
 
-from ._len_helpers import SizedIter, as_sized
+from .len_helpers import SizedIter, as_sized
 
 _T = TypeVar('_T')
 _U = TypeVar('_U')
@@ -31,7 +28,7 @@ class _Empty(enum.Enum):
 
 
 def as_iter(obj: Union[Iterable[_T], _T, None],
-            times: Optional[int] = None) -> Iterable[_T]:
+            times: int = None) -> Iterable[_T]:
     """Make iterator from object"""
     if obj is None:
         return ()
@@ -40,9 +37,9 @@ def as_iter(obj: Union[Iterable[_T], _T, None],
     return repeat(obj) if times is None else repeat(obj, times)
 
 
-def windowed(it: Iterable[_T], size: int) -> Iterable[Sequence[_T]]:
+def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     """
-    >>> list(Windowed(range(5), 3))
+    >>> [*windowed(range(5), 3)]
     [(0, 1, 2), (1, 2, 3), (2, 3, 4)]
     """
     iters = tee(it, size)
@@ -57,7 +54,7 @@ def sliced(it: Sequence[_T], size: int) -> Iterator[Sequence[_T]]:
     >>> s = sliced(range(10), 3)
     >>> len(s)
     4
-    >>> list(s)
+    >>> [*s]
     [range(0, 3), range(3, 6), range(6, 9), range(9, 10)]
     """
     offsets = range(len(it) + size)
@@ -78,7 +75,7 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     >>> s = chunked(range(10), 3)
     >>> len(s)
     4
-    >>> list(s)
+    >>> [*s]
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
     chunks = map(islice, repeat(iter(it)), repeat(size))
@@ -94,8 +91,8 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
     >>> s = ichunked(range(10), 3)
     >>> len(s)
     4
-    >>> chunks = list(s)
-    >>> [tuple(chunk) for chunk in chunks]
+    >>> chunks = [*s]
+    >>> [(*chunk, ) for chunk in chunks]
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
     iter_ = iter(it)
@@ -134,4 +131,4 @@ def eat(iterable: Iterable) -> None:
 
 def eat_detach(iterable: Iterable) -> None:
     """Consume `iterable` asynchronously"""
-    threading.Thread(target=eat, args=(iterable,), daemon=True).start()
+    threading.Thread(target=eat, args=(iterable, ), daemon=True).start()

@@ -5,16 +5,15 @@ import sys
 import functools
 import threading
 from concurrent.futures import Future
-from typing import Any, Callable, TypeVar, cast
+from typing import Callable, TypeVar, cast
 from weakref import WeakValueDictionary
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
 
 
-def threadlocal(fn: Callable[..., _T],
-                *args: Any,
-                **kwargs: Any) -> Callable[[], _T]:
+def threadlocal(fn: Callable[..., _T], *args: object,
+                **kwargs: object) -> Callable[[], _T]:
     """Thread-local singleton factory, mimics `functools.partial`"""
     local_ = threading.local()
 
@@ -36,15 +35,13 @@ def interpreter_lock(timeout=1_000):
 
     See tests for examples.
     """
-    default = sys.getswitchinterval()
-    sys.setswitchinterval(timeout)
-    try:
+    with contextlib.ExitStack() as stack:
+        stack.callback(sys.setswitchinterval, sys.getswitchinterval())
+        sys.setswitchinterval(timeout)
         yield
-    finally:
-        sys.setswitchinterval(default)
 
 
-class Stack(contextlib.ExitStack):
+class _Stack(contextlib.ExitStack):
     def defer(self, fn: Callable[..., _T], *args, **kwargs) -> 'Future[_T]':
         def apply(future: 'Future[_T]') -> None:
             try:
@@ -65,7 +62,7 @@ def call_once(fn: _F) -> _F:
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        with Stack() as stack:
+        with _Stack() as stack:
             with lock:
                 if fn.__future__ is None:
                     fn.__future__ = stack.defer(fn, *args, **kwargs)
@@ -85,7 +82,7 @@ def shared_call(fn: _F) -> _F:
     def wrapper(*args, **kwargs):
         key = f'{fn}{args}{kwargs}'
 
-        with Stack() as stack:
+        with _Stack() as stack:
             with lock:
                 try:
                     future = futures[key]

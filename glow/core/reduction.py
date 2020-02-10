@@ -10,35 +10,26 @@ import tempfile
 import weakref
 from dataclasses import dataclass, field, InitVar
 from itertools import starmap
-from typing import (
-    Any, Callable, ClassVar, Hashable, List, NamedTuple, Optional
-)
+from typing import (Callable, ClassVar, Dict, Hashable, List, NamedTuple,
+                    Optional)
 
 import loky
 import wrapt
 
-from ..decos import Reusable
-
-
 if sys.version_info >= (3, 8):
     import pickle
     from multiprocessing.shared_memory import SharedMemory
-    loky.set_loky_pickler('pickle')
 else:
     import pickle5 as pickle
-    loky.set_loky_pickler('pickle5')
 
 GC_TIMEOUT = 10
-dispatch_table = copyreg.dispatch_table.copy()  # type: ignore
+dispatch_table_patches: Dict[type, Callable] = {}
+loky.set_loky_pickler(pickle.__name__)
 
 
 class _Item(NamedTuple):
     item: Callable
     uid: Hashable
-
-
-def _get_dict():
-    return loky.backend.get_context().Manager().dict()
 
 
 class _CallableMixin:
@@ -71,19 +62,6 @@ class _RemoteCacheMixin:
 
         assert self.saved is not None
         return self.saved.item
-
-
-class _ManagedProxy(_RemoteCacheMixin, _CallableMixin):
-    """Uses manager-process. Slowest one"""
-    manager: ClassVar[Reusable] = Reusable(_get_dict, delay=GC_TIMEOUT)
-
-    def __init__(self, item):
-        super().__init__(id(item))
-        self.shared = self.manager.get()
-        self.shared[id(item)] = item
-
-    def _load(self):
-        return self.shared[self.uid]
 
 
 @dataclass
@@ -123,23 +101,26 @@ class _Mmap:
         return (fd, self.size)
 
     def __reduce__(self):
-        return _Mmap, (self.size, self.tag)
+        return type(self), (self.size, self.tag)
 
 
 @wrapt.when_imported('torch')
 def _(torch):
-    dispatch_table.update({
+    dispatch_table_patches.update({
         torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
-        torch.Storage: torch.multiprocessing.reductions.reduce_storage,
+        **{
+            t: torch.multiprocessing.reductions.reduce_storage
+            for t in torch.storage._StorageBase.__subclasses__()
+        }
     })
 
 
-def _dumps(obj: Any,
-           callback: Optional[Callable[[pickle.PickleBuffer], Any]] = None
-           ) -> bytes:
+def _dumps(obj: object,
+           callback: Callable[[pickle.PickleBuffer], object] = None) -> bytes:
     fp = io.BytesIO()
     p = pickle.Pickler(fp, -1, buffer_callback=callback)
-    p.dispatch_table = dispatch_table
+    p.dispatch_table = copyreg.dispatch_table.copy()  # type: ignore
+    p.dispatch_table.update(dispatch_table_patches)
     p.dump(obj)
     return fp.getvalue()
 
@@ -166,7 +147,7 @@ class _SharedPickleProxy(_CallableMixin):
     def __init__(self, item):
         assert sys.version_info >= (3, 8)
         buffers = []
-        self.root = _dumps(item, buffer_callback=buffers.append)
+        self.root = _dumps(item, callback=buffers.append)
         self.memos = []
         for buf in buffers:
             memo = SharedMemory(create=True, size=len(buf.raw()))
@@ -186,4 +167,3 @@ def serialize(fn, mp=True) -> _CallableMixin:
         return _SharedPickleProxy(fn)
 
     return _MmapProxy(fn)
-    # return _ManagedProxy(fn)

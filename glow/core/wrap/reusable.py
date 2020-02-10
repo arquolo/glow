@@ -4,7 +4,7 @@ import asyncio
 import threading
 import weakref
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Generic, List, Optional, TypeVar
+from typing import Callable, ClassVar, Generic, List, Optional, TypeVar
 from typing_extensions import Protocol
 
 _T = TypeVar('_T')
@@ -21,7 +21,7 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def _finalize(_: Any) -> None:
+def _finalize(_: object) -> None:
     pass
 
 
@@ -38,8 +38,7 @@ class Reusable(Generic[_T]):
 
     _loop: ClassVar[asyncio.AbstractEventLoop] = make_loop()
     _lock: asyncio.Lock = field(
-        default_factory=lambda: asyncio.Lock(loop=Reusable._loop)
-    )
+        default_factory=lambda: asyncio.Lock(loop=Reusable._loop))
     _deleter: Optional[asyncio.TimerHandle] = None
     _box: List[_T] = field(default_factory=list)
 

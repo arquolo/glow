@@ -1,4 +1,4 @@
-__all__ = ('buffered',)
+__all__ = ('buffered', )
 
 import contextlib
 import enum
@@ -7,7 +7,7 @@ import threading
 from concurrent import futures
 from typing import Callable, Iterable, Iterator, Union, TypeVar
 
-from ._len_helpers import as_sized
+from .len_helpers import as_sized
 from .more import iter_none
 
 

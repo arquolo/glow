@@ -4,15 +4,17 @@ import argparse
 import functools
 import threading
 import weakref
-from typing import (
-    Callable, Counter, Dict, Generic, MutableMapping, TypeVar, cast
-)
+from typing import (Callable, Counter, Dict, Generic, MutableMapping, Type,
+                    TypeVar, cast)
 
-from ..core import Size, sizeof
-from .thread import interpreter_lock
+from typing_extensions import Literal
+
+from ..memory import Size, sizeof
+from .concurrency import interpreter_lock
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
+_Policy = Literal['raw', 'lru', 'mru']
 
 
 class Record(Generic[_T]):
@@ -35,41 +37,34 @@ class Stats(argparse.Namespace):
         return self.__dict__[name]
 
 
-class _MappingMixin(Generic[_T]):
-    store: Dict[str, Record[_T]]
-
-    def keys(self):
-        return self.store.keys()
-
-    def __getitem__(self, key: str) -> _T:
-        return self.store[key].value
-
-    def __len__(self) -> int:
-        return len(self.store)
-
-
 class _CacheAbc(Generic[_T]):
     store: Dict[str, Record[_T]]
     stats: Stats
     size: Size
     capacity: Size
 
-    def get(self, key: str) -> _T:
+    def keys(self):
+        return self.store.keys()
+
+    def __len__(self) -> int:
+        return len(self.store)
+
+    def __getitem__(self, key: str) -> _T:
         """Retrieve value from cache"""
-        raise NotImplementedError
+        return self.store[key].value
 
-    def evict(self, size: int) -> bool:
-        """Try to release `size` bytes from storage. Return True on success"""
-        raise NotImplementedError
-
-    def put(self, key: str, value: _T) -> None:
+    def __setitem__(self, key: str, value: _T) -> None:
         record = Record(value)
         if self.evict(record.size):
             self.store[key] = record
             self.size += record.size
 
+    def evict(self, size: int) -> bool:
+        """Try to release `size` bytes from storage. Return True on success"""
+        raise NotImplementedError
 
-class _CacheBase(_MappingMixin[_T], _CacheAbc[_T]):
+
+class _CacheBase(_CacheAbc[_T]):
     refs: MutableMapping[int, '_CacheBase'] = weakref.WeakValueDictionary()
 
     def __init__(self, capacity: int) -> None:
@@ -93,24 +88,19 @@ class _CacheBase(_MappingMixin[_T], _CacheAbc[_T]):
     @classmethod
     def status(cls) -> str:
         with interpreter_lock():
-            return '\n'.join(f'{hex(addr)}: {value!r}'
-                             for addr, value in sorted(cls.refs.items()))
+            return '\n'.join(f'{id_:x}: {value!r}'
+                             for id_, value in sorted(cls.refs.items()))
 
 
 class _HeapCache(_CacheBase[_T]):
-    def get(self, key: str) -> _T:
-        return self.store[key].value
-
     def evict(self, size: int) -> bool:
         return self.size + size <= self.capacity
 
 
-class _TrackCache(_CacheBase[_T]):
-    def __init__(self, capacity: int, drop_recent: bool = False) -> None:
-        super().__init__(capacity)
-        self.drop_recent = drop_recent
+class _LruCache(_CacheBase[_T]):
+    drop_recent = False
 
-    def get_(self, key: str) -> _T:
+    def __getitem__(self, key: str) -> _T:
         self.store[key] = record = self.store.pop(key)
         return record.value
 
@@ -127,26 +117,29 @@ class _TrackCache(_CacheBase[_T]):
         return True
 
 
+class _MruCache(_LruCache[_T]):
+    drop_recent = True
+
+
 def _memoize(cache: _CacheBase, fn: _F) -> _F:
-    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         key = f'{fn}{args}{kwargs}'
         try:
             with cache.lock:
-                value = cache.get(key)
+                value = cache[key]
                 cache.stats.hits += 1
         except KeyError:
             value = fn(*args, **kwargs)
             with cache.lock:
                 cache.stats.misses += 1
-                cache.put(key, value)
-        return value
+                cache[key] = value
+        return value  # noqa: R504
 
     wrapper.cache = cache  # type: ignore
-    return cast(_F, wrapper)
+    return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
-def memoize(capacity: int, policy: str = 'raw') -> Callable[[_F], _F]:
+def memoize(capacity: int, policy: _Policy = 'raw') -> Callable[[_F], _F]:
     """Returns dict-cache decorator.
 
     Arguments:
@@ -158,16 +151,15 @@ def memoize(capacity: int, policy: str = 'raw') -> Callable[[_F], _F]:
     if not capacity:
         return cast(rtype, (lambda fn: fn))
 
-    caches: Dict[str, Callable[[int], _CacheBase]] = {
+    caches: Dict[str, Type[_CacheBase]] = {
         'raw': _HeapCache,
-        'lru': _TrackCache,
-        'mru': functools.partial(_TrackCache, drop_recent=True)
+        'lru': _LruCache,
+        'mru': _MruCache,
     }
-    cache_fn = caches.get(policy)
-    if cache_fn is None:
+    cache_cls = caches.get(policy)
+    if cache_cls is None:
         raise ValueError(
-            f'Unknown policy: "{policy}". Only "{set(caches)}" are available'
-        )
+            f'Unknown policy: "{policy}". Only "{set(caches)}" are available')
 
-    res = functools.partial(_memoize, cache_fn(capacity))
+    res = functools.partial(_memoize, cache_cls(capacity))
     return cast(rtype, res)

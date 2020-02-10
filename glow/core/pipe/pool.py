@@ -6,12 +6,12 @@ import queue
 import signal
 from concurrent.futures import Future, ThreadPoolExecutor
 from itertools import chain, islice
-from typing import Callable, Deque, Iterable, Iterator, Set, TypeVar
+from typing import Callable, Deque, Iterable, Iterator, Set, TypeVar, cast
 
 import loky
 
-from ._len_helpers import as_sized
-from ._pickle_proxy import GC_TIMEOUT, dispatch_table, serialize
+from ..reduction import GC_TIMEOUT, dispatch_table_patches, serialize
+from .len_helpers import SizedIterable, as_sized
 from .more import chunked
 
 _T = TypeVar('_T')
@@ -30,15 +30,14 @@ def _get_pool(workers):
     return loky.get_reusable_executor(
         workers,
         timeout=GC_TIMEOUT,
-        job_reducers=dispatch_table,
-        result_reducers=dispatch_table,
+        job_reducers=dispatch_table_patches,
+        result_reducers=dispatch_table_patches,
         initializer=_initializer,
     )
 
 
 def _reduce_ordered(fs_submit: Iterator['Future[_T]'],
-                    stack: contextlib.ExitStack,
-                    latency: int) -> Iterator[_T]:
+                    stack: contextlib.ExitStack, latency: int) -> Iterator[_T]:
     fs = Deque['Future[_T]']()
     stack.callback(lambda: {fut.cancel() for fut in reversed(fs)})
 
@@ -69,11 +68,12 @@ def _reduce_completed(fs_submit: Iterator['Future[_T]'],
         fs.update(islice(fs_submit_, 1))
 
 
-def mapped(fn: Callable[..., _R], *iterables: Iterable[_T],
+def mapped(fn: Callable[..., _R],
+           *iterables: Iterable[_T],
            workers=_NUM_CPUS,
            latency=2,
            chunk_size=0,
-           ordered=True) -> Iterable[_R]:
+           ordered=True) -> SizedIterable[_R]:
     """
     Concurrently applies `fn` callable to each element in zipped `iterables`.
     Keeps order if nessessary. Never hang. Friendly to CTRL+C.
@@ -90,7 +90,7 @@ def mapped(fn: Callable[..., _R], *iterables: Iterable[_T],
         (default: `True`)
     """
     if workers == 0:
-        return map(fn, *iterables)
+        return cast(SizedIterable[_R], map(fn, *iterables))
 
     stack = contextlib.ExitStack()
     if chunk_size:
@@ -101,6 +101,7 @@ def mapped(fn: Callable[..., _R], *iterables: Iterable[_T],
         proxy = serialize(fn, mp=False)
         chunk_size = 1
 
+    latency += workers
     reducer = _reduce_ordered if ordered else _reduce_completed
 
     @as_sized(hint=lambda: min(map(len, iterables)))  # type: ignore
