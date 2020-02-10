@@ -3,13 +3,13 @@ __all__ = ('Activation', 'View', 'Noise')
 import functools
 
 import torch
+from torch import nn
 from torch.nn import functional
-from torch.nn import Module
 
 from ..core import repr_as_obj
 
 
-class Activation(Module):
+class Activation(nn.Module):
     closure = staticmethod(functional.relu)
 
     @classmethod
@@ -27,7 +27,7 @@ class Activation(Module):
                 f' {repr_as_obj(self.closure.keywords)}')
 
 
-class View(Module):
+class View(nn.Module):
     def __init__(self, *shape):
         super().__init__()
         self.shape = shape
@@ -39,7 +39,7 @@ class View(Module):
         return f'shape={(None, *self.shape)}'
 
 
-class Noise(Module):
+class Noise(nn.Module):
     def __init__(self, std):
         super().__init__()
         self.std = std

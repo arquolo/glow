@@ -2,11 +2,12 @@ __all__ = ('make_loader', )
 
 import os
 import functools
-from typing import Iterable, Mapping, Optional, Sequence, TypeVar
+from typing import Iterable, Mapping, Sequence, TypeVar
 
 import torch
 
-from ..iters import chunked, repeatable, mapped
+from ..core import chunked, repeatable, mapped
+from ..core.pipe.len_helpers import SizedIterable
 
 _KT = TypeVar('_KT')
 _NUM_CPUS: int = os.cpu_count()  # type: ignore
@@ -20,11 +21,12 @@ def _collate_fn(batch):
     return tuple(torch.stack(row) for row in zip(*batch))
 
 
-def make_loader(dataset: Mapping[_KT, Sequence],
-                sampler: Optional[Iterable[_KT]] = None,
-                batch_size: int = 1,
-                chunk_size: Optional[int] = None,
-                workers: int = _NUM_CPUS) -> Iterable[Sequence[torch.Tensor]]:
+def make_loader(
+        dataset: Mapping[_KT, Sequence],
+        sampler: Iterable[_KT] = None,
+        batch_size: int = 1,
+        chunk_size: int = None,
+        workers: int = _NUM_CPUS) -> SizedIterable[Sequence[torch.Tensor]]:
     """Yields batches of `batch_size` from `dataset` in order from  `sampler`.
 
     Parameters:

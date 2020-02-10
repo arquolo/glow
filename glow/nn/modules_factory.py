@@ -1,11 +1,9 @@
-__all__ = ('linear', 'conv',
-           'Cat', 'Sum', 'DenseBlock', 'SEBlock')
+__all__ = ('linear', 'conv', 'Cat', 'Sum', 'DenseBlock', 'SEBlock')
 
 import random
 
 import torch
 from torch import nn
-from torch.nn import Module, Sequential
 
 from ..api import Default
 from .modules import Activation
@@ -20,12 +18,15 @@ class Nonlinear:
     order: str = '-NA'
 
     @classmethod
-    def new(cls, module: type,
+    def new(cls,
+            module: type,
             cin: int,
-            cout: int = 0, *,
-            order: str = None, **kwargs):
+            cout: int = 0,
+            *,
+            order: str = '',
+            **kwargs: object) -> nn.Module:
         order = order or cls.order
-        assert set(order) <= set('AN-')
+        assert {*order} <= {*'AN-'}
         cout = cout or cin
 
         def _to_layer(char):
@@ -34,7 +35,6 @@ class Nonlinear:
                     return nn.BatchNorm2d(cin)
                 else:
                     return nn.BatchNorm2d(cout)
-
             elif char == 'A':
                 return Activation.new()
 
@@ -43,7 +43,7 @@ class Nonlinear:
 
         if len(order) == 1:
             return _to_layer(order)
-        return Sequential(*(_to_layer(o) for o in order))
+        return nn.Sequential(*(_to_layer(o) for o in order))
 
 
 def linear(cin, cout=0, **kwargs):
@@ -57,17 +57,21 @@ def conv(cin, cout=0, stride=1, padding=1, **kwargs):
 
     Kernel size equals to `stride + 2 * padding` for integer scaling
     """
-    return Nonlinear.new(nn.Conv2d, cin, cout,
-                         kernel_size=(stride + 2 * padding),
-                         stride=stride,
-                         padding=padding, **kwargs)
+    return Nonlinear.new(
+        nn.Conv2d,
+        cin,
+        cout,
+        kernel_size=(stride + 2 * padding),
+        stride=stride,
+        padding=padding,
+        **kwargs)
 
 
-class Cat(Sequential):
+class Cat(nn.Sequential):
     """
     Helper for U-Net-like modules
 
-    >>> conv = torch.nn.Conv1d(4, 4, 1)
+    >>> conv = nn.Conv1d(4, 4, 1)
     >>> cat = Cat(conv)
     >>> x = torch.randn(1, 4, 16)
     >>> torch.equal(cat(x), torch.cat([x, conv(x)], dim=1))
@@ -77,15 +81,18 @@ class Cat(Sequential):
         return torch.cat([x, super().forward(x)], dim=1)
 
 
-class Sum(Sequential):
+class Sum(nn.Sequential):
     """Helper for ResNet-like modules"""
     kind = 'resnet'
     expansion = Default()
     groups = Default()
     blending = False
 
-    def __init__(self, *children: Module,
-                 tail: Module = None, ident: Module = None, skip=0.0):
+    def __init__(self,
+                 *children: nn.Module,
+                 tail: nn.Module = None,
+                 ident: nn.Module = None,
+                 skip=0.0) -> None:
         super().__init__(*children)
         self.tail = tail
         self.ident = ident
@@ -99,25 +106,28 @@ class Sum(Sequential):
 
     @classmethod
     def _base_2_way(cls, cin):
-        children = [conv(cin),
-                    conv(cin, order='-N')]
+        children = [conv(cin), conv(cin, order='-N')]
         return cls(*children, tail=Activation.new(inplace=False))
 
     @classmethod
     def _base_3_way(cls, cin, expansion, **kwargs):
         mid = int(cin * expansion)
-        children = [conv(cin, mid, padding=0),
-                    conv(mid, mid, **kwargs),
-                    conv(mid, cin, padding=0, order='-N')]
+        children = [
+            conv(cin, mid, padding=0),
+            conv(mid, mid, **kwargs),
+            conv(mid, cin, padding=0, order='-N')
+        ]
         if cls.blending:
             children.append(SEBlock.new(cin))
         return cls(*children, tail=Activation.new(inplace=False))
 
     @classmethod
     def new(cls, cin):
-        factory = {'resnet': cls._resnet,
-                   'resnext': cls._resnext,
-                   'mobile': cls._mobile}.get(cls.kind)
+        factory = {
+            'resnet': cls._resnet,
+            'resnext': cls._resnext,
+            'mobile': cls._mobile,
+        }.get(cls.kind)
         if factory is None:
             raise ValueError(f'Unsupported {cls.kind}')
         return factory(cin)
@@ -137,21 +147,23 @@ class Sum(Sequential):
     def _mobile(cls, cin):
         expansion = cls.expansion.get_or(6)
         return cls._base_3_way(
-            cin, expansion=expansion, groups=cin * expansion
-        )
+            cin, expansion=expansion, groups=cin * expansion)
+
 
 # -------------------------------- factories --------------------------------
 
 
-class DenseBlock(Sequential):
+class DenseBlock(nn.Sequential):
     def __init__(self, cin, depth=4, step=16, full=False):
         super().__init__(*(conv(cin + step * i, step, order='NA-')
-                         for i in range(depth)))
+                           for i in range(depth)))
         self.full = full
 
     def __repr__(self):
-        convs = [c for m in self.children() for c in m.children()
-                 if isinstance(c, nn.modules.conv._ConvNd)]
+        convs = [
+            c for m in self.children()
+            for c in m.children() if isinstance(c, nn.modules.conv._ConvNd)
+        ]
         cin = convs[0].in_channels
         cout = sum(c.out_channels for c in convs)
         if self.full:
@@ -167,7 +179,7 @@ class DenseBlock(Sequential):
         return x if self.full else torch.cat(ys, dim=1)
 
 
-class SEBlock(Sequential):
+class SEBlock(nn.Sequential):
     reduction = 16
 
     @classmethod

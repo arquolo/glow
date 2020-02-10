@@ -1,4 +1,4 @@
-__all__ = ('param_count', 'plot_model')
+__all__ = ('plot_model', )
 
 import contextlib
 import functools
@@ -6,7 +6,8 @@ from typing import Dict, Tuple
 
 import graphviz
 import torch
-from torch import autograd, nn
+from torch.autograd import Function
+from torch import nn
 
 from ..core import Size, mangle
 
@@ -40,8 +41,8 @@ class Builder:
 
         self._mangle = mangle()
         self._seen: Dict[str, str] = {}
-        self._shapes: Dict[autograd.Function, str] = {}
-        self.stack = [graphviz.Digraph(
+        self._shapes: Dict[Function, str] = {}
+        root = graphviz.Digraph(
             name='root',
             graph_attr={
                 'rankdir': 'LR',
@@ -59,7 +60,8 @@ class Builder:
                 'height': '0.2',
                 'ranksep': '0.1',
             },
-        )]
+        )
+        self.stack = [root]
 
     def _add_node(self, grad):
         root = self.stack[-1]
@@ -171,7 +173,7 @@ def plot_model(model: nn.Module, *input_shapes: Tuple[int, ...], device='cpu'):
     Blue nodes are the Variables that require grad, orange are Tensors
     saved for backward in torch.autograd.Function
     """
-    inputs = (torch.zeros(1, *shape, device=device) for shape in input_shapes)
+    inputs = [torch.zeros(1, *shape, device=device) for shape in input_shapes]
     inputs = [inp.requires_grad_() for inp in inputs]
     params = model.state_dict(prefix='root.', keep_vars=True)
     hk = Builder(
@@ -179,13 +181,11 @@ def plot_model(model: nn.Module, *input_shapes: Tuple[int, ...], device='cpu'):
         {id(var): name for name, var in params.items()},
     )
     with contextlib.ExitStack() as stack:
-        model.dump_patches = True
         for name, m in model.named_modules(prefix='root'):
-            for handle in (
-                m.register_forward_pre_hook(functools.partial(hk.forward_pre, name)),
-                m.register_forward_hook(hk.forward),
-            ):
-                stack.callback(handle.remove)
+            stack.callback(
+                m.register_forward_pre_hook(
+                    functools.partial(hk.forward_pre, name)).remove)
+            stack.callback(m.register_forward_hook(hk.forward).remove)
         model(*inputs)
 
     dot = hk.stack.pop()
@@ -202,7 +202,3 @@ def plot_model(model: nn.Module, *input_shapes: Tuple[int, ...], device='cpu'):
     dot.graph_attr.update(size=f'{size},{size}')
     dot.render(cleanup=True)
     return dot
-
-
-def param_count(module: nn.Module):
-    return Size(sum(p.numel() for p in module.parameters()), base=1000)

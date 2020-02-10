@@ -28,12 +28,14 @@ class _Bottleneck(nn.ModuleDict):  # a-la DenseNet-B
         bnck = step * self.expansion
         padding = (kernel - 1) // 2
         super().__init__({
-            'conv1': _CatConv(cin, bnck, kernel=1),
-            'conv2': nn.Sequential(
-                nn.BatchNorm2d(bnck),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(bnck, step, kernel, padding=padding, bias=False),
-            ),
+            'conv1':
+                _CatConv(cin, bnck, kernel=1),
+            'conv2':
+                nn.Sequential(
+                    nn.BatchNorm2d(bnck),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(bnck, step, kernel, padding=padding, bias=False),
+                ),
         })
 
     def forward(self, *xs):
@@ -47,10 +49,8 @@ class _Bottleneck(nn.ModuleDict):  # a-la DenseNet-B
 class DenseBlock(nn.Sequential):
     def __init__(self, cin, depth, step, kernel=3, bottleneck=True):
         factory = _Bottleneck if bottleneck else _CatConv
-        super().__init__(*(
-            factory(cin + i * step, step, kernel=kernel)
-            for i in range(depth)
-        ))
+        super().__init__(*(factory(cin + i * step, step, kernel=kernel)
+                           for i in range(depth)))
 
     def forward(self, x):
         xs = [x]

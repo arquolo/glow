@@ -1,10 +1,21 @@
 __all__ = ('get_gpu_state', )
 
+import contextlib
 import os
-from typing import Iterable
+from typing import NamedTuple, Sequence
+
+from ..core import Size
 
 
-def get_gpu_state():
+class _GpuState(NamedTuple):
+    num_devices: int
+    free: Size
+    used: Size
+    total: Size
+
+
+def get_gpu_state() -> _GpuState:
+    """Returns count of available GPUs and size of free memory VRAM"""
     from py3nvml.py3nvml import (
         nvmlInit,
         nvmlShutdown,
@@ -12,13 +23,19 @@ def get_gpu_state():
         nvmlDeviceGetHandleByIndex,
         nvmlDeviceGetMemoryInfo,
     )
-    nvmlInit()
-    indices: Iterable[int]
-    try:
-        indices = map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(','))
-    except KeyError:
-        indices = range(nvmlDeviceGetCount())
-    devices = [nvmlDeviceGetHandleByIndex(i) for i in indices]
-    limit = sum(nvmlDeviceGetMemoryInfo(dev).free for dev in devices)
-    nvmlShutdown()
-    return (limit // 2 ** 20), len(devices)
+    with contextlib.ExitStack() as stack:
+        nvmlInit()
+        stack.callback(nvmlShutdown)
+
+        indices: Sequence[int]
+        devices = os.environ.get('CUDA_VISIBLE_DEVICES')
+        if devices is not None:
+            indices = [int(dev) for dev in devices.split(',')]
+        else:
+            indices = range(nvmlDeviceGetCount())
+
+        handles = (nvmlDeviceGetHandleByIndex(i) for i in indices)
+        infos = (nvmlDeviceGetMemoryInfo(h) for h in handles)
+        stats = [(i.free, i.used, i.total) for i in infos]
+
+    return _GpuState(len(indices), *(Size(sum(s)) for s in zip(*stats)))
