@@ -1,0 +1,42 @@
+[flake8]
+ignore =
+    C101,   # coding magic comment
+    D,      # : flake8-docstrings
+    E800    # : flake8-eradicate
+    I,      # : flake8-isort
+    N812,
+    P101,   # format string contains unindexed parameters
+    P103,   # format string contains unindexed parameters
+    RST902, # failed to parse __all__ entry
+    S,      # : flake8-bandit, flake8-pep3101
+    T001,   # print found
+    T002,   # Python 2.x reserved word print used
+    W503,   # line break before binary operator
+    W504,   # line break after binary operator
+    WPS100, # wrong module name
+    WPS110, # wrong variable name
+    WPS111, # too short name
+    WPS210, # too many local variables
+    WPS220, # too deep nesting
+    WPS221, # line with high Jones Complexity
+    WPS300, # local folder import
+    WPS304, # partial float
+    WPS305, # `f` string
+    WPS306, # class without a base class
+    WPS317, # incorrect multi-line parameters
+    WPS318, # extra indentation
+    WPS319, # bracket in wrong position
+    WPS405, # wrong `for` loop variable definition
+    WPS410, # wrong metadata variable
+    WPS420, # wrong keyword
+    WPS421, # wrong function call
+    WPS425, # boolean non-keyword argument
+    WPS429, # multiple assign targets
+    WPS430, # nested function
+    WPS431, # nested class
+    WPS604, # incorrect node inside `class` body
+    WPS609  # direct magic attribute usage
+
+exclude = .git,__pycache__,build,dist
+max-complexity = 10
+format = ${cyan}%(path)s${reset}:${yellow_bold}%(row)d${reset}:${green_bold}%(col)d${reset}: ${red_bold}%(code)s${reset} %(text)s
