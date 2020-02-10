@@ -6,7 +6,7 @@ import setuptools
 
 setuptools.setup(
     name='glow',
-    version='0.7.1',
+    version='0.8.0',
     url='https://github.com/arquolo/glow',
     author='Paul Maevskikh',
     author_email='arquolo@gmail.com',
