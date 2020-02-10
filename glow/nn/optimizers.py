@@ -5,13 +5,19 @@ from torch.optim import optimizer
 
 
 class RAdam(optimizer.Optimizer):
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), weight_decay=0):
+    def __init__(self,
+                 params,
+                 lr=1e-3,
+                 betas=(0.9, 0.999),
+                 weight_decay=0,
+                 decay_to_sgd=True) -> None:
         self._step = 0
+        self._decay_to_sgd = decay_to_sgd
         defaults = {'lr': lr, 'betas': betas, 'weight_decay': weight_decay}
         super().__init__(params, defaults)
 
     def __getstate__(self):
-        return {**super().__getstate__(), 'step': self._step}
+        return {**super().__getstate__(), '_step': self._step}
 
     def step(self, closure=None):
         loss = None
@@ -20,9 +26,9 @@ class RAdam(optimizer.Optimizer):
 
         self._step += 1
         for group in self.param_groups:
-            n_sma, step_size = self._update_group(group)
+            is_tractable, step_size = self._update_group(group)
             for p in group['params']:
-                self._do_step(p, group, n_sma=n_sma, step_size=step_size)
+                self._do_step(p, group, is_tractable, step_size=step_size)
 
         return loss  # noqa: R504
 
@@ -36,15 +42,16 @@ class RAdam(optimizer.Optimizer):
         n_sma = n_sma_max - 2 * self._step * beta2_t / bias_correction2
 
         # more conservative since it's an approximated value
-        step_size = 1
-        if n_sma >= 5:
-            k = (n_sma - 4) * (n_sma - 2) / n_sma
-            k_max = (n_sma_max - 4) * (n_sma_max - 2) / n_sma_max
-            step_size = ((1 - beta2_t) * k / k_max) ** 0.5
+        # variance is not tractable
+        if n_sma < 5:
+            return False, (1 / bias_correction1)
 
-        return n_sma, (step_size / bias_correction1)
+        k = (n_sma - 4) * (n_sma - 2) / n_sma
+        k_max = (n_sma_max - 4) * (n_sma_max - 2) / n_sma_max
+        step_size = ((1 - beta2_t) * k / k_max) ** 0.5 / bias_correction1
+        return True, step_size
 
-    def _do_step(self, p, group, n_sma, step_size):
+    def _do_step(self, p, group, is_tractable, step_size):
         if p.grad is None:
             return
         grad = p.grad.data
@@ -63,11 +70,10 @@ class RAdam(optimizer.Optimizer):
         exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
 
         if group['weight_decay'] != 0:
-            p.data.add_(-group['weight_decay'] * group['lr'], p.data)
+            p.data.mul_(1 - group['weight_decay'] * group['lr'])
 
-        # more conservative since it's an approximated value
-        if n_sma >= 5:
+        if is_tractable:
             denom = exp_avg_sq.sqrt().add_(1e-8)
             p.data.addcdiv_(-step_size * group['lr'], exp_avg, denom)
-        else:
+        elif self._decay_to_sgd:
             p.data.add_(-step_size * group['lr'], exp_avg)
