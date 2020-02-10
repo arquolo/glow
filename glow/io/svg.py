@@ -1,7 +1,7 @@
 __all__ = ('Svg', )
 
 from pathlib import Path
-from typing import Iterable, Tuple, List
+from typing import Iterable, List, Tuple
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, tostring
 
@@ -62,7 +62,6 @@ class Svg:
         Svg(mask, ['pos', 'neg']).save('sample.svg')
     ```
     """
-
     def __init__(self, mask: np.ndarray, classes: List[str]):
         root = Element('svg', xmlns=_SVG_NS)
         root.append(Element('image'))
@@ -71,14 +70,14 @@ class Svg:
             if uniq == 0:  # skip background
                 continue
             *_, contours, _2 = cv2.findContours(
-                (mask == uniq).astype('u1'), cv2.RETR_CCOMP,
-                cv2.CHAIN_APPROX_TC89_L1
+                (mask == uniq).astype('u1'),
+                cv2.RETR_CCOMP,
+                cv2.CHAIN_APPROX_TC89_L1,
             )
             group = Element('g', {'class': classes[uniq - 1]})
             group.extend(
                 Element('polygon', points=' '.join(map(str, contour.ravel())))
-                for contour in contours if len(contour) >= 3
-            )
+                for contour in contours if len(contour) >= 3)
             root.append(group)
 
         root.append(Element('script', href='main.js'))
@@ -88,8 +87,8 @@ class Svg:
         indent(root)
         self.body = tostring(root, encoding='unicode')
 
-        pattern = f'{{:{max(len(c) for c in classes)}s}}'
-        self.classes = [pattern.format(c) for c in classes]
+        maxlen = max(len(c) for c in classes)
+        self.classes = [f'{c:{maxlen}s}' for c in classes]
 
     def save(self, path: Path) -> None:
         path = Path(path)
@@ -101,11 +100,8 @@ class Svg:
         style = path.parent / 'main.css'
         if not style.exists():
             labels = zip(hsv_colors(len(self.classes)), self.classes)
-            style.write_text(
-                '\n'.join(
-                    f'.{name} {{ stroke: {color} }}' for color, name in labels
-                )
-            )
+            style.write_text('\n'.join(
+                f'.{name} {{ stroke: {color} }}' for color, name in labels))
 
         path.with_suffix('.svg').write_text(self.body)
 

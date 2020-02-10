@@ -1,7 +1,7 @@
 from itertools import islice
 
+import glow
 from tqdm.auto import tqdm
-from glow.core import time_this
 
 
 def iter_fibs():
@@ -11,7 +11,7 @@ def iter_fibs():
         yield cur
 
 
-@time_this
+@glow.time_this
 def fibs(n):
     gen = islice(iter_fibs(), n)
     gen = tqdm(gen)

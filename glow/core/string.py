@@ -1,11 +1,11 @@
 __all__ = ('countable', 'mangle', 'repr_as_obj')
 
-from typing import Counter
+from typing import Callable, Counter, Dict
 
 _names: Counter[str] = Counter()
 
 
-def mangle():
+def mangle() -> Callable[[str], str]:
     """
     Appends number to already seen strings, making them distinct
 
@@ -17,22 +17,22 @@ def mangle():
     >>> mangled('a')
     'a:1'
     """
-    store = Counter()
+    store = Counter[str]()
 
-    def call(name: str):
+    def call(name: str) -> str:
         if name is None:
             return None
 
         seen = store[name]
-        if seen:
-            name = f'{name}:{seen}'
         store[name] += 1
-        return name
+        if not seen:
+            return name
+        return f'{name}:{seen}'
 
     return call
 
 
-def countable():
+def countable() -> Callable[[object], int]:
     """
     Accumulates and enumerates objects. Readable alternative to `id()`.
 
@@ -44,7 +44,7 @@ def countable():
     >>> id_('a')
     0
     """
-    instances = {}
+    instances: Dict[int, int] = {}
     return lambda obj: instances.setdefault(id(obj), len(instances))
 
 

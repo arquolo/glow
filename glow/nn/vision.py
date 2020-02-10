@@ -5,11 +5,11 @@ import weakref
 import cv2
 import numpy as np
 import torch
-from torch.nn import Module
+from torch import nn
 
 
 # TODO: rewrite like `def traced(nn.Module) -> nn.Module`
-class Show(Module):
+class Show(nn.Module):
     """Shows contents of tensors during forward pass"""
     sigmas = 2
 

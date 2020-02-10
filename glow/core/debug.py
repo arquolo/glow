@@ -22,24 +22,23 @@ def _break_on_globe(frame_infos):
 
 def whereami(skip=2):
     frame_infos = _break_on_globe(inspect.stack()[skip:])
-    return ' -> '.join(
-        ':'.join((
-            getattr(inspect.getmodule(info.frame), '__name__', '[root]'),
-            info.function,
-            str(info.lineno),
-        ))
-        for info in list(frame_infos)[::-1]
-    )
+    return ' -> '.join(':'.join((
+        getattr(inspect.getmodule(info.frame), '__name__', '[root]'),
+        info.function,
+        str(info.lineno),
+    )) for info in [*frame_infos][::-1])
 
 
 @wrapt.decorator
 def trace(fn, _, args, kwargs):
-    print(f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
-          flush=True)
+    print(
+        f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
+        flush=True)
     return fn(*args, **kwargs)
 
 
 # TODO: rewrite using unittest.mock
+
 
 def set_trace(obj, seen=None, prefix=None, module=None):
     if isinstance(obj, types.ModuleType):
@@ -80,7 +79,8 @@ def set_trace(obj, seen=None, prefix=None, module=None):
 def trace_module(name):
     wrapt.register_post_import_hook(set_trace, name)
 
-#############################################################################
+
+# ---------------------------------------------------------------------------
 
 
 @wrapt.decorator

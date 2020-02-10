@@ -8,6 +8,7 @@ from inspect import isgetsetdescriptor, ismemberdescriptor
 import wrapt
 
 
+# TODO: replace `wrapt.ObjectProxy` with `int`
 class Size(wrapt.ObjectProxy):
     """Converts value to prefixed string
 
@@ -35,7 +36,6 @@ class Size(wrapt.ObjectProxy):
 
 
 def for_unseen(fn, default=Size):
-    @functools.wraps(fn)
     def wrapper(obj, seen=None):
         if seen is None:
             seen = set()
@@ -46,7 +46,7 @@ def for_unseen(fn, default=Size):
         seen.add(id_)
         return fn(obj, seen)
 
-    return wrapper
+    return functools.update_wrapper(wrapper, fn)
 
 
 @functools.singledispatch
@@ -80,8 +80,7 @@ def sizeof(obj, seen=None) -> Size:
     if hasattr(obj, '__slots__'):
         size += sum((sizeof(getattr(obj, slot, None), seen=seen)
                      for class_ in type(obj).mro()
-                     for slot in getattr(class_, '__slots__', ())),
-                    Size())
+                     for slot in getattr(class_, '__slots__', ())), Size())
     return size
 
 

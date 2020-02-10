@@ -16,7 +16,6 @@ _EPS = torch.finfo(torch.float).eps  # type: ignore
 
 class Confusion(Staged):
     """Confusion Matrix. Returns 2d tensor"""
-
     def __call__(self, pred, true) -> torch.Tensor:
         c, pred, true = to_index(pred, true)
         true = true.view(-1)
@@ -32,7 +31,6 @@ class Confusion(Staged):
 
 class ConfusionGrad(Confusion):
     """Confusion Matrix which can be used for loss functions"""
-
     def __call__(self, pred, true):
         c, pred, true = to_prob(pred, true)
         true = true.view(-1)

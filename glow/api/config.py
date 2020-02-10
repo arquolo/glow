@@ -1,15 +1,17 @@
 __all__ = ('Default', 'patch')
 
-from contextlib import contextmanager, ExitStack
+import contextlib
 from dataclasses import dataclass
+from typing import Any
 from unittest import mock
 
 _DEFAULT = object()
+# TODO: just use collections.ChainMap
 
 
 @dataclass
 class Default:
-    value: object = _DEFAULT
+    value: Any = _DEFAULT
 
     def get_or(self, value):
         if self.value is _DEFAULT:
@@ -17,14 +19,12 @@ class Default:
         return self.value
 
 
-@contextmanager
+@contextlib.contextmanager
 def patch(obj, **kwargs):
-    with ExitStack() as stack:
+    with contextlib.ExitStack() as stack:
         for key, value in kwargs.items():
             proxy = getattr(obj, key)
-            stack.enter_context(
-                mock.patch.object(
-                    *((proxy, 'value') if isinstance(proxy, Default)
-                      else (obj, key)),
-                    value))
+            args = ((proxy, 'value') if isinstance(proxy, Default) else
+                    (obj, key))
+            stack.enter_context(mock.patch.object(*args, value))
         yield

@@ -6,13 +6,15 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass
-from typing import Any, Callable, DefaultDict, Optional
+from typing import Callable, DefaultDict, TypeVar, cast
+
+_F = TypeVar('_F', bound=Callable)
 
 
 @contextlib.contextmanager
-def timer(name: str = 'Task',
-          callback: Optional[Callable[[float], Any]] = None):
+def timer(name: str = 'Task', callback: Callable[[float], object] = None):
     if callback is None:
+
         def callback(duration: float) -> None:
             print(f'{name} done in {duration:.4g} seconds')
 
@@ -36,7 +38,7 @@ class _ThreadInfo:
         self.duration += (duration - self.duration) / self.count
 
 
-def time_this(fn):
+def time_this(fn: _F) -> _F:
     lock = threading.RLock()
     infos = DefaultDict[str, _ThreadInfo](_ThreadInfo)
 
@@ -55,7 +57,6 @@ def time_this(fn):
               f' ({100 * total_time / total_runtime:.2f}% of module),'
               f' threads: {len(infos)}')
 
-    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         with lock:
             info = infos[threading.get_ident()]
@@ -64,5 +65,6 @@ def time_this(fn):
             stack.callback(info.update, time.perf_counter())
             return fn(*args, **kwargs)
 
-    wrapper.finalize = weakref.finalize(fn, finalize, time.perf_counter())
-    return wrapper
+    finalizer = weakref.finalize(fn, finalize, time.perf_counter())
+    wrapper.finalize = finalizer  # type: ignore
+    return cast(_F, functools.update_wrapper(wrapper, fn))

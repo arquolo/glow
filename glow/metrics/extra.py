@@ -18,8 +18,7 @@ def dice(pred, true, macro=False) -> torch.Tensor:
         pred = pred.view(-1)
         tp, t, p = (
             x.bincount(minlength=c).clamp_(1).double()
-            for x in (true[true == pred], true, pred)
-        )
+            for x in (true[true == pred], true, pred))
         return 2 * tp / (t + p)
 
     if macro:

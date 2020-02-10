@@ -10,7 +10,6 @@ import wrapt
 
 class Sound(wrapt.ObjectProxy):
     """Wraps numpy.array to be playable as sound"""
-
     def __init__(self, array: numpy.ndarray, rate=44100):
         assert array.ndim == 2
         assert array.shape[-1] in (1, 2)
@@ -46,7 +45,7 @@ class Sound(wrapt.ObjectProxy):
 
             if len(self.data) > 10 * chunk_size:
                 for offset in range(0, len(self), chunk_size):
-                    stream.write(self[offset: offset + chunk_size].tobytes())
+                    stream.write(self[offset:offset + chunk_size].tobytes())
             else:
                 stream.write(self.tobytes())
 

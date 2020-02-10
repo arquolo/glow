@@ -1,7 +1,7 @@
 from pprint import pprint
 
+import glow
 import numpy as np
-from glow import buffered, mapped, timer, sizeof
 try:
     from matplotlib import pyplot as plt
 except ImportError:
@@ -23,11 +23,11 @@ def test_ipc_speed():
     order = 26
     hops = 5
     stats, sizes = {}, {}
-    for m in [order * hops - 1] + list(range(order * hops))[::-1]:
+    for m in [order * hops - 1] + [*range(order * hops)[::-1]]:
         worker = Worker(2 ** (m / hops))
-        sizes[m / hops] = sizeof(worker)
-        it = mapped(worker, range(10), workers=1, chunk_size=1)
-        with timer(callback=lambda t: stats.__setitem__(m / hops, t)):
+        sizes[m / hops] = glow.sizeof(worker)
+        it = glow.mapped(worker, range(10), workers=1, chunk_size=1)
+        with glow.timer(callback=lambda t: stats.__setitem__(m / hops, t)):
             for _ in it:
                 pass
 
@@ -35,7 +35,7 @@ def test_ipc_speed():
         pprint(stats)
         return
     plt.figure(figsize=(4, 4))
-    plt.plot(list(sizes.values()), list(stats.values()))
+    plt.plot([*sizes.values()], [*stats.values()])
     plt.ylim((0.001, 10))
     plt.ylabel('time')
     plt.xlabel('size of worker')
@@ -70,8 +70,8 @@ def _test_interrupt():
         source(SIZE),
         np.random.randint(2 ** 10, size=SIZE),
     )
-    # sources = map(buffered, sources)
-    res = mapped(do_work, *sources, chunk_size=1, ordered=False)
+    # sources = map(glow.buffered, sources)
+    res = glow.mapped(do_work, *sources, chunk_size=1, ordered=False)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')
@@ -86,17 +86,15 @@ def _test_interrupt():
 
 
 def test_interrupt():
-    ls = _test_interrupt()
-    rs = list(ls)
-    assert set(rs) == set(range(SIZE))
-    # assert rs == list(range(SIZE))
+    rs = [*_test_interrupt()]
+    assert {*rs} == {*range(SIZE)}
+    # assert rs == [*range(SIZE)]
 
 
 def test_interrupt_with_buffer():
-    ls = buffered(_test_interrupt())
-    rs = list(ls)
-    assert set(rs) == set(range(SIZE))
-    # assert rs == list(range(SIZE))
+    rs = [*glow.buffered(_test_interrupt())]
+    assert {*rs} == {*range(SIZE)}
+    # assert rs == [*range(SIZE)]
 
 
 if __name__ == '__main__':

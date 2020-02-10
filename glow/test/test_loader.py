@@ -27,6 +27,6 @@ class Sampler:
 def test_loader():
     loader = make_loader(Dataset(), Sampler(5), chunk_size=0)
     assert len(loader) == 5
-    assert torch.as_tensor(list(loader)).tolist() == [[0], [1], [2], [3], [4]]
+    assert torch.as_tensor([*loader]).tolist() == [[0], [1], [2], [3], [4]]
     assert len(loader) == 5
-    assert torch.as_tensor(list(loader)).tolist() == [[5], [6], [7], [8], [9]]
+    assert torch.as_tensor([*loader]).tolist() == [[5], [6], [7], [8], [9]]

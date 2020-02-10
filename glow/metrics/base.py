@@ -2,7 +2,7 @@ __all__ = (
     'Metric',
     'Lambda',
     'Staged',
-    'batch_averaged',
+    'compose',
     'to_index',
     'to_prob',
 )
@@ -25,7 +25,6 @@ class _MetricFn(Protocol):
 
 class Metric(abc.ABC):
     """Base class for metric"""
-
     @abc.abstractmethod
     def __call__(self, pred, true) -> torch.Tensor:
         raise NotImplementedError
@@ -102,7 +101,7 @@ def to_prob(pred, true) -> Tuple[int, torch.LongTensor, torch.Tensor]:
 
 
 @coroutine
-def batch_averaged(
+def _batch_averaged(
     fn: Metric
 ) -> Generator[Dict[str, torch.Tensor], Sequence[torch.Tensor], None]:
     assert isinstance(fn, Metric)
@@ -112,3 +111,13 @@ def batch_averaged(
     for step in itertools.count(2):
         args = yield fn.collect(state)
         state += (torch.as_tensor(fn(*args)) - state) / step
+
+
+@coroutine
+def compose(
+    *fns: Metric
+) -> Generator[Dict[str, torch.Tensor], Sequence[torch.Tensor], None]:
+    updates = *map(_batch_averaged, fns),
+    args = yield {}
+    while True:
+        args = yield {k: v for u in updates for k, v in u.send(args).items()}

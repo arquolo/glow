@@ -1,5 +1,5 @@
 import pytest
-from glow.api import Default, patch
+from glow import api
 
 
 class Factory:
@@ -13,7 +13,7 @@ class Factory:
 
 
 class FactoryPH:
-    param = Default()
+    param = api.Default()
 
     @classmethod
     def new(cls, param=None):
@@ -23,19 +23,21 @@ class FactoryPH:
 
 
 @pytest.mark.parametrize('test_cls', [Factory, FactoryPH])
-@pytest.mark.parametrize(
-    'param,expected', [(None, 'default'), ('custom', 'custom')]
-)
+@pytest.mark.parametrize('param,expected', [
+    (None, 'default'),
+    ('custom', 'custom'),
+])
 def test_default(test_cls, param, expected):
     assert test_cls.new(param=param) == expected
 
 
 @pytest.mark.parametrize('test_cls', [Factory, FactoryPH])
-@pytest.mark.parametrize(
-    'param,expected', [(None, 'override'), ('custom', 'custom')]
-)
+@pytest.mark.parametrize('param,expected', [
+    (None, 'override'),
+    ('custom', 'custom'),
+])
 def test_override_default(test_cls, param, expected):
-    with patch(test_cls, param='override'):
+    with api.patch(test_cls, param='override'):
         assert test_cls.new(param=param) == expected
 
 

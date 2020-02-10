@@ -4,16 +4,16 @@ import cv2
 import numpy as np
 from numba import jit
 
-
 _MATRICES = MappingProxyType({
     key: cv2.normalize(np.float32(mat), None, norm_type=cv2.NORM_L1)
     for key, mat in {
-        'jarvis-judice-ninke':
-            [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]],
-        'sierra':
-            [[0, 0, 0, 5, 3], [2, 4, 5, 4, 2], [0, 2, 3, 2, 0]],
-        'stucki':
-            [[0, 0, 0, 8, 4], [2, 4, 8, 4, 2], [1, 2, 4, 2, 1]],
+        'jarvis-judice-ninke': [
+            [0, 0, 0, 7, 5],
+            [3, 5, 7, 5, 3],
+            [1, 3, 5, 3, 1],
+        ],
+        'sierra': [[0, 0, 0, 5, 3], [2, 4, 5, 4, 2], [0, 2, 3, 2, 0]],
+        'stucki': [[0, 0, 0, 8, 4], [2, 4, 8, 4, 2], [1, 2, 4, 2, 1]],
     }.items()
 })
 
@@ -41,7 +41,7 @@ def dither(image, bits=3, kind='stucki'):
             old = image[y, x]
             new = np.floor(old / quant) * quant
             delta = ((old - new) * mat).astype(image.dtype)
-            image[y: y + 3, x - 2: x + 3] += delta
+            image[y:y + 3, x - 2:x + 3] += delta
             image[y, x] = new
 
     image = image[:-2, 2:-2]
@@ -49,13 +49,15 @@ def dither(image, bits=3, kind='stucki'):
 
 
 def bit_noise(image, keep=4, count=8, seed=None):
-    rng = np.random.RandomState(seed)
+    rg = np.random.default_rng(seed)
     residual = image.copy()
     out = np.zeros_like(image)
     for n in range(1, 1 + count):
-        thres = .5 ** n
+        thres = 0.5 ** n
         plane = (residual >= thres).astype(residual.dtype) * thres
-        out += (plane if n <= keep
-                else rng.choice([0, thres], size=image.shape))
+        if n <= keep:
+            out += plane
+        else:
+            out += rg.choice([0, thres], size=image.shape)
         residual -= plane
     return out

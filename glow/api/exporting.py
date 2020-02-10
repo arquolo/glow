@@ -44,10 +44,8 @@ def export(obj):
 
     __all__ = namespace.setdefault('__all__', [])
     if name in __all__ or name in namespace:
-        raise ExportError(
-            f'Name "{name}" is reserved in <{parent}>' +
-            f' by <{namespace[name].__module__}:{name}>',
-        )
+        raise ExportError(f'Name "{name}" is reserved in <{parent}>'
+                          f' by <{namespace[name].__module__}:{name}>')
 
     namespace[name] = obj
     __all__.append(name)
