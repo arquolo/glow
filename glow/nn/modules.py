@@ -51,3 +51,13 @@ class Noise(nn.Module):
 
     def extra_repr(self):
         return f'std={self.std}'
+
+
+class Swish(nn.Module):
+    def forward(self, x):
+        return x.mul(x.sigmoid())
+
+
+class Mish(nn.Module):
+    def forward(self, x):
+        return x.mul(functional.softplus(x).tanh())
