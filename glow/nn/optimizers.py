@@ -51,29 +51,29 @@ class RAdam(optimizer.Optimizer):
         step_size = ((1 - beta2_t) * k / k_max) ** 0.5 / bias_correction1
         return True, step_size
 
+    @torch.no_grad()
     def _do_step(self, p, group, is_tractable, step_size):
         if p.grad is None:
             return
-        grad = p.grad.data
-        if grad.is_sparse:
+        if p.grad.is_sparse:
             raise RuntimeError('RAdam does not support sparse gradients')
 
         state: dict = self.state[p]
         if not state:
-            state['exp_avg'] = torch.zeros_like(p.data)
-            state['exp_avg_sq'] = torch.zeros_like(p.data)
+            state['exp_avg'] = torch.zeros_like(p)
+            state['exp_avg_sq'] = torch.zeros_like(p)
 
         exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
         beta1, beta2 = group['betas']
 
-        exp_avg.mul_(beta1).add_(1 - beta1, grad)
-        exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
+        exp_avg.mul_(beta1).add_(1 - beta1, p.grad)
+        exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, p.grad, p.grad)
 
         if group['weight_decay'] != 0:
             p.data.mul_(1 - group['weight_decay'] * group['lr'])
 
         if is_tractable:
             denom = exp_avg_sq.sqrt().add_(1e-8)
-            p.data.addcdiv_(-step_size * group['lr'], exp_avg, denom)
+            p.addcdiv_(-step_size * group['lr'], exp_avg, denom)
         elif self._decay_to_sgd:
-            p.data.add_(-step_size * group['lr'], exp_avg)
+            p.add_(-step_size * group['lr'], exp_avg)

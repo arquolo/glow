@@ -30,7 +30,7 @@ __all__ = ('amp_init', 'amp_init_opt')
 import functools
 import warnings
 from collections import abc
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 import numpy as np
 import torch
@@ -80,12 +80,9 @@ class OptimizerWrapper:
         dst = []
         _apply({k: self.__dict__[k] for k in state_dict}, dst.append)
 
-        def copy_tensor(new_data):
-            old = dst.pop(0)
-            old.data.copy_(new_data.data)
-            return old
-
-        self.__dict__.update(_apply(state_dict, copy_tensor))
+        with torch.no_grad():
+            self.__dict__.update(
+                _apply(state_dict, lambda src: dst.pop(0).copy_(src)))
 
     def __enter__(self) -> 'OptimizerWrapper':
         self.zero_grad()
@@ -122,35 +119,36 @@ class _MixedOptimizer(OptimizerWrapper):
     def zero_grad(self) -> None:
         self._pending_steps = 0
 
-    def _grad_check(self) -> bool:
-        all_finite = (
-            torch.isfinite(p.grad).all() for p in self._mix_to_full
-            if p.dtype == torch.half and p.grad is not None)
-        # return bool(torch.stack([*all_finite]).all())
-        return bool(next(all_finite, True))
+    def _do_grad_transfer(self) -> bool:
+        checks: List[torch.Tensor] = []
+        grads: Dict[nn.Parameter, torch.Tensor] = {}
 
-    def _do_backward(self, loss: torch.Tensor) -> bool:
-        # TODO: add break here - check isfinite(loss), else restore weights
+        for p, p32 in self._mix_to_full.items():
+            if p.grad is None:
+                continue
 
-        retain_graph = not self._allow_skip
-        (loss * self._scale).backward(retain_graph=retain_graph)
-        if not self._grad_check():
+            # delay check
+            if p.dtype == torch.half:
+                checks.append(torch.isfinite(p.grad).all())
+            if p32.grad is None:
+                p32.grad = torch.empty_like(p.grad, dtype=torch.float32)
+
+            # transfer grads from fp16/fp32 to fp32 with scaling
+            if not self._pending_steps:
+                torch.mul(p.grad, 1 / self._scale, out=p32.grad)
+            else:
+                grads[p32] = p32.grad.add(1 / self._scale, p.grad)
+
+        # now check
+        if not torch.stack(checks).all():
             # nan/inf catched in fp16 grads, reduce scale
             self._step = 0
             self._scale /= 2
             return False
 
-        # transfer grads from fp16/fp32 to fp32 parameters, and scale them back
-        for p, p32 in self._mix_to_full.items():
-            if p.grad is None:
-                continue
-            if p32.grad is None:
-                p32.grad = torch.empty_like(p.grad, dtype=torch.float32)
-
-            if not self._pending_steps:
-                torch.mul(p.grad.data, 1 / self._scale, out=p32.grad.data)
-            else:
-                p32.grad.data.add_(1 / self._scale, p.grad.data)
+        for p32, grad in grads.items():
+            if p32.grad is not None:
+                p32.grad.set_(grad)
 
         self._step += 1
         self._pending_steps += 1
@@ -161,6 +159,8 @@ class _MixedOptimizer(OptimizerWrapper):
         return True
 
     def backward(self, loss: torch.Tensor) -> None:
+        retain_graph = not self._allow_skip
+
         while self._scale > _MIN_SCALE:
             # zero local grads
             for p in self._mix_to_full:
@@ -168,9 +168,12 @@ class _MixedOptimizer(OptimizerWrapper):
                     p.grad.detach_().zero_()
 
             # collect grads
-            is_ok = self._do_backward(loss)
-            if is_ok or self._allow_skip:
-                return
+            (loss * self._scale).backward(retain_graph=retain_graph)
+
+            # transfer and check for correctness
+            with torch.no_grad():
+                if self._do_grad_transfer() or self._allow_skip:
+                    return
 
         raise OverflowError(f'Cannot decrease scale below {_MIN_SCALE}')
 
@@ -178,8 +181,9 @@ class _MixedOptimizer(OptimizerWrapper):
         if not self._pending_steps:
             return
         super().step()
-        for p, p32 in self._mix_to_full.items():  # update fp16 parameters
-            p.data.copy_(p32.data)
+        with torch.no_grad():
+            for p, p32 in self._mix_to_full.items():  # update fp16 parameters
+                p.copy_(p32)
 
 
 def _to(_, xs, device, dtype):
