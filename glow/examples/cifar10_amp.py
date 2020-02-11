@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 DEVICE = torch.device('cuda')
 
 torch.backends.cudnn.benchmark = True  # type: ignore
-gnn.lock_seed(42)
+glow.lock_seed(42)
 
 
 def train(net: nn.Module, loader, optim, criterion):

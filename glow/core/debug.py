@@ -1,8 +1,9 @@
-__all__ = ('coroutine', 'summary', 'trace', 'trace_module')
+__all__ = ('coroutine', 'lock_seed', 'summary', 'trace', 'trace_module')
 
 import contextlib
 import functools
 import inspect
+import random
 import threading
 import types
 from typing import Callable, Counter, Generator, TypeVar, cast
@@ -11,6 +12,7 @@ import wrapt
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable[..., Generator])
+_INT_MAX = 2 ** 32
 
 
 def _break_on_globe(frame_infos):
@@ -120,3 +122,14 @@ def coroutine(fn: _F) -> _F:
         return coro
 
     return cast(_F, functools.update_wrapper(wrapper, fn))
+
+
+# ---------------------------------------------------------------------------
+
+
+def lock_seed(seed: int) -> None:
+    """Set seed for all modules: random/numpy/torch"""
+    random.seed(seed)
+    np_seed, torch_seed = (random.randrange(_INT_MAX) for _ in range(2))
+    wrapt.when_imported('numpy')(lambda numpy: numpy.random.seed(np_seed))
+    wrapt.when_imported('torch')(lambda torch: torch.manual_seed(torch_seed))
