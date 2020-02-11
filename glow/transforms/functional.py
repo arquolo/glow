@@ -1,3 +1,5 @@
+__all__ = ('bit_noise', 'dither')
+
 from types import MappingProxyType
 
 import cv2
