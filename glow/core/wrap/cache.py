@@ -142,7 +142,7 @@ def _memoize(cache: _CacheBase, fn: _F) -> _F:
 def memoize(capacity: int, policy: _Policy = 'raw') -> Callable[[_F], _F]:
     """Returns dict-cache decorator.
 
-    Arguments:
+    Parameters:
       - `capacity` - size in bytes
       - `policy` - eviction policy, one of (`"raw"`, `"lru"`, `"mru"`)
 

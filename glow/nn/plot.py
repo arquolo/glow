@@ -2,7 +2,7 @@ __all__ = ('plot_model', )
 
 import contextlib
 import functools
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import graphviz
 import torch
@@ -12,7 +12,7 @@ from torch import nn
 from ..core import Size, mangle
 
 
-def id_(x):
+def id_(x: Any) -> str:
     if hasattr(x, 'variable'):
         x = x.variable
     return hex(x.storage().data_ptr() if torch.is_tensor(x) else id(x))
@@ -80,7 +80,7 @@ class Builder:
             label = (name.partition if self.flat else name.rpartition)('.')[-1]
         except KeyError:
             root = self.stack[0]  # unnamed, that's why external
-        label += hex(var.storage().data_ptr()) + '\n'
+        label += f'{var.storage().data_ptr():x}\n'
 
         color = 'yellow' if id(var) in self.inputs else 'lightblue'
         root.node(id_(grad), label + sized(var), fillcolor=color)
