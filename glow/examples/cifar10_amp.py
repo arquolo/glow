@@ -104,6 +104,7 @@ parser.add_argument(
     'root', type=pathlib.Path, help='location to store dataset')
 parser.add_argument('--batch-size', type=int, default=4, help='train batch')
 parser.add_argument('--epochs', type=int, default=12, help='count of epochs')
+parser.add_argument('--steps-per-epoch', type=int, help='steps per epoch')
 parser.add_argument('--width', type=int, default=32, help='width of network')
 parser.add_argument(
     '--fp16', action='store_true', help='enable mixed precision mode')
@@ -111,7 +112,8 @@ parser.add_argument('--no-plot', action='store_true', help='disable plot')
 
 args = parser.parse_args()
 
-epoch_len = 8000 // args.batch_size
+epoch_len = (8000 // args.batch_size if args.steps_per_epoch is None else
+             args.steps_per_epoch)
 sample_size = args.epochs * epoch_len * args.batch_size
 
 ds = CIFAR10(args.root / 'cifar10', transform=ToTensor(), download=True)
