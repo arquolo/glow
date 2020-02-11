@@ -1,6 +1,8 @@
 __all__ = (
     'bit_noise',
+    'cutout',
     'dither',
+    'elastic',
     'Compose',
     'Transform',
 )
@@ -9,8 +11,8 @@ from types import MappingProxyType
 from typing import Tuple
 
 import cv2
+import numba
 import numpy as np
-from numba import jit
 from typing_extensions import Literal, Protocol
 
 _MATRICES = MappingProxyType({
@@ -48,7 +50,7 @@ class Compose:
         return args
 
 
-@jit
+@numba.jit
 def dither(image: np.ndarray,
            *_,
            rg: np.random.Generator = None,
@@ -98,3 +100,53 @@ def bit_noise(image: np.ndarray,
             out += rg.choice([0, thres], size=image.shape)
         residual -= plane
     return out,
+
+
+def elastic(image: np.ndarray,
+            mask: np.ndarray,
+            *_,
+            rg: np.random.Generator,
+            scale: float = 1,
+            sigma: float = 50,
+            interp=cv2.INTER_LINEAR,
+            border=cv2.BORDER_REFLECT_101) -> Tuple[np.ndarray, ...]:
+    """Elastic deformation of image
+
+    Parameters:
+      - `scale` - max offset for each pixel
+      - `sigma` - size of gaussian kernel
+    """
+    offsets = rg.random((2, *image.shape[:2]), dtype='f4')
+    offsets *= (2 * scale)
+    offsets -= scale
+
+    for dim, (off, size) in enumerate(zip(offsets, image.shape[:2])):
+        shape = np.where(np.arange(2) == dim, size, 1)
+        off += np.arange(size).reshape(shape)
+        cv2.GaussianBlur(off, (17, 17), sigma, dst=off)
+
+    return tuple(
+        cv2.remap(m, *offsets[::-1], interp_, borderMode=border)
+        for m, interp_ in ((image, interp), (mask, cv2.INTER_NEAREST)))
+
+
+def cutout(image: np.ndarray,
+           *_,
+           rg: np.random.Generator,
+           max_holes=80,
+           size=8,
+           fill_value=0) -> Tuple[np.ndarray]:
+    num_holes = rg.integers(max_holes)
+    if not num_holes:
+        return image,
+
+    anchors = rg.integers(0, image.shape[:2], size=(num_holes, 2))
+
+    # [N, dims, (min, max)]
+    holes = anchors[:, :, None] + [-size // 2, size // 2]
+    holes = holes.clip(0, np.asarray(image.shape[:2])[:, None])
+
+    image = image.copy()
+    for (y0, y1), (x0, x1) in holes:
+        image[y0:y1, x0:x1] = fill_value
+    return image,
