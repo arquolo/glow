@@ -27,7 +27,7 @@ def as_tuple(xs):
 
 
 def sized(var: torch.Tensor):
-    if sum(1 for s in var.shape if s != 1) <= 1:
+    if max(var.shape) == var.numel():
         return f'{tuple(var.shape)}'
     return f'{tuple(var.shape)}\n{Size(var.numel())}'
 
