@@ -73,6 +73,7 @@ def dither(image: np.ndarray,
            bits: int = 3,
            kind: _DitherKind = 'stucki') -> Tuple[np.ndarray, ...]:
     mat = _MATRICES[kind]
+    assert image.dtype == 'u1'
     if image.ndim == 3:
         mat = mat[..., None]
         channel_pad = [(0, 0)]
@@ -87,7 +88,9 @@ def dither(image: np.ndarray,
     else:
         max_value = 1
     quant = max_value / 2 ** bits
-    return _dither(image, mat, quant).clip(0, max_value - quant).astype(dtype),
+
+    image = _dither(image, mat, quant)
+    return image.clip(0, max_value - quant).astype(dtype),
 
 
 def bit_noise(image: np.ndarray,
@@ -137,10 +140,6 @@ def elastic(image: np.ndarray,
         return image,
     mask = cv2.remap(mask, *offsets, cv2.INTER_NEAREST, borderMode=border)
     return image, mask
-
-    return tuple(
-        cv2.remap(m, *offsets, interp_, borderMode=border)
-        for m, interp_ in ((image, interp), (mask, cv2.INTER_NEAREST)))
 
 
 def cutout(image: np.ndarray,
