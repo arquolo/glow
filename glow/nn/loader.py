@@ -50,11 +50,7 @@ def make_loader(
     @repeatable(hint=lambda: size)
     def loop():
         samples = mapped(
-            getter,
-            sampler,
-            chunk_size=chunk_size,
-            workers=workers,
-        )
+            getter, sampler, chunk_size=chunk_size, workers=workers)
         return mapped(_collate_fn, chunked(samples, batch_size), workers=0)
 
     return loop()

@@ -112,8 +112,8 @@ parser.add_argument('--no-plot', action='store_true', help='disable plot')
 
 args = parser.parse_args()
 
-epoch_len = (8000 // args.batch_size if args.steps_per_epoch is None else
-             args.steps_per_epoch)
+epoch_len = (8000 // args.batch_size
+             if args.steps_per_epoch is None else args.steps_per_epoch)
 sample_size = args.epochs * epoch_len * args.batch_size
 
 ds = CIFAR10(args.root / 'cifar10', transform=ToTensor(), download=True)
