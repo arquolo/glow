@@ -2,7 +2,7 @@ __all__ = ('as_sized', 'repeatable')
 
 import functools
 from itertools import islice
-from typing import Callable, Iterable, Iterator, Sized, TypeVar, overload
+from typing import Callable, Iterable, Iterator, TypeVar, overload
 
 from typing_extensions import Protocol
 
@@ -12,8 +12,12 @@ _T_co = TypeVar('_T_co', covariant=True)
 _G = TypeVar('_G', bound=Callable)
 
 
-class SizedIterable(Iterable[_T_co], Sized, Protocol):
-    ...
+class SizedIterable(Protocol[_T_co]):
+    def __iter__(self) -> Iterator[_T_co]:
+        ...
+
+    def __len__(self) -> int:
+        ...
 
 
 class SizedIter(islice):  # type: ignore
