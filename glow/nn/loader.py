@@ -32,10 +32,10 @@ def make_loader(
     Parameters:
       - `batch_size` - size of batch
         (default: `1`)
-      - `chunk_size` - size of chunk to pass for each worker
+      - `chunk_size` - size of chunk to pass for each process worker
         If `0`, threads are used
         (default: same as `batch_size`)
-      - `workers` - count of workers
+      - `workers` - count of worker threads/processes
         (default: same as `os.cpu_count()`)
     """
     if sampler is None:

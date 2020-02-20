@@ -4,8 +4,8 @@ import argparse
 import functools
 import threading
 import weakref
-from typing import (Callable, Counter, Dict, Generic, MutableMapping, Type,
-                    TypeVar, cast)
+from typing import (Callable, Counter, Dict, Generic, Hashable, MutableMapping,
+                    Type, TypeVar, cast)
 
 from typing_extensions import Literal
 
@@ -15,6 +15,7 @@ from .concurrency import interpreter_lock
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
 _Policy = Literal['raw', 'lru', 'mru']
+_KeyFn = Callable[..., Hashable]
 
 
 class Record(Generic[_T]):
@@ -121,9 +122,9 @@ class _MruCache(_LruCache[_T]):
     drop_recent = True
 
 
-def _memoize(cache: _CacheBase, fn: _F) -> _F:
+def _memoize(cache: _CacheBase, key_fn: _KeyFn, fn: _F) -> _F:
     def wrapper(*args, **kwargs):
-        key = f'{fn}{args}{kwargs}'
+        key = key_fn(*args, **kwargs)
         try:
             with cache.lock:
                 value = cache[key]
@@ -139,7 +140,9 @@ def _memoize(cache: _CacheBase, fn: _F) -> _F:
     return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
-def memoize(capacity: int, policy: _Policy = 'raw') -> Callable[[_F], _F]:
+def memoize(capacity: int,
+            policy: _Policy = 'raw',
+            key_fn: _KeyFn = None) -> Callable[[_F], _F]:
     """Returns dict-cache decorator.
 
     Parameters:
@@ -161,5 +164,10 @@ def memoize(capacity: int, policy: _Policy = 'raw') -> Callable[[_F], _F]:
         raise ValueError(
             f'Unknown policy: "{policy}". Only "{set(caches)}" are available')
 
-    res = functools.partial(_memoize, cache_cls(capacity))
+    if key_fn is None:
+
+        def key_fn(*args, **kwargs) -> str:
+            return f'{args}{kwargs}'
+
+    res = functools.partial(_memoize, cache_cls(capacity), key_fn)
     return cast(rtype, res)

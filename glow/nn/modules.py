@@ -54,7 +54,7 @@ class Noise(nn.Module):
 
 
 class _ModuleBase(nn.Module):
-    class _AutoFn(torch.autograd.Function):
+    class _AutoFn(torch.autograd.Function):  # type: ignore
         @classmethod
         def forward(cls, ctx, x):
             ctx.save_for_backward(x)

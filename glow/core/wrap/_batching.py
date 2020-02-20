@@ -13,11 +13,11 @@ from typing_extensions import Protocol
 
 from .reusable import make_loop
 
-_T_co = TypeVar('_T_co', covariant=True)
+_T = TypeVar('_T')
 
 
-class _BatchFn(Protocol[_T_co]):
-    def __call__(self, __keys: Iterable[Hashable]) -> Iterable[_T_co]:
+class _BatchFn(Protocol[_T]):
+    def __call__(self, __keys: Iterable[Hashable]) -> List[_T]:
         ...
 
 
@@ -44,8 +44,6 @@ def _dispatch(fn: _BatchFn, cache: Dict[Hashable, object],
             l.future.set_exception(exc)
 
 
-_B = TypeVar('_B', bound=_BatchFn)
-
 # ------------------------------ asyncio-based ------------------------------
 
 
@@ -55,7 +53,7 @@ class _Loader:
     _cache: Dict[Hashable, asyncio.Future] = field(default_factory=dict)
     _queue: List[_Entry] = field(default_factory=list)
 
-    async def load_many(self, keys: Iterable[Hashable]) -> Iterable:
+    async def load_many(self, keys: Iterable[Hashable]) -> List:
         return await asyncio.gather(*map(self.load, keys))
 
     def load(self, key: Hashable) -> asyncio.Future:
@@ -73,35 +71,39 @@ class _Loader:
         return future
 
 
-def batched_async(fn: _B) -> _B:
+def batched_async(fn: _BatchFn[_T]) -> _BatchFn[_T]:
     assert callable(fn)
     ul = _Loader(fn)
 
-    def wrapper(keys: Iterable[Hashable]) -> Iterable:
+    def wrapper(keys: Iterable[Hashable]) -> List[_T]:
         coro = ul.load_many(keys)
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
     loop = make_loop()
     wrapper.cache = ul._cache  # type: ignore
-    return cast(_B, functools.update_wrapper(wrapper, fn))
+    return cast(_BatchFn[_T], functools.update_wrapper(wrapper, fn))
 
 
 # ------------------------- concurrent-future-based -------------------------
 
 
-def batched(fn: _B) -> _B:
-    """Applies `fn` to not-seen-before items in batch"""
+def batched(fn: _BatchFn[_T]) -> _BatchFn[_T]:
+    """Applies `fn` to not-seen-before items in batch
+
+    `fn` should have signature: `def (Iterable[Hashable]) -> List`
+    """
     assert callable(fn)
     lock = threading.RLock()
-    cache: Dict[Hashable, cf.Future] = {}
+    cache: Dict[Hashable, 'cf.Future[_T]'] = {}
     queue: List[_Entry] = []
 
-    def wrapper(keys: Iterable[Hashable]) -> Iterable:
+    def wrapper(keys: Iterable[Hashable]) -> List[_T]:
         with contextlib.ExitStack() as stack:
             futs = [_resolve(stack, key) for key in keys]
         return [fut.result() for fut in futs]
 
-    def _resolve(stack: contextlib.ExitStack, key: Hashable) -> cf.Future:
+    def _resolve(stack: contextlib.ExitStack,
+                 key: Hashable) -> 'cf.Future[_T]':
         with lock:
             result = cache.get(key)
             if result is not None:
@@ -115,4 +117,4 @@ def batched(fn: _B) -> _B:
         return future
 
     wrapper.cache = cache  # type: ignore
-    return cast(_B, functools.update_wrapper(wrapper, fn))
+    return cast(_BatchFn[_T], functools.update_wrapper(wrapper, fn))

@@ -59,8 +59,7 @@ def sizeof(obj, seen=None) -> Size:
     [PySize](https://github.com/bosswissam/pysize/blob/master/pysize.py)
     """
     size = Size(sys.getsizeof(obj))
-
-    if isinstance(obj, (str, bytes, bytearray)):
+    if isinstance(obj, (str, bytes, bytearray, Size)):
         return size
 
     # protection from self-referencing
@@ -89,7 +88,9 @@ def _numpy(numpy):
     @sizeof.register(numpy.ndarray)
     @for_unseen
     def _sizeof(obj, seen=None) -> Size:
-        return Size(max(sys.getsizeof(obj), obj.nbytes))
+        if obj.base is not None:
+            return Size(sys.getsizeof(obj.base))
+        return Size(sys.getsizeof(obj))
 
 
 @wrapt.when_imported('torch')

@@ -22,23 +22,30 @@ class Worker:
 def test_ipc_speed():
     order = 26
     hops = 5
+    loops = 10
     stats, sizes = {}, {}
     for m in [order * hops - 1] + [*range(order * hops)[::-1]]:
         worker = Worker(2 ** (m / hops))
         sizes[m / hops] = glow.sizeof(worker)
-        it = glow.mapped(worker, range(10), workers=1, chunk_size=1)
-        with glow.timer(callback=lambda t: stats.__setitem__(m / hops, t)):
+        it = glow.mapped(worker, range(loops), workers=1, chunk_size=1)
+        with glow.timer(
+                callback=lambda t: stats.__setitem__(m / hops, t / loops)):
             for _ in it:
                 pass
 
     if plt is None:
         pprint(stats)
         return
+    print(
+        'max bytes/s:',
+        glow.Size((np.asarray([*sizes.values()]) /
+                   np.asarray([*stats.values()])).max()))
     plt.figure(figsize=(4, 4))
-    plt.plot([*sizes.values()], [*stats.values()])
-    plt.ylim((0.001, 10))
-    plt.ylabel('time')
-    plt.xlabel('size of worker')
+    plt.plot([*sizes.values()],
+             np.asarray([*sizes.values()]) / np.asarray([*stats.values()]))
+    plt.ylim((1, 1e12))
+    plt.ylabel('bytes/s')
+    plt.xlabel('size')
     plt.loglog()
     plt.show()
 
