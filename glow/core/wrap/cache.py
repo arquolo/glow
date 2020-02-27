@@ -130,7 +130,11 @@ def _memoize(cache: _CacheBase, key_fn: _KeyFn, fn: _F) -> _F:
                 value = cache[key]
                 cache.stats.hits += 1
         except KeyError:
-            value = fn(*args, **kwargs)
+            try:
+                value = fn(*args, **kwargs)
+            except BaseException as exc:
+                exc.__context__ = None
+                raise
             with cache.lock:
                 cache.stats.misses += 1
                 cache[key] = value
