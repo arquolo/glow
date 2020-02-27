@@ -1,5 +1,6 @@
 __all__ = ('sizeof', 'Size')
 
+import enum
 import sys
 import functools
 from collections import abc
@@ -36,6 +37,7 @@ class Size(wrapt.ObjectProxy):
 
 
 def for_unseen(fn, default=Size):
+    """protection from self-referencing"""
     def wrapper(obj, seen=None):
         if seen is None:
             seen = set()
@@ -59,10 +61,9 @@ def sizeof(obj, seen=None) -> Size:
     [PySize](https://github.com/bosswissam/pysize/blob/master/pysize.py)
     """
     size = Size(sys.getsizeof(obj))
-    if isinstance(obj, (str, bytes, bytearray, Size)):
+    if isinstance(obj, (str, bytes, bytearray, Size, enum.Enum)):
         return size
 
-    # protection from self-referencing
     if hasattr(obj, '__dict__'):
         for d in (vars(cl)['__dict__']
                   for cl in obj.__class__.__mro__ if '__dict__' in vars(cl)):
