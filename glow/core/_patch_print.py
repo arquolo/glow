@@ -18,7 +18,6 @@ def locked_print(*args, **kwargs):
         _print(*args, **kwargs)
 
 
-@wrapt.when_imported('tqdm')
 def patch_print(tqdm: Any) -> None:
     def new_print(*args, sep=' ', end='\n', file=None, **kwargs) -> None:
         tqdm.tqdm.write(sep.join(map(str, args)), end=end, file=file)
@@ -27,3 +26,4 @@ def patch_print(tqdm: Any) -> None:
 
 
 builtins.print = locked_print
+wrapt.register_post_import_hook(patch_print, 'tqdm')
