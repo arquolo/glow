@@ -23,7 +23,6 @@ if sys.version_info >= (3, 8):
 else:
     import pickle5 as pickle
 
-GC_TIMEOUT = 10
 dispatch_table_patches: Dict[type, Callable] = {}
 loky.set_loky_pickler(pickle.__name__)
 
@@ -124,10 +123,10 @@ _LOCK = threading.RLock()
 # _BOOST = True
 _BOOST = False
 
-from .wrap.cache import memoize
+# from .wrap.cache import memoize
 
 
-@memoize(100_000_000, policy='lru', key_fn=id)
+# @memoize(100_000_000, policy='lru', key_fn=id)
 def _np_reduce(arr):
     uid = id(arr)
     with memoryview(arr) as m:
