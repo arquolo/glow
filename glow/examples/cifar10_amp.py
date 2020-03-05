@@ -127,8 +127,8 @@ def sampler():
 
 
 loader = gnn.make_loader(
-    ds, sampler(), batch_size=args.batch_size, chunk_size=0)
-val_loader = gnn.make_loader(ds_val, batch_size=100, chunk_size=0)
+    ds, sampler(), batch_size=args.batch_size, multiprocessing=False)
+val_loader = gnn.make_loader(ds_val, batch_size=100, multiprocessing=False)
 
 
 def collect(metrics, pbar, outputs):

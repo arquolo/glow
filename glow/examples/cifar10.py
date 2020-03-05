@@ -107,8 +107,8 @@ def main(root: pathlib.Path, batch_size: int, width: int, epochs: int):
         return torch.randperm(len(tset))
 
     tload = gnn.make_loader(
-        tset, sampler(), batch_size=batch_size, chunk_size=0)
-    vload = gnn.make_loader(vset, batch_size=200, chunk_size=0)
+        tset, sampler(), batch_size=batch_size, multiprocessing=False)
+    vload = gnn.make_loader(vset, batch_size=200, multiprocessing=False)
 
     # net = make_model_default()
     net = make_model_new(init=width)
