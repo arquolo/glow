@@ -9,5 +9,6 @@
 /*.egg-info
 
 *.py[cod]
+*.dll
 *$py.class
 *.cprof

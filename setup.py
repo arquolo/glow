@@ -1,51 +1,59 @@
 #!/bin/python3
 
+import io
+import os
 from pathlib import Path
+from zipfile import ZipFile
+from urllib.request import urlopen
 
 import setuptools
+from setuptools.command.develop import develop
+from setuptools.command.install import install
 
-setuptools.setup(
-    name='glow',
-    version='0.8.4',
-    url='https://github.com/arquolo/glow',
-    author='Paul Maevskikh',
-    author_email='arquolo@gmail.com',
-    description='Toolset for model training and creation of pipelines',
-    long_description=Path('README.md').read_text(),
-    long_description_content_type='text/markdown',
-    classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
-    ],
-    packages=setuptools.find_packages(exclude=['glow.test']),
-    python_requires='>=3.6',
-    install_requires=[
-        "dataclasses ; python_version<'3.7'",
-        "pickle5 ; python_version<'3.8'",
-        'loky',
-        'numpy>=1.17',
-        'psutil',
-        'typing-extensions',
-        'wrapt',
-    ],
-    extras_require={
-        'cv': [
-            'graphviz',
-            'matplotlib',
-            'numba',
-            'opencv-python>=4',
-            'py3nvml',
-            'pyaudio',
-            'soundfile',
-            'torch>=1.4',
-        ],
-    },
-    dependency_links=[
-        'https://download.pytorch.org/whl/torch_stable.html',
-    ],
-)
+_NAME = 'glow'
+_URL = ('https://github.com/openslide/openslide-winbuild/releases/download'
+        '/v20171122/openslide-win64-20171122.zip')
+
+
+def _download_deps(self, path: Path) -> None:
+    if self.dry_run or (os.name != 'nt') or path.exists():
+        return
+
+    from tqdm import tqdm
+    self.mkpath(path.as_posix())
+    try:
+        r = urlopen(_URL)
+        buf = io.BytesIO()
+        with tqdm(
+                desc='Retrieve shared libraries',
+                total=int(r.info().get('Content-Length')),
+                unit='B',
+                unit_scale=True) as pbar:
+            for chunk in iter(lambda: r.read(1024), b''):
+                pbar.update(buf.write(chunk))
+        with ZipFile(buf) as zf:
+            for name in zf.namelist():
+                if not name.endswith('.dll'):
+                    continue
+                with zf.open(name) as f:
+                    (path / Path(name).name).write_bytes(f.read())
+    except BaseException:
+        for p in path.glob('*.dll'):
+            p.unlink()
+        path.unlink()
+        raise
+
+
+class PostInstall(install):
+    def run(self):
+        _download_deps(self, Path(self.build_lib, _NAME, 'io/libs'))
+        install.run(self)
+
+
+class PostDevelop(develop):
+    def run(self):
+        _download_deps(self, Path(self.egg_path, _NAME, 'io/libs'))
+        develop.run(self)
+
+
+setuptools.setup(cmdclass={'install': PostInstall, 'develop': PostDevelop})
