@@ -30,7 +30,10 @@ class _CImage(ctypes.Structure):
     pass
 
 
-tiff.TIFFOpenW.restype = ctypes.POINTER(_CImage)
+if os.name == 'nt':
+    tiff.TIFFOpenW.restype = ctypes.POINTER(_CImage)
+else:
+    tiff.TIFFOpen.restype = ctypes.POINTER(_CImage)
 tiff.TIFFSetErrorHandler(None)
 openslide.openslide_open.restype = ctypes.POINTER(_CImage)
 openslide.openslide_get_error.restype = ctypes.c_char_p
@@ -156,7 +159,10 @@ class _TiffImage(TiledImage):
     _suffixes = {'.svs', '.tif', '.tiff'}
 
     def __init__(self, name: str) -> None:
-        self._ptr = tiff.TIFFOpenW(name, b'rm')
+        if os.name == 'nt':
+            self._ptr = tiff.TIFFOpenW(name, b'rm')
+        else:
+            self._ptr = tiff.TIFFOpen(name.encode(), b'rm')
         assert self._ptr
         weakref.finalize(self, tiff.TIFFClose, self._ptr)
 
