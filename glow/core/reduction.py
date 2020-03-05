@@ -201,8 +201,7 @@ class _MmapProxy(_RemoteCacheMixin, _CallableMixin):
         ]
 
     def _load(self):
-        buffers = [m.buf[:m.size] for m in self.memos]
-        return pickle.loads(self.root, buffers=buffers)
+        return pickle.loads(self.root, buffers=[m.buf for m in self.memos])
 
 
 class _SharedPickleProxy(_CallableMixin):

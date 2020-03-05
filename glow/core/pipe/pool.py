@@ -1,11 +1,14 @@
 __all__ = ('mapped', )
 
+import atexit
 import contextlib
 import os
 import queue
 import signal
 from concurrent.futures import Future, ThreadPoolExecutor
+from cProfile import Profile
 from itertools import chain, islice
+from pstats import Stats
 from typing import Callable, Deque, Iterable, Iterator, Set, TypeVar, cast
 
 import loky
@@ -22,9 +25,23 @@ _GC_TIMEOUT = 10
 loky.backend.context.set_start_method('loky_init_main')
 
 
+def _mp_profile():
+    prof = Profile()
+    prof.enable()
+
+    def _finalize(lines=50):
+        prof.disable()
+        with open(f'prof-{os.getpid()}.txt', 'w') as fp:
+            Stats(prof, stream=fp).sort_stats('cumulative').print_stats(lines)
+
+    atexit.register(_finalize)
+
+
 def _initializer():
     # `signal.signal` suppresses KeyboardInterrupt in child processes
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    if os.environ.get('_GLOW_MP_PROFILE'):
+        _mp_profile()
 
 
 def _get_pool(workers):
