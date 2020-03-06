@@ -27,6 +27,11 @@ def test_ipc_speed():
     for m in [order * hops - 1] + [*range(order * hops)[::-1]]:
         worker = Worker(2 ** (m / hops))
         sizes[m / hops] = glow.sizeof(worker)
+        # with glow.timer(
+        #         callback=lambda t: stats.__setitem__(m / hops, t / loops)):
+        #     for _ in glow.mapped(
+        #             worker, range(loops), workers=1, chunk_size=1):
+        #         pass
         it = glow.mapped(worker, range(loops), workers=1, chunk_size=1)
         with glow.timer(
                 callback=lambda t: stats.__setitem__(m / hops, t / loops)):

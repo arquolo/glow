@@ -272,7 +272,7 @@ class _TiffImage(TiledImage):
             [(high - low) for low, high in box] + [samples_per_pixel],
             dtype=np.uint8)
 
-        dy, dx = (start for start, _ in box)
+        dy, dx = (bmin for bmin, _ in box)
 
         axes = [
             range(min_ // tile_ * tile_, max_, tile_)
@@ -282,8 +282,8 @@ class _TiffImage(TiledImage):
         ]
         for ii in itertools.product(*axes):
             (ty_min, ty_max), (tx_min, tx_max) = (
-                (max(min_, i), min(max_, i + tile_, lim))
-                for i, [min_, max_], tile_, lim in zip(ii, box, tile, shape))
+                (max(bmin, i), min(bmax, i + tile_, lim))
+                for i, (bmin, bmax), tile_, lim in zip(ii, box, tile, shape))
             iy, ix = ii
             patch = self._get_tile(*ii, **spec)
             out[ty_min - dy:ty_max - dy,

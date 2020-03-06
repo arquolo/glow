@@ -3,6 +3,7 @@ __all__ = ('serialize', )
 import copyreg
 import ctypes
 import io
+import logging
 import mmap
 import os
 import random
@@ -11,8 +12,7 @@ import threading
 import weakref
 from dataclasses import dataclass, field, InitVar
 from itertools import starmap
-from typing import (Any, Callable, ClassVar, Dict, Hashable, List, NamedTuple,
-                    Optional)
+from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional
 
 import loky
 import wrapt
@@ -26,73 +26,69 @@ else:
 dispatch_table_patches: Dict[type, Callable] = {}
 loky.set_loky_pickler(pickle.__name__)
 
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.DEBUG)
+# logger.addHandler(logging.StreamHandler())
+
 _LIBRT = None
 if sys.platform != 'win32':
     _LIBRT = ctypes.CDLL('librt.so')
 
 
-class _Item(NamedTuple):
-    item: Callable
-    uid: Hashable
+class _Item:
+    __slots__ = ('item', 'uid')
 
-
-class _CallableMixin:
-    def load(self) -> Callable:
-        ...
-
-    def __call__(self, *chunk):
-        return tuple(starmap(self.load(), chunk))
-
-
-class _SimpleProxy(_CallableMixin):
     def __init__(self, item):
-        self._item = item
+        self.item = item
+        self.uid = id(item)
 
-    def load(self):
+
+class _Proxy:
+    __slots__ = ('_item', 'uid')
+
+    def __init__(self, item: _Item):
+        self._item = item
+        self.uid = id(item)
+
+    def get(self) -> _Item:
         return self._item
 
 
-@dataclass
-class _RemoteCacheMixin:
-    uid: Hashable
-    saved: ClassVar[Optional[_Item]] = None
+class _Cached(_Proxy):
+    __slots__ = ('_proxy', 'uid')
+    _saved: ClassVar[Optional[_Item]] = None
 
-    def _load(self) -> Callable:
-        ...
+    def __init__(self, proxy: _Proxy):
+        self._proxy = proxy
+        self.uid = proxy.uid
 
-    def load(self):
-        if self.saved is None or self.saved.uid != self.uid:
-            self.__class__.saved = _Item(self._load(), self.uid)
+    def get(self) -> _Item:
+        if self._saved is None or self._saved.uid != self.uid:
+            self.__class__._saved = self._proxy.get()
 
-        assert self.saved is not None
-        return self.saved.item
+        assert self._saved is not None
+        return self._saved
 
 
-@dataclass
 class _Mmap:
-    size: int
-    tag: str
-    create: InitVar[bool] = False
-    buf: mmap.mmap = field(init=False)
+    __slots__ = ('size', 'tag', 'buf', '__weakref__')
 
     @classmethod
     def from_bytes(cls, data: memoryview, tag: str) -> '_Mmap':
-        tag = f'{tag}-{random.getrandbits(96):x}'
         mv = cls(data.nbytes, f'shm-{tag}', create=True)
         mv.buf[:] = data
-        # if __debug__:
-        #     print(f'{id(mv):x}: {mv.tag}: create')
         return mv
 
-    def __post_init__(self, create):
+    def __init__(self, size, tag, create=False):
+        self.size = size
+        self.tag = tag
         if create:
             flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
             access = mmap.ACCESS_WRITE
+            logger.debug(f'_Mmap.__init__: {self.tag}/{id(self):x}: create')
         else:
             flags, access = os.O_RDONLY, mmap.ACCESS_READ
-
-        # if __debug__ and not create:
-        #     print(f'{id(self):x}: {self.tag}: open')
+            logger.debug(f'_Mmap.__init__: {self.tag}/{id(self):x}: open')
 
         if sys.platform == 'win32':
             self.buf = mmap.mmap(-1, self.size, self.tag, access=access)
@@ -106,9 +102,8 @@ class _Mmap:
             weakref.finalize(self.buf, _LIBRT.shm_unlink, name)
             weakref.finalize(self.buf, os.close, fd)
 
-    # def __del__(self):
-    #     if __debug__:
-    #         print(f'{id(self):x}: destroyed')
+        weakref.finalize(self, logger.debug,
+                         f'_Mmap.__del__ : {self.tag}/{id(self):x}')
 
     def __reduce__(self):
         return type(self), (self.size, self.tag)
@@ -188,47 +183,43 @@ def _dumps(obj: object,
     return fp.getvalue()
 
 
-class _MmapProxy(_RemoteCacheMixin, _CallableMixin):
-    """Fallback for sharedmemory for Python<3.8"""
-    def __init__(self, item):
-        super().__init__(id(item))
-
+class _ShmemProxy(_Proxy):
+    def __init__(self, item: _Item) -> None:
         buffers: List[pickle.PickleBuffer] = []
-        self.root = _dumps(item, callback=buffers.append)
-        self.memos = [
-            _Mmap.from_bytes(buf.raw(), f'{os.getpid()}-{self.uid:x}-{i}')
-            for i, buf in enumerate(buffers)
-        ]
-
-    def _load(self):
-        return pickle.loads(self.root, buffers=[m.buf for m in self.memos])
-
-
-class _SharedPickleProxy(_CallableMixin):
-    """Uses sharedmemory. Available on Python 3.8+"""
-    def __init__(self, item):
-        assert sys.version_info >= (3, 8)
-        buffers = []
-        self.root = _dumps(item, callback=buffers.append)
-        self.memos = []
-        for buf in buffers:
+        self.uid = item.uid
+        self._root = _dumps(item, callback=buffers.append)
+        self._memos = []
+        for i, buf in enumerate(buffers):
             with buf.raw() as m:
-                memo = SharedMemory(create=True, size=m.nbytes)
-                memo.buf[:] = m
-            self.memos.append((memo, memo.size))
+                if sys.version_info < (3, 8):
+                    tag = f'{os.getpid()}-{item.uid:x}-{i}'
+                    self._memos.append(_Mmap.from_bytes(m, tag))
+                else:
+                    memo = SharedMemory(create=True, size=m.nbytes)
+                    memo.buf[:] = m
+                    self._memos.append((memo, memo.size))
+        logger.debug(f'_ShmemProxy.__init__: {self.uid}')
+        weakref.finalize(self, logger.debug,
+                         f'_ShmemProxy.__del__ : {self.uid}')
 
-    def load(self):
-        buffers = [s.buf[:size] for s, size in self.memos]
-        return pickle.loads(self.root, buffers=buffers)
+    def get(self) -> _Item:
+        logger.debug(f'_ShmemProxy.get: {self.uid}')
+        if sys.version_info < (3, 8):
+            buffers = [m.buf for m in self._memos]
+        else:
+            buffers = [m.buf[:size] for m, size in self._memos]
+        return pickle.loads(self._root, buffers=buffers)
 
 
-def serialize(fn, mp=True) -> _CallableMixin:
-    if not mp:
-        return _SimpleProxy(fn)
+class _Task(NamedTuple):
+    proxy: _Proxy
 
-    if _BOOST:
-        return _SimpleProxy(fn)
+    def __call__(self, *chunk):
+        return tuple(starmap(self.proxy.get().item, chunk))
 
-    if sys.version_info >= (3, 8):
-        return _SharedPickleProxy(fn)
-    return _MmapProxy(fn)
+
+def serialize(fn, mp=True) -> _Task:
+    item = _Item(fn)
+    proxy = _Proxy(item) if (_BOOST or not mp) else _ShmemProxy(item)
+    proxy = _Cached(proxy)
+    return _Task(proxy)
