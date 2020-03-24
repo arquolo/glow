@@ -1,8 +1,8 @@
-__all__ = ('device', 'frozen', 'param_count', 'profile')
+__all__ = ('device', 'frozen', 'inference', 'param_count', 'profile')
 
-import contextlib
 import functools
 from typing import Callable, Iterator, TypeVar, cast
+from contextlib import ExitStack, contextmanager
 
 import torch
 from torch import nn
@@ -19,14 +19,31 @@ def device() -> torch.device:
     return torch.device('cpu')
 
 
-@contextlib.contextmanager
+@contextmanager
 def frozen(net: nn.Module) -> Iterator[None]:
-    """Context manager which frozes `net` turning it to eval mode"""
-    with contextlib.ExitStack() as stack:
-        stack.callback(net.train, net.training)
-        stack.enter_context(torch.no_grad())
-        net.eval()
+    """Blocks net from changing its state. Useful while training.
+
+    Net is switched to eval mode, and its parameters are detached from graph.
+    Grads are computed if inputs require grad.
+    Works as context manager"""
+    with ExitStack() as stack:
+        stack.enter_context(torch.onnx.set_training(net, False))
+        for p in net.parameters():
+            if p.requires_grad:
+                stack.callback(p.requires_grad_)
+                p.detach_()
         yield
+
+
+@contextmanager
+def inference(net: nn.Module) -> Iterator[None]:
+    """Blocks net from changing its state. Useful while inference.
+
+    Net is switched to eval mode, and grads' computation is turned off.
+    Works as context manager"""
+    with torch.onnx.set_training(net, False):
+        with torch.no_grad():
+            yield
 
 
 def param_count(net: nn.Module) -> Size:
