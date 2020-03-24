@@ -1,4 +1,4 @@
-__all__ = ('Activation', 'View', 'Noise')
+__all__ = ('Activation', 'View', 'Noise', 'UpsampleArea', 'UpsamplePoint')
 
 import functools
 
@@ -95,3 +95,37 @@ class Mish(_ModuleBase):
             sig = x.sigmoid()
             tanh = functional.softplus(x).tanh()
             return (tanh + x * sig * (1 - tanh * tanh)).mul(grad)
+
+
+class _Upsample(nn.Module):
+    _ndim_to_mode = {3: 'linear', 4: 'bilinear', 5: 'trilinear'}
+
+    def __init__(self, scale=2):
+        super().__init__()
+        self.scale = scale
+
+    def extra_repr(self):
+        return f'scale={self.scale}'
+
+
+class UpsampleArea(_Upsample):
+    """Upsamples input image, treating pixels as squares.
+
+    Result size is always multiple of `scale`
+    """
+    def forward(self, x):
+        size = tuple(s * self.scale for s in x.shape[2:])
+        return nn.functional.interpolate(
+            x, size, mode=self._ndim_to_mode[x.ndim], align_corners=False)
+
+
+class UpsamplePoint(_Upsample):
+    """Upsamples input image, treating pixels as points.
+
+    Inserts interpolated values between original ones.
+    Thus for scale `S`, and input size `N`, result size is `(N - 1) * S + 1`
+    """
+    def forward(self, x):
+        size = tuple((s - 1) * self.scale + 1 for s in x.shape[2:])
+        return nn.functional.interpolate(
+            x, size, mode=self._ndim_to_mode[x.ndim], align_corners=True)
