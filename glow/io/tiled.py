@@ -1,52 +1,57 @@
 __all__ = ('TiledImage', )
 
-import os
 import contextlib
 import ctypes
-import enum
 import itertools
-import threading
+import os
 import weakref
+from enum import Enum
 from pathlib import Path
+from threading import RLock
+from typing import Any, Dict, Type
 from unittest import mock
 
 import imagecodecs
 import numpy as np
 
-from .. import memoize
+from .. import call_once, memoize
 
-if os.name == 'nt':
-    _prefix = Path(__file__).parent / 'libs'
-    with mock.patch.dict(os.environ,
-                         {'PATH': f'{_prefix};{os.environ["PATH"]}'}):
-        tiff, openslide = (
-            ctypes.CDLL((_prefix / name).as_posix())
-            for name in ['libtiff-5.dll', 'libopenslide-0.dll'])
-else:
-    tiff, openslide = map(ctypes.CDLL, ['libtiff.so.5', 'libopenslide.so.0'])
+_libnames = [('libtiff', 5), ('libopenslide', 0)]
+_TIFF: Any = None
+_OSD: Any = None
 
 
 class _CImage(ctypes.Structure):
     pass
 
 
-if os.name == 'nt':
-    tiff.TIFFOpenW.restype = ctypes.POINTER(_CImage)
-else:
-    tiff.TIFFOpen.restype = ctypes.POINTER(_CImage)
-tiff.TIFFSetErrorHandler(None)
-openslide.openslide_open.restype = ctypes.POINTER(_CImage)
-openslide.openslide_get_error.restype = ctypes.c_char_p
-openslide.openslide_get_property_value.restype = ctypes.c_char_p
+@call_once
+def _setup_libs():
+    global _TIFF, _OSD
+    if os.name == 'nt':
+        _prefix = Path(__file__).parent / 'libs'
+        with mock.patch.dict(os.environ,
+                             {'PATH': f'{_prefix};{os.environ["PATH"]}'}):
+            _TIFF, _OSD = (ctypes.CDLL((_prefix / f'{n}-{v}.dll').as_posix())
+                           for n, v in _libnames)
+        _TIFF.TIFFOpenW.restype = ctypes.POINTER(_CImage)
+    else:
+        _TIFF, _OSD = (ctypes.CDLL(f'{n}.so.{v}') for n, v in _libnames)
+        _TIFF.TIFFOpen.restype = ctypes.POINTER(_CImage)
+
+    _TIFF.TIFFSetErrorHandler(None)
+    _OSD.openslide_open.restype = ctypes.POINTER(_CImage)
+    _OSD.openslide_get_error.restype = ctypes.c_char_p
+    _OSD.openslide_get_property_value.restype = ctypes.c_char_p
 
 
-class Color(enum.Enum):
+class Color(Enum):
     MINISBLACK = 1
     RGB = 2
     YCBCR = 6
 
 
-class Codec(enum.Enum):
+class Codec(Enum):
     NONE = 1
     CCITTRLE = 2
     CCITTFAX3 = CCITT_T4 = 3
@@ -88,26 +93,29 @@ class TiledImage(metaclass=_Meta):
     name: str
     _num_levels = 0
     _suffixes = set()  # type: ignore
+    _type_for: Dict[str, Type['TiledImage']] = {}
+
+    def __init_subclass__(cls, extensions: str) -> None:
+        for ext in extensions.split():
+            cls._type_for[f'.{ext}'] = cls
 
     def __new__(cls, name: str) -> 'TiledImage':
-        if not Path(name).exists():
+        path = Path(name)
+        if not path.exists():
             raise FileNotFoundError(name)
         if cls is not TiledImage:
             return super().__new__(cls)
-
-        for cls in TiledImage.__subclasses__():
-            for suf in cls._suffixes:
-                if name.endswith(suf):
-                    return super().__new__(cls)
-
-        raise ValueError(f'Unknown file format {name}')
+        try:
+            return super().__new__(cls._type_for[path.suffix])
+        except KeyError:
+            raise ValueError(f'Unknown file format {path}') from None
 
     def __init__(self, name: str) -> None:
         self.name = Path(name).as_posix()
-        self._lock = threading.RLock()
+        self._lock = RLock()
         self._spec = dict(self._init_spec(self._num_levels))
 
-    def _init_spec(self, num_levels):
+    def _init_spec(self, num_levels: int):
         assert num_levels
         specs = [self._get_spec(level) for level in range(num_levels)]
         shape = specs[0]['shape']
@@ -130,7 +138,7 @@ class TiledImage(metaclass=_Meta):
     def scales(self):
         return [*self._spec.keys()]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f'{type(self).__name__}'
                 f"('{self.name}', shape={self.shape}, scales={self.scales})")
 
@@ -155,24 +163,68 @@ class TiledImage(metaclass=_Meta):
             return self._get_patch(box, **spec)
 
 
-class _TiffImage(TiledImage):
-    _suffixes = {'.svs', '.tif', '.tiff'}
-
+class _OpenslideImage(
+        TiledImage,
+        extensions='bif mrxs ndpi scn svs svsslide tif tiff vms vmu'):
     def __init__(self, name: str) -> None:
-        if os.name == 'nt':
-            self._ptr = tiff.TIFFOpenW(name, b'rm')
-        else:
-            self._ptr = tiff.TIFFOpen(name.encode(), b'rm')
-        assert self._ptr
-        weakref.finalize(self, tiff.TIFFClose, self._ptr)
+        _setup_libs()
+        self._ptr = _OSD.openslide_open(name.encode())
+        err = _OSD.openslide_get_error(self._ptr)
+        if err:
+            raise ValueError(err)
+        weakref.finalize(self, _OSD.openslide_close, self._ptr)
 
-        self._num_levels = tiff.TIFFNumberOfDirectories(self._ptr)
+        bg_color_hex = _OSD.openslide_get_property_value(
+            self._ptr, 'openslide.background-color')
+        self._bg_color = (
+            np.full(3, 255, dtype=np.uint8)
+            if bg_color_hex is None else bg_color_hex)
+
+        self._num_levels = _OSD.openslide_get_level_count(self._ptr)
+        super().__init__(name)
+
+    def _get_spec(self, level):
+        y, x = ctypes.c_int64(), ctypes.c_int64()
+        _OSD.openslide_get_level_dimensions(self._ptr, level,
+                                            *map(ctypes.byref, (x, y)))
+        return {
+            'level': level,
+            'shape': [y.value, x.value],
+            'tile': True,
+        }
+
+    def _get_patch(self, box, step, level, **spec):
+        (y_min, y_max), (x_min, x_max) = box
+
+        data = np.empty((y_max - y_min, x_max - x_min, 4), dtype=np.uint8)
+        _OSD.openslide_read_region(
+            self._ptr, data.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+            x_min * step, y_min * step, level, x_max - x_min, y_max - y_min)
+
+        rgb = data[..., 2::-1]
+        opacity = data[..., 3:]
+        return np.where(
+            opacity, (255 * rgb.astype('u2') / opacity.clip(1)).astype('u1'),
+            self._bg_color)
+
+
+class _TiffImage(TiledImage, extensions='svs tif tiff'):
+    def __init__(self, name: str) -> None:
+        _setup_libs()
+        if os.name == 'nt':
+            self._ptr = _TIFF.TIFFOpenW(name, b'rm')
+        else:
+            self._ptr = _TIFF.TIFFOpen(name.encode(), b'rm')
+        assert self._ptr
+        weakref.finalize(self, _TIFF.TIFFClose, self._ptr)
+
+        self._num_levels = _TIFF.TIFFNumberOfDirectories(self._ptr)
         super().__init__(name)
 
     def tag(self, type_, tag: int, default=None):
         value = type_()
-        res = tiff.TIFFGetField(self._ptr, ctypes.c_uint32(tag),
-                                ctypes.byref(value))
+        res = _TIFF.TIFFGetField(self._ptr, ctypes.c_uint32(tag),
+                                 ctypes.byref(value))
         if not res and default is not None:
             return default
         return value.value
@@ -180,12 +232,12 @@ class _TiffImage(TiledImage):
     @contextlib.contextmanager
     def _directory(self, level):
         with super()._directory(level):
-            tiff.TIFFSetDirectory(self._ptr, level)
+            _TIFF.TIFFSetDirectory(self._ptr, level)
             yield
-            tiff.TIFFFreeDirectory(self._ptr)
+            _TIFF.TIFFFreeDirectory(self._ptr)
 
     def _get_spec(self, level) -> dict:
-        tiff.TIFFSetDirectory(self._ptr, level)
+        _TIFF.TIFFSetDirectory(self._ptr, level)
 
         planar_config = self.tag(ctypes.c_uint16, 284)
         if planar_config != 1:
@@ -203,7 +255,7 @@ class _TiffImage(TiledImage):
             self.tag(ctypes.c_uint16, 277)
             if photometric in (Color.MINISBLACK, Color.RGB) else 4)
 
-        if tiff.TIFFIsTiled(self._ptr):
+        if _TIFF.TIFFIsTiled(self._ptr):
             spec['tile'] = [
                 self.tag(ctypes.c_uint32, tag) for tag in (323, 322)
             ]
@@ -213,7 +265,7 @@ class _TiffImage(TiledImage):
         if compression is Codec.JPEG:
             count = ctypes.c_int()
             jpeg_tables = ctypes.c_char_p()
-            if tiff.TIFFGetField(
+            if _TIFF.TIFFGetField(
                     self._ptr, 347, ctypes.byref(count),
                     ctypes.byref(jpeg_tables)) and count.value > 4:
                 jpt = ctypes.cast(
@@ -236,14 +288,14 @@ class _TiffImage(TiledImage):
 
     def _get_tile_native(self, y, x, *, tile, samples_per_pixel, **spec):
         data = np.empty(tile + [samples_per_pixel], dtype=np.uint8)
-        isok = tiff.TIFFReadTile(
+        isok = _TIFF.TIFFReadTile(
             self._ptr, data.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)), x,
             y, 0, 0)
         assert isok
         return data
 
     def _get_tile_jpeg(self, y, x, *, compression, jpt=None, **spec):
-        offset = tiff.TIFFComputeTile(self._ptr, x, y, 0, 0)
+        offset = _TIFF.TIFFComputeTile(self._ptr, x, y, 0, 0)
 
         tile_byte_counts = self.tag(ctypes.c_void_p, 325)
         nbytes = ctypes.cast(tile_byte_counts,
@@ -255,11 +307,12 @@ class _TiffImage(TiledImage):
             data_ptr = ctypes.cast(
                 ctypes.addressof(data) + len(jpt) - 2,
                 ctypes.POINTER(ctypes.c_uint8))
-            tiff.TIFFReadRawTile(self._ptr, offset, data_ptr, nbytes)
+            _TIFF.TIFFReadRawTile(self._ptr, offset, data_ptr, nbytes)
             data[:len(jpt)] = jpt
         else:
             data = (ctypes.c_uint8 * nbytes)()
-            tiff.TIFFReadRawTile(self._ptr, offset, ctypes.byref(data), nbytes)
+            _TIFF.TIFFReadRawTile(self._ptr, offset, ctypes.byref(data),
+                                  nbytes)
 
         return imagecodecs.imread(np.asarray(data))
 
@@ -291,50 +344,3 @@ class _TiffImage(TiledImage):
                                                  tx_min - ix:tx_max - ix]
 
         return out
-
-
-class _OpenslideImage(TiledImage):
-    _suffixes = {
-        '.bif', '.mrxs', '.ndpi', '.scn', '.svs', '.svslide', '.tif', '.tiff',
-        '.vms', '.vmu'
-    }
-
-    def __init__(self, name: str) -> None:
-        self._ptr = openslide.openslide_open(name.encode())
-        err = openslide.openslide_get_error(self._ptr)
-        if err:
-            raise ValueError(err)
-        weakref.finalize(self, openslide.openslide_close, self._ptr)
-
-        bg_color_hex = openslide.openslide_get_property_value(
-            self._ptr, 'openslide.background-color')
-        self._bg_color = (
-            np.full(3, 255, dtype=np.uint8)
-            if bg_color_hex is None else bg_color_hex)
-
-        self._num_levels = openslide.openslide_get_level_count(self._ptr)
-        super().__init__(name)
-
-    def _get_spec(self, level):
-        y, x = ctypes.c_int64(), ctypes.c_int64()
-        openslide.openslide_get_level_dimensions(self._ptr, level,
-                                                 *map(ctypes.byref, (x, y)))
-        return {
-            'level': level,
-            'shape': [y.value, x.value],
-            'tile': True,
-        }
-
-    def _get_patch(self, box, step, level, **spec):
-        (y_min, y_max), (x_min, x_max) = box
-
-        data = np.empty((y_max - y_min, x_max - x_min, 4), dtype=np.uint8)
-        openslide.openslide_read_region(
-            self._ptr, data.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
-            x_min * step, y_min * step, level, x_max - x_min, y_max - y_min)
-
-        rgb = data[..., 2::-1]
-        opacity = data[..., 3:]
-        return np.where(
-            opacity, (255 * rgb.astype('u2') / opacity.clip(1)).astype('u1'),
-            self._bg_color)
