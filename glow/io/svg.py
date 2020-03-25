@@ -108,14 +108,14 @@ class Svg:
     @staticmethod
     def load(path: Path) -> Iterable[Tuple[str, List[np.ndarray]]]:
         """
-        Yields contours, contour is 2d numpy array of shape [count, (x, y)]
+        Returns iterator over contours.
+        Contour is `np.ndarray[np.int32]` with shape `[N, (x, y)]`
         """
         path = Path(path).with_suffix('.svg')
         root = ElementTree.parse(str(path)).getroot()
         for group in root.iter(tag=f'{{{_SVG_NS}}}g'):
-            points = (polygon.attrib['points'].split(' ') for polygon in group)
             contours = [
-                np.array([int(p) for p in pset], dtype='int32').reshape(-1, 2)
-                for pset in points
+                np.fromiter(polygon.attrib['points'].split(' '),
+                            np.int32).reshape(-1, 2) for polygon in group
             ]
             yield group.attrib['class'], contours
