@@ -80,12 +80,12 @@ def dump_to_onnx(net: nn.Module, *shapes: Tuple[int], device='cpu') -> bytes:
     """Converts model to ONNX graph, represented as bytes
 
     Parameters:
-      - `net`: torch.nn.Module to convert
-      - `shapes`: Shapes of input data, all except batch dimension
+      - net - torch.nn.Module to convert
+      - shapes - Shapes of input data, all except batch dimension
 
     Example usage:
 
-    >>> net: torch.nn.Linear(4, 4)
+    >>> net = torch.nn.Linear(4, 4)
     >>> bytes_ = dump_to_onnx(net, [4])
 
     To restore graph:

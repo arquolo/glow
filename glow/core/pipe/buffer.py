@@ -22,7 +22,8 @@ _MaybeEmpty = Union[_T, _Empty]
 @as_sized(hint=lambda it, _: len(it))
 def buffered(iterable: Iterable[_T], latency: int = 2) -> Iterator[_T]:
     """
-    Iterates in another thread with at most `latency` items ahead from caller
+    Iterates over `iterable` in background thread with at most `latency`
+    items ahead from caller
     """
     q: 'queue.Queue[_MaybeEmpty[_T]]' = queue.Queue(latency)
     stop = threading.Event()

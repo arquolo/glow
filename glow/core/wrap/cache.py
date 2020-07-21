@@ -150,11 +150,9 @@ def memoize(capacity: int,
     """Returns dict-cache decorator.
 
     Parameters:
-      - `capacity` - size in bytes
-      - `policy` - eviction policy, one of (`"raw"`, `"lru"`, `"mru"`)
-
+      - capacity - size in bytes
+      - policy - eviction policy, one of "raw", "lru" or "mru"
     """
-    rtype = Callable[[_F], _F]
     if not capacity:
         return cast(rtype, (lambda fn: fn))
 

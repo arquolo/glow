@@ -27,12 +27,9 @@ def make_loader(dataset: Mapping[_KT, Sequence],
     """Yields batches of `batch_size` from `dataset` in order from  `sampler`.
 
     Parameters:
-      - `batch_size` - size of batch, each workers computes batch independently
-        (default: `1`)
-      - `workers` - count of worker threads/processes
-        (default: same as `os.cpu_count()`)
-      - `multiprocessing` - whether to use ProcessPool or ThreadPool
-        (default: `True`)
+      - batch_size - size of batch, each workers computes batch independently
+      - workers - count of worker threads/processes, same as `os.cpu_count()`
+      - multiprocessing - whether to use processes or threads
     """
     if sampler is None:
         sampler = range(len(dataset))  # type: ignore

@@ -229,10 +229,9 @@ def amp_init_opt(
     """Switch model and optimizer to mixed precision mode
 
     Parameters:
-      - `fp16` - enables fp16 mode
-      - `allow_skip` - skip updates when `backward()` fills grads with NaN/Inf.
+      - fp16 - enables fp16 mode
+      - allow_skip - skip updates when `backward()` fills grads with NaN/Inf.
         Only for fp16 mode
-        (default: False)
     """
     amp_init(net, device=device, fp16=fp16)
     if not fp16:

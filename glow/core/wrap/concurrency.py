@@ -30,8 +30,8 @@ def threadlocal(fn: Callable[..., _T], *args: object,
 @contextlib.contextmanager
 def interpreter_lock(timeout=1_000):
     """
-    Completely forbids thread switching in underlying scope.
-    Thus makes it fully thread-safe, although adds high performance penalty.
+    Prevents thread switching in underlying scope, thus makes it completely
+    thread-safe. Although adds high performance penalty.
 
     See tests for examples.
     """

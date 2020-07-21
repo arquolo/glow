@@ -49,12 +49,11 @@ def indent(elem, level=0):
 
 
 class Svg:
-    """
-    Converts raster `mask` (2d numpy.ndarray of integers) to SVG-file
+    """Converts raster `mask` (2d numpy.ndarray of integers) to SVG-file.
 
-    `classes` - list of all class names (except for 0th class),
-    whose could appear in `mask`,
-    or names of `set.union(set(np.unique(m)) for m in masks)`.
+    Parameters:
+      - classes - list of all class names (except for 0th class),
+        i-th name will be assigned to (i+1)th index.
 
     Usage:
     ```
@@ -108,8 +107,7 @@ class Svg:
     @staticmethod
     def load(path: Path) -> Iterable[Tuple[str, List[np.ndarray]]]:
         """
-        Returns iterator over contours.
-        Contour is `np.ndarray[np.int32]` with shape `[N, (x, y)]`
+        Yields contours, contour is 2d numpy array of shape [count, (x, y)]
         """
         path = Path(path).with_suffix('.svg')
         root = ElementTree.parse(str(path)).getroot()

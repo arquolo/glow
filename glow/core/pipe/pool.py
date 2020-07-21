@@ -92,20 +92,15 @@ def mapped(fn: Callable[..., _R],
            latency=2,
            chunk_size=0,
            ordered=True) -> SizedIterable[_R]:
-    """
-    Concurrently applies `fn` callable to each element in zipped `iterables`.
+    """Concurrently calls `fn` with args formed from zipped `iterables`.
     Keeps order if nessessary. Never hang. Friendly to CTRL+C.
-    Uses all processing power by default.
+    Uses all cpu cores by default.
 
     Parameters:
-      - `workers` - count of workers
-        (default: same as `os.cpu_count()`)
-      - `latency` - count of tasks each workers can grab
-        (default: `2`)
-      - `chunk_size` - size of chunk to pass to each `Process`, if not `0`
-        (default: `0`)
-      - `ordered` - if disabled, yields items in order of completion
-        (default: `True`)
+      - workers - count of workers, equals to `os.cpu_count()` by default
+      - latency - count of tasks each workers can grab
+      - chunk_size - when non zero, size of chunk to pass to each `Process`
+      - ordered - when false, yields items in order of completion
     """
     if workers == 0:
         return cast(SizedIterable[_R], map(fn, *iterables))
