@@ -1,4 +1,5 @@
-__all__ = ()
+"""Make builtin iterators compatible with `len`"""
+__all__ = ['apply']
 
 import builtins
 import functools
@@ -9,7 +10,7 @@ from typing import Iterable, List, Type
 
 # --------------------------------- builtins ---------------------------------
 
-builtins.len = len_hint = functools.singledispatch(builtins.len)
+len_hint = functools.singledispatch(builtins.len)
 
 _tee: Type = tee(())[0].__class__
 _iterables: List[Iterable] = [
@@ -119,3 +120,7 @@ def _len_product(x):
 # @len_hint.register(permutations)
 # @len_hint.register(combinations)
 # @len_hint.register(combinations_with_replacement)
+
+
+def apply():
+    builtins.len = len_hint

@@ -1,5 +1,8 @@
-"""Patches builtin `print` function to be compatible with `tqdm`"""
-__all__ = ()
+"""
+Patches builtin `print` function to be compatible with `tqdm`.
+Adds some thread safety.
+"""
+__all__ = ['apply']
 
 import builtins
 import functools
@@ -25,5 +28,6 @@ def patch_print(tqdm: Any) -> None:
     builtins.print = functools.update_wrapper(new_print, _print)
 
 
-builtins.print = locked_print
-wrapt.register_post_import_hook(patch_print, 'tqdm')
+def apply() -> None:
+    builtins.print = locked_print
+    wrapt.register_post_import_hook(patch_print, 'tqdm')

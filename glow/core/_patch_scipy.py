@@ -1,4 +1,12 @@
-__all__ = ()
+"""
+Fix for strange bug in SciPy on Anaconda for Windows
+https://stackoverflow.com/questions/15457786/ctrl-c-crashes-python-after-importing-scipy-stats
+
+Combines both:
+.. [https://stackoverflow.com/a/39021051]
+.. [https://stackoverflow.com/a/44822794]
+"""
+__all__ = ['apply']
 
 import ctypes
 import os
@@ -40,7 +48,9 @@ def patch_handler() -> None:
         import scipy.stats  # noqa: F401
 
 
-if sys.platform == 'win32' and _FORTRAN_FLAG not in os.environ:
+def apply() -> None:
+    if sys.platform != 'win32' or _FORTRAN_FLAG in os.environ:
+        return
     # Add flag to environment, child processes will inherit it
     os.environ[_FORTRAN_FLAG] = '1'
     try:
