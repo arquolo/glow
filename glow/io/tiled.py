@@ -142,6 +142,10 @@ class TiledImage(metaclass=_Meta):
     def scales(self):
         return [*self._spec.keys()]
 
+    @property
+    def spacing(self) -> List[float]:
+        raise NotImplementedError
+
     def __repr__(self) -> str:
         return (f'{type(self).__name__}'
                 f"('{self.name}', shape={self.shape}, scales={self.scales})")
@@ -207,6 +211,13 @@ class _OpenslideImage(
         return np.where(
             opacity, (255 * rgb.astype('u2') / opacity.clip(1)).astype('u1'),
             self._bg_color)
+
+    @property
+    def spacing(self) -> List[float]:
+        mpp = (
+            _OSD.openslide_get_property_value(self._ptr, f'openslide.mpp-{ax}')
+            for ax in 'yx')
+        return [float(m) if m else None for m in mpp]
 
 
 class _TiffImage(TiledImage, extensions='svs tif tiff'):
@@ -346,3 +357,8 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
                                                  tx_min - ix:tx_max - ix]
 
         return out
+
+    @property
+    def spacing(self) -> List[float]:
+        mpp = (self.tag(ctypes.c_float, x) for x in (283, 282))
+        return [(10000 / m) if m else None for m in mpp]
