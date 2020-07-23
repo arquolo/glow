@@ -1,15 +1,17 @@
-__all__ = ('memoize', )
+__all__ = ['memoize']
 
 import argparse
 import functools
 import threading
 import weakref
-from typing import (Callable, Counter, Dict, Generic, Hashable, MutableMapping,
+from collections import Counter
+from typing import (Callable, Dict, Generic, Hashable, MutableMapping,
                     Type, TypeVar, cast)
 
 from typing_extensions import Literal
 
-from ..memory import Size, sizeof
+from .._sizeof import sizeof
+from .._repr import Si
 from .concurrency import interpreter_lock
 
 _T = TypeVar('_T')
@@ -39,10 +41,10 @@ class Stats(argparse.Namespace):
 
 
 class _CacheAbc(Generic[_T]):
-    store: Dict[str, Record[_T]]
+    store: Dict[Hashable, Record[_T]]
     stats: Stats
-    size: Size
-    capacity: Size
+    size: Si
+    capacity: Si
 
     def keys(self):
         return self.store.keys()
@@ -50,11 +52,11 @@ class _CacheAbc(Generic[_T]):
     def __len__(self) -> int:
         return len(self.store)
 
-    def __getitem__(self, key: str) -> _T:
+    def __getitem__(self, key: Hashable) -> _T:
         """Retrieve value from cache"""
         return self.store[key].value
 
-    def __setitem__(self, key: str, value: _T) -> None:
+    def __setitem__(self, key: Hashable, value: _T) -> None:
         record = Record(value)
         if self.evict(record.size):
             self.store[key] = record
@@ -69,9 +71,9 @@ class _CacheBase(_CacheAbc[_T]):
     refs: MutableMapping[int, '_CacheBase'] = weakref.WeakValueDictionary()
 
     def __init__(self, capacity: int) -> None:
-        self.capacity = Size(capacity)
-        self.size = Size()
-        self.store: Dict[str, Record[_T]] = {}
+        self.capacity = Si.bits(capacity)
+        self.size = Si.bits()
+        self.store: Dict[Hashable, Record[_T]] = {}
         self.stats = Stats()
         self.lock = threading.RLock()
         self.refs[id(self)] = self
@@ -101,7 +103,7 @@ class _HeapCache(_CacheBase[_T]):
 class _LruCache(_CacheBase[_T]):
     drop_recent = False
 
-    def __getitem__(self, key: str) -> _T:
+    def __getitem__(self, key: Hashable) -> _T:
         self.store[key] = record = self.store.pop(key)
         return record.value
 
@@ -144,9 +146,13 @@ def _memoize(cache: _CacheBase, key_fn: _KeyFn, fn: _F) -> _F:
     return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
+def _key_fn(*args, **kwargs) -> str:
+    return f'{args}{kwargs}'
+
+
 def memoize(capacity: int,
             policy: _Policy = 'raw',
-            key_fn: _KeyFn = None) -> Callable[[_F], _F]:
+            key_fn: _KeyFn = _key_fn) -> Callable[[_F], _F]:
     """Returns dict-cache decorator.
 
     Parameters:
@@ -154,7 +160,7 @@ def memoize(capacity: int,
       - policy - eviction policy, one of "raw", "lru" or "mru"
     """
     if not capacity:
-        return cast(rtype, (lambda fn: fn))
+        return lambda fn: fn
 
     caches: Dict[str, Type[_CacheBase]] = {
         'raw': _HeapCache,
@@ -166,10 +172,4 @@ def memoize(capacity: int,
         raise ValueError(
             f'Unknown policy: "{policy}". Only "{set(caches)}" are available')
 
-    if key_fn is None:
-
-        def key_fn(*args, **kwargs) -> str:
-            return f'{args}{kwargs}'
-
-    res = functools.partial(_memoize, cache_cls(capacity), key_fn)
-    return cast(rtype, res)
+    return functools.partial(_memoize, cache_cls(capacity), key_fn)

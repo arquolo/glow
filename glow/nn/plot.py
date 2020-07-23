@@ -1,4 +1,4 @@
-__all__ = ('plot_model', )
+__all__ = ['plot_model']
 
 import contextlib
 import functools
@@ -9,7 +9,7 @@ import torch
 from torch.autograd import Function
 from torch import nn
 
-from ..core import Size, mangle
+from ..core import Si, mangle
 
 
 def id_(x: Any) -> str:
@@ -29,7 +29,7 @@ def as_tuple(xs):
 def sized(var: torch.Tensor):
     if max(var.shape) == var.numel():
         return f'{tuple(var.shape)}'
-    return f'{tuple(var.shape)}\n{Size(var.numel())}'
+    return f'{tuple(var.shape)}\n{Si(var.numel())}'
 
 
 class Builder:

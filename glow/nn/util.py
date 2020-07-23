@@ -1,5 +1,6 @@
-__all__ = ('device', 'dump_to_onnx', 'frozen', 'inference', 'param_count',
-           'profile')
+__all__ = [
+    'device', 'dump_to_onnx', 'frozen', 'inference', 'param_count', 'profile'
+]
 
 import functools
 from contextlib import ExitStack, contextmanager
@@ -10,7 +11,7 @@ import torch
 import torch.onnx
 from torch import nn
 
-from ..core import Size
+from ..core import Si
 
 _F = TypeVar('_F', bound=Callable[..., Iterator])
 
@@ -23,6 +24,17 @@ def device() -> torch.device:
 
 
 @contextmanager
+def _set_eval(net: nn.Module) -> Iterator[None]:
+    """Locally switch net to 'eval' mode"""
+    was_train = net.training
+    try:
+        net.eval()
+        yield
+    finally:
+        net.train(was_train)
+
+
+@contextmanager
 def frozen(net: nn.Module) -> Iterator[None]:
     """Blocks net from changing its state. Useful while training.
 
@@ -30,7 +42,7 @@ def frozen(net: nn.Module) -> Iterator[None]:
     Grads are computed if inputs require grad.
     Works as context manager"""
     with ExitStack() as stack:
-        stack.enter_context(torch.onnx.set_training(net, False))
+        stack.enter_context(_set_eval(net))
         for p in net.parameters():
             if p.requires_grad:
                 stack.callback(p.requires_grad_)
@@ -44,14 +56,14 @@ def inference(net: nn.Module) -> Iterator[None]:
 
     Net is switched to eval mode, and grads' computation is turned off.
     Works as context manager"""
-    with torch.onnx.set_training(net, False):
+    with _set_eval(net):
         with torch.no_grad():
             yield
 
 
-def param_count(net: nn.Module) -> Size:
+def param_count(net: nn.Module) -> Si:
     """Count of parameters in `net`, both training and not"""
-    return Size(sum(p.numel() for p in net.parameters()), base=1000)
+    return Si(sum(p.numel() for p in net.parameters()))
 
 
 def profile(fn: _F) -> _F:
@@ -105,7 +117,7 @@ def dump_to_onnx(net: nn.Module, *shapes: Tuple[int], device='cpu') -> bytes:
     torch.onnx.export(
         net.to(device).eval(),
         tuple(
-            torch.randn(1, *shape, requires_grad=True, device=device)
+            torch.rand(1, *shape, requires_grad=True, device=device)
             for shape in shapes),
         buf,
         input_names=[*dynamic_axes],

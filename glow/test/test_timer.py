@@ -19,4 +19,4 @@ def fibs(n):
 
 
 def test_fibs():
-    assert fibs(100000) == 69424
+    assert fibs(100_000) == 69_424

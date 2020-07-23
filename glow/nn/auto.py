@@ -1,4 +1,4 @@
-__all__ = ('Input', 'Model')
+__all__ = ['Input', 'Model']
 
 import functools
 import inspect
@@ -37,7 +37,7 @@ class Input:
 
         else:
             raise TypeError(
-                f'Expected either ModuleWrapper, or torch.nn.Module class,' +
+                'Expected either ModuleWrapper, or torch.nn.Module class,' +
                 f' got {type(node)}')
 
         leaf = Input(channels, module)

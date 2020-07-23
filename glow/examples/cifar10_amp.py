@@ -7,6 +7,7 @@ from typing import DefaultDict
 import glow
 import glow.metrics as m
 import glow.nn as gnn
+import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -108,7 +109,7 @@ parser.add_argument('--steps-per-epoch', type=int, help='steps per epoch')
 parser.add_argument('--width', type=int, default=32, help='width of network')
 parser.add_argument(
     '--fp16', action='store_true', help='enable mixed precision mode')
-parser.add_argument('--no-plot', action='store_true', help='disable plot')
+parser.add_argument('--plot', action='store_true', help='disable plot')
 
 args = parser.parse_args()
 
@@ -121,9 +122,8 @@ ds_val = CIFAR10(args.root / 'cifar10', transform=ToTensor(), train=False)
 
 
 @glow.repeatable(hint=lambda: sample_size)
-def sampler():
-    for _ in range(sample_size):
-        yield random.randrange(len(ds))
+def sampler(rg=np.random.default_rng()):
+    return rg.integers(len(ds), size=sample_size)
 
 
 loader = gnn.make_loader(
@@ -176,15 +176,14 @@ with tqdm(total=epoch_len * args.epochs, desc='train') as pbar:
         print(', '.join(f'{tag}: {{:.3f}}/{{:.3f}}'.format(*values)
                         for tag, values in scores.items()))
 
-if args.no_plot:
-    quit()
-fig, axes = plt.subplots(ncols=len(history))
-fig.suptitle(f'batch_size={args.batch_size}, fp16={args.fp16}')
-for ax, (tag, values) in zip(axes, history.items()):
-    ax.legend(ax.plot(values), ['train', 'val'])
-    ax.set_title(tag)
-    ax.set_ylim([
-        int(min(x for xs in values for x in xs)),
-        int(max(x for xs in values for x in xs) + 0.999)
-    ])
-plt.show()
+if args.plot:
+    fig, axes = plt.subplots(ncols=len(history))
+    fig.suptitle(f'batch_size={args.batch_size}, fp16={args.fp16}')
+    for ax, (tag, values) in zip(axes, history.items()):
+        ax.legend(ax.plot(values), ['train', 'val'])
+        ax.set_title(tag)
+        ax.set_ylim([
+            int(min(x for xs in values for x in xs)),
+            int(max(x for xs in values for x in xs) + 0.999)
+        ])
+    plt.show()

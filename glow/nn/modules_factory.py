@@ -1,4 +1,4 @@
-__all__ = ('linear', 'conv', 'Cat', 'Sum', 'DenseBlock', 'SEBlock')
+__all__ = ['linear', 'conv', 'Cat', 'Sum', 'DenseBlock', 'SEBlock']
 
 import random
 

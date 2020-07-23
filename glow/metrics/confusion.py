@@ -1,11 +1,7 @@
-__all__ = (
-    'Confusion',
-    'ConfusionGrad',
-    'accuracy',
-    'accuracy_balanced',
-    'iou',
-    'kappa',
-)
+__all__ = [
+    'Confusion', 'ConfusionGrad', 'accuracy', 'accuracy_balanced', 'iou',
+    'kappa'
+]
 
 import torch
 
@@ -50,7 +46,8 @@ def accuracy_balanced(mat):
 def kappa(mat):
     expected = mat.sum(0) @ mat.sum(1)
     observed = mat.diag().sum()
-    return (observed - expected) / (1 - expected).clamp(_EPS)
+    return 1 - (1 - observed) / (1 - expected).clamp(_EPS)
+
 
 
 def iou(mat):

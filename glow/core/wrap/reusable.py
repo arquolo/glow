@@ -1,4 +1,4 @@
-__all__ = ('Reusable', )
+__all__ = ['Reusable']
 
 import asyncio
 import threading

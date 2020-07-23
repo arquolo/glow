@@ -1,7 +1,10 @@
-# flake8: noqa
-from .buffer import *
-from .len_helpers import *
-from .more import *
-from .pool import *
+from .buffer import buffered
+from .len_helpers import as_sized, repeatable
+from .more import (as_iter, chunked, eat, ichunked, iter_none,
+                   sliced, windowed)
+from .pool import mapped
 
-__all__ = (buffer.__all__ + len_helpers.__all__ + more.__all__ + pool.__all__)
+__all__ = [
+    'buffered', 'as_sized', 'as_iter', 'chunked', 'eat', 'ichunked',
+    'iter_none', 'mapped', 'repeatable', 'sliced', 'windowed'
+]

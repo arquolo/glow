@@ -1,8 +1,10 @@
-__all__ = ('coroutine', 'lock_seed', 'summary', 'trace', 'trace_module')
+__all__ = ['coroutine', 'lock_seed', 'summary', 'trace', 'trace_module']
 
 import contextlib
 import functools
+import gc
 import inspect
+import os
 import random
 import threading
 import types
@@ -12,7 +14,6 @@ import wrapt
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable[..., Generator])
-_INT_MAX = 2 ** 32
 
 
 def _break_on_globe(frame_infos):
@@ -25,10 +26,11 @@ def _break_on_globe(frame_infos):
 def whereami(skip=2):
     frame_infos = _break_on_globe(inspect.stack()[skip:])
     return ' -> '.join(':'.join((
-        getattr(inspect.getmodule(info.frame), '__name__', '[root]'),
-        info.function,
-        str(info.lineno),
-    )) for info in [*frame_infos][::-1])
+        getattr(inspect.getmodule(frame), '__name__', '[root]'),
+        next((f.__qualname__ for f in gc.get_referrers(frame.f_code)
+              if inspect.isfunction(f)), function),
+        str(lineno),
+    )) for frame, _, lineno, function, *_ in [*frame_infos][::-1])
 
 
 @wrapt.decorator
@@ -39,10 +41,8 @@ def trace(fn, _, args, kwargs):
     return fn(*args, **kwargs)
 
 
-# TODO: rewrite using unittest.mock
-
-
-def set_trace(obj, seen=None, prefix=None, module=None):
+def _set_trace(obj, seen=None, prefix=None, module=None):
+    # TODO: rewrite using unittest.mock
     if isinstance(obj, types.ModuleType):
         if seen is None:
             seen = set()
@@ -51,7 +51,8 @@ def set_trace(obj, seen=None, prefix=None, module=None):
             return
         seen.add(obj.__name__)
         for name in dir(obj):
-            set_trace(getattr(obj, name), module=obj, seen=seen, prefix=prefix)
+            _set_trace(
+                getattr(obj, name), module=obj, seen=seen, prefix=prefix)
 
     if not callable(obj):
         return
@@ -79,7 +80,8 @@ def set_trace(obj, seen=None, prefix=None, module=None):
 
 
 def trace_module(name):
-    wrapt.register_post_import_hook(set_trace, name)
+    """Enables call logging for each callable inside module `name`"""
+    wrapt.register_post_import_hook(_set_trace, name)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +132,18 @@ def coroutine(fn: _F) -> _F:
 def lock_seed(seed: int) -> None:
     """Set seed for all modules: random/numpy/torch"""
     random.seed(seed)
-    np_seed, torch_seed = (random.randrange(_INT_MAX) for _ in range(2))
-    wrapt.when_imported('numpy')(lambda numpy: numpy.random.seed(np_seed))
-    wrapt.when_imported('torch')(lambda torch: torch.manual_seed(torch_seed))
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
+    def _numpy_seed(numpy):
+        numpy.random.seed(seed)
+
+    def _torch_seed(torch):
+        import torch
+        import torch.backends.cudnn
+
+        torch.manual_seed(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+    wrapt.when_imported('numpy')(_numpy_seed)
+    wrapt.when_imported('torch')(_torch_seed)

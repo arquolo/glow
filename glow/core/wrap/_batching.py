@@ -1,4 +1,4 @@
-__all__ = ('batched', 'batched_async')
+__all__ = ['batched', 'batched_async']
 
 import asyncio
 import concurrent.futures as cf
@@ -6,8 +6,8 @@ import contextlib
 import functools
 import threading
 from dataclasses import dataclass, field
-from typing import (Dict, Hashable, Iterable, List, NamedTuple, TypeVar, Union,
-                    cast)
+from typing import (Dict, Hashable, Iterable, List, NamedTuple, Tuple, TypeVar,
+                    Union, cast)
 
 from typing_extensions import Protocol
 
@@ -30,18 +30,18 @@ def _dispatch(fn: _BatchFn, cache: Dict[Hashable, object],
               queue: List[_Entry]) -> None:
     queue[:], queue = [], queue[:]
 
-    keys = [l.key for l in queue]
+    keys = [e.key for e in queue]
     try:
         values = *fn(keys),
         assert len(values) == len(keys)
 
-        for l, value in zip(queue, values):
-            l.future.set_result(value)
+        for e, value in zip(queue, values):
+            e.future.set_result(value)
 
     except BaseException as exc:
-        for l in queue:
-            cache.pop(l.key)
-            l.future.set_exception(exc)
+        for e in queue:
+            cache.pop(e.key)
+            e.future.set_exception(exc)
 
 
 # ------------------------------ asyncio-based ------------------------------
@@ -53,7 +53,7 @@ class _Loader:
     _cache: Dict[Hashable, asyncio.Future] = field(default_factory=dict)
     _queue: List[_Entry] = field(default_factory=list)
 
-    async def load_many(self, keys: Iterable[Hashable]) -> List:
+    async def load_many(self, keys: Iterable[Hashable]) -> tuple:
         return await asyncio.gather(*map(self.load, keys))
 
     def load(self, key: Hashable) -> asyncio.Future:
@@ -75,7 +75,7 @@ def batched_async(fn: _BatchFn[_T]) -> _BatchFn[_T]:
     assert callable(fn)
     ul = _Loader(fn)
 
-    def wrapper(keys: Iterable[Hashable]) -> List[_T]:
+    def wrapper(keys: Iterable[Hashable]) -> Tuple[_T, ...]:
         coro = ul.load_many(keys)
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
 

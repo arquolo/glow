@@ -1,4 +1,4 @@
-__all__ = ('export', 'import_tree', 'get_wild_imports')
+__all__ = ['export', 'get_wild_imports', 'import_tree']
 
 import pkgutil
 import sys

@@ -1,4 +1,4 @@
-__all__ = ('AdamW', 'RAdam', 'SGDW')
+__all__ = ['AdamW', 'RAdam', 'SGDW']
 
 import torch
 from torch.optim import optimizer
@@ -22,7 +22,7 @@ class _OptimizerBase(optimizer.Optimizer):
                 if p.grad is None:
                     continue
                 if p.grad.is_sparse:
-                    raise RuntimeError(f'Sparse grads are not supported')
+                    raise RuntimeError('Sparse grads are not supported')
                 with torch.no_grad():
                     self._do_step(p, group, self.state[p], *args)
 

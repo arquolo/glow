@@ -1,8 +1,9 @@
-__all__ = ('Activation', 'View', 'Noise', 'UpsampleArea', 'UpsamplePoint')
+__all__ = ['Activation', 'Noise', 'UpsampleArea', 'UpsamplePoint', 'View']
 
 import functools
 
 import torch
+import torch.jit
 from torch import nn
 from torch.nn import functional
 
@@ -109,9 +110,10 @@ class _Upsample(nn.Module):
 
 
 class UpsampleArea(_Upsample):
-    """Upsamples input image, treating pixels as squares.
+    """Upsamples input image, treating samples as squares.
 
-    Result size is always multiple of `scale`
+    Splits original samples to S interpolated ones, where S == `scale`.
+    Result size is always multiple of `scale`.
     """
     def forward(self, x):
         size = tuple(s * self.scale for s in x.shape[2:])
@@ -120,10 +122,11 @@ class UpsampleArea(_Upsample):
 
 
 class UpsamplePoint(_Upsample):
-    """Upsamples input image, treating pixels as points.
+    """Upsamples input image, treating samples as points.
 
-    Inserts interpolated values between original ones.
-    Thus for scale `S`, and input size `N`, result size is `(N - 1) * S + 1`
+    Inserts S-1 interpolated samples between pair of original ones,
+    where S is `scale`.
+    Thus for scale `S`, and input size `N`, result size is `(N - 1) * S + 1`.
     """
     def forward(self, x):
         size = tuple((s - 1) * self.scale + 1 for s in x.shape[2:])

@@ -1,4 +1,4 @@
-__all__ = ('Show', )
+__all__ = ['Show']
 
 import weakref
 

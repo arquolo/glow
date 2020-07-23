@@ -1,4 +1,4 @@
-__all__ = ('Default', 'patch')
+__all__ = ['patch', 'Default']
 
 import contextlib
 from dataclasses import dataclass

@@ -1,4 +1,4 @@
-__all__ = ('call_once', 'threadlocal', 'interpreter_lock', 'shared_call')
+__all__ = ['call_once', 'threadlocal', 'interpreter_lock', 'shared_call']
 
 import contextlib
 import sys

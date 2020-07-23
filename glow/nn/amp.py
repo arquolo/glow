@@ -25,7 +25,7 @@ Example::
 
 """
 
-__all__ = ('amp_init', 'amp_init_opt')
+__all__ = ['amp_init', 'amp_init_opt']
 
 import functools
 import warnings

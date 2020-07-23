@@ -1,3 +1,5 @@
+__all__ = ['Cat']
+
 import torch
 from torch import nn
 from torch.utils.checkpoint import checkpoint

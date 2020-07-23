@@ -10,6 +10,12 @@ class Value:
     value: int
 
 
+def test_base():
+    counter = count()
+    ref = glow.Reusable(lambda: Value(next(counter)), delay=.05)
+    assert ref._lock._loop is ref._loop
+
+
 def test_fail():
     counter = count()
     ref = glow.Reusable(lambda: Value(next(counter)), delay=.05)
