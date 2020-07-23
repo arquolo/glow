@@ -2,7 +2,6 @@ __all__ = ('TiledImage', )
 
 import contextlib
 import ctypes
-import itertools
 import os
 import sys
 import weakref
@@ -338,20 +337,16 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
             [(high - low) for low, high in box] + [samples_per_pixel],
             dtype='u1')
 
-        dy, dx = (bmin for bmin, _ in box)
+        bmin, bmax = np.transpose(box).clip(0, shape)
+        dy, dx = bmin
+        axes = map(slice, bmin // tile * tile, bmax, tile)
+        grid = np.mgrid[tuple(axes)].reshape(2, -1).T
 
-        axes = [
-            range(min_ // tile_ * tile_, max_, tile_)
-            for min_, max_, tile_ in (
-                (*np.clip(s, 0, lim), tile_)
-                for s, lim, tile_ in zip(box, shape, tile))
-        ]
-        for ii in itertools.product(*axes):
-            (ty_min, ty_max), (tx_min, tx_max) = (
-                (max(bmin, i), min(bmax, i + tile_, lim))
-                for i, (bmin, bmax), tile_, lim in zip(ii, box, tile, shape))
-            iy, ix = ii
-            patch = self._get_tile(*ii, **spec)
+        for (iy, ix), (ty_min, tx_min), (ty_max, tx_max) in zip(
+                grid.tolist(),
+                grid.clip(bmin).tolist(),
+                np.clip(grid + tile, 0, bmax).tolist()):
+            patch = self._get_tile(iy, ix, **spec)
             out[ty_min - dy:ty_max - dy,
                 tx_min - dx:tx_max - dx] = patch[ty_min - iy:ty_max - iy,
                                                  tx_min - ix:tx_max - ix]
