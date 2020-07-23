@@ -1,4 +1,4 @@
-__all__ = ('TiledImage', )
+__all__ = ['TiledImage']
 
 import contextlib
 import ctypes

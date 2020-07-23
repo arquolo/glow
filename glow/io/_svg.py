@@ -1,4 +1,4 @@
-__all__ = ('Svg', )
+__all__ = ['Svg']
 
 from pathlib import Path
 from typing import Iterable, List, Tuple

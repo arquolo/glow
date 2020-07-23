@@ -1,4 +1,4 @@
-__all__ = ('Sound', )
+__all__ = ['Sound']
 
 import time
 from contextlib import ExitStack

@@ -1,5 +1,5 @@
-# flake8: noqa
-from .svg import *
-from .tiled import *
+from ._sound import Sound
+from ._svg import Svg
+from ._tiled import TiledImage
 
-__all__ = svg.__all__ + tiled.__all__
+__all__ = ['Sound', 'Svg', 'TiledImage']
