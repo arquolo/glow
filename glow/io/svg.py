@@ -40,9 +40,10 @@ def indent(elem, level=0):
     if len(elem) != 0:
         if not elem.text or not elem.text.strip():
             elem.text = i + '  '
+        e = None
         for e in elem:
             indent(e, level + 1)
-        if not e.tail or not e.tail.strip():
+        if e is not None and not (e.tail and e.tail.strip()):
             e.tail = i
     if not elem.tail or not elem.tail.strip():
         elem.tail = i
@@ -68,11 +69,9 @@ class Svg:
         for uniq in np.unique(mask.ravel()):
             if uniq == 0:  # skip background
                 continue
-            *_, contours, _2 = cv2.findContours(
-                (mask == uniq).astype('u1'),
-                cv2.RETR_CCOMP,
-                cv2.CHAIN_APPROX_TC89_L1,
-            )
+            m = (mask == uniq).astype('u1')
+            contours = cv2.findContours(m, cv2.RETR_CCOMP,
+                                        cv2.CHAIN_APPROX_TC89_L1)[-2]
             group = Element('g', {'class': classes[uniq - 1]})
             group.extend(
                 Element('polygon', points=' '.join(map(str, contour.ravel())))
@@ -112,8 +111,9 @@ class Svg:
         path = Path(path).with_suffix('.svg')
         root = ElementTree.parse(str(path)).getroot()
         for group in root.iter(tag=f'{{{_SVG_NS}}}g'):
+            points = (polygon.attrib['points'].split(' ') for polygon in group)
             contours = [
-                np.fromiter(polygon.attrib['points'].split(' '),
-                            np.int32).reshape(-1, 2) for polygon in group
+                np.array([int(p) for p in pset], dtype='int32').reshape(-1, 2)
+                for pset in points
             ]
             yield group.attrib['class'], contours

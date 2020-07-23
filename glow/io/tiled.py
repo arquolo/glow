@@ -9,7 +9,7 @@ import weakref
 from enum import Enum
 from pathlib import Path
 from threading import RLock
-from typing import Any, Dict, Type
+from typing import Any, Dict, List, Tuple, Type, Union
 from unittest import mock
 
 import numpy as np
@@ -99,7 +99,7 @@ class TiledImage(metaclass=_Meta):
     _suffixes = set()  # type: ignore
     _type_for: Dict[str, Type['TiledImage']] = {}
 
-    def __init_subclass__(cls, extensions: str) -> None:
+    def __init_subclass__(cls: Type['TiledImage'], extensions: str) -> None:
         for ext in extensions.split():
             cls._type_for[f'.{ext}'] = cls
 
@@ -151,7 +151,8 @@ class TiledImage(metaclass=_Meta):
         with self._lock:
             yield
 
-    def __getitem__(self, slices):
+    def __getitem__(self,
+                    slices: Union[Tuple[slice, slice], slice]) -> np.ndarray:
         if isinstance(slices, slice):
             slices = (slices, slice(None, None, slices.step))
 
@@ -181,7 +182,7 @@ class _OpenslideImage(
         bg_color_hex = _OSD.openslide_get_property_value(
             self._ptr, 'openslide.background-color')
         self._bg_color = (
-            np.full(3, 255, dtype=np.uint8)
+            np.full(3, 255, dtype='u1')
             if bg_color_hex is None else bg_color_hex)
 
         self._num_levels = _OSD.openslide_get_level_count(self._ptr)
@@ -191,16 +192,12 @@ class _OpenslideImage(
         y, x = ctypes.c_int64(), ctypes.c_int64()
         _OSD.openslide_get_level_dimensions(self._ptr, level,
                                             *map(ctypes.byref, (x, y)))
-        return {
-            'level': level,
-            'shape': [y.value, x.value],
-            'tile': True,
-        }
+        return {'level': level, 'shape': [y.value, x.value], 'tile': True}
 
-    def _get_patch(self, box, step, level, **spec):
+    def _get_patch(self, box, step=0, level=0, **spec):
         (y_min, y_max), (x_min, x_max) = box
 
-        data = np.empty((y_max - y_min, x_max - x_min, 4), dtype=np.uint8)
+        data = np.empty((y_max - y_min, x_max - x_min, 4), dtype='u1')
         _OSD.openslide_read_region(
             self._ptr, data.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
             x_min * step, y_min * step, level, x_max - x_min, y_max - y_min)
@@ -215,10 +212,9 @@ class _OpenslideImage(
 class _TiffImage(TiledImage, extensions='svs tif tiff'):
     def __init__(self, name: str) -> None:
         _setup_libs()
-        if os.name == 'nt':
-            self._ptr = _TIFF.TIFFOpenW(name, b'rm')
-        else:
-            self._ptr = _TIFF.TIFFOpen(name.encode(), b'rm')
+        self._ptr = (
+            _TIFF.TIFFOpenW(name, b'rm') if sys.platform == 'win32' else
+            _TIFF.TIFFOpen(name.encode(), b'rm'))
         assert self._ptr
         weakref.finalize(self, _TIFF.TIFFClose, self._ptr)
 
@@ -280,7 +276,7 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
 
         return spec
 
-    def _get_tile(self, y, x, **spec):
+    def _get_tile(self, y, x, **spec) -> np.ndarray:
         if spec['compression'] in (Codec.JPEG2000_RGB, Codec.JPEG2000_YUV):
             return self._get_tile_jpeg(y, x, **spec)
 
@@ -290,15 +286,16 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
 
         return self._get_tile_native(y, x, **spec)
 
-    def _get_tile_native(self, y, x, *, tile, samples_per_pixel, **spec):
-        data = np.empty(tile + [samples_per_pixel], dtype=np.uint8)
+    def _get_tile_native(self, y, x, *, tile, samples_per_pixel,
+                         **spec) -> np.ndarray:
+        data = np.empty(tile + [samples_per_pixel], dtype='u1')
         isok = _TIFF.TIFFReadTile(
             self._ptr, data.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)), x,
             y, 0, 0)
         assert isok
         return data
 
-    def _get_tile_jpeg(self, y, x, *, compression, jpt=None, **spec):
+    def _get_tile_jpeg(self, y, x, *, jpt=None, **_) -> np.ndarray:
         offset = _TIFF.TIFFComputeTile(self._ptr, x, y, 0, 0)
 
         tile_byte_counts = self.tag(ctypes.c_void_p, 325)
@@ -328,7 +325,7 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
 
         out = np.zeros(
             [(high - low) for low, high in box] + [samples_per_pixel],
-            dtype=np.uint8)
+            dtype='u1')
 
         dy, dx = (bmin for bmin, _ in box)
 
