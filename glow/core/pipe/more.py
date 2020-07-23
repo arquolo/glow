@@ -1,21 +1,14 @@
-__all__ = (
-    'as_iter',
-    'chunked',
-    'eat',
-    'eat_detach',
-    'ichunked',
-    'iter_none',
-    'sliced',
-    'windowed',
-)
+__all__ = [
+    'as_iter', 'chunked', 'eat', 'ichunked', 'iter_none', 'sliced', 'windowed'
+]
 
 import collections
 import collections.abc
 import enum
 import threading
 from itertools import chain, count, islice, repeat, starmap, takewhile, tee
-from typing import (Callable, Iterable, Iterator, Optional, Sequence, TypeVar,
-                    Union, overload)
+from typing import (Any, Callable, Iterable, Iterator, Optional, Sequence,
+                    TypeVar, Union, overload)
 
 from .len_helpers import SizedIter, as_sized
 
@@ -96,6 +89,7 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
     iter_ = iter(it)
+    # while (item := next(iter_, _Empty.token)) is not _Empty.token:  # ! py38
     while True:
         item: Union[_T, _Empty] = next(iter_, _Empty.token)
         if item is _Empty.token:  # check that end reached
@@ -104,7 +98,7 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
         iter_, rest = tee(chain([item], iter_))  # clone source
         yield SizedIter(islice(iter_, size), size)
 
-        it = islice(rest, size, None)
+        iter_ = islice(rest, size, None)
 
 
 @overload
@@ -124,11 +118,10 @@ def iter_none(fn, empty=None):
     return takewhile(lambda r: r is not empty, starmap(fn, repeat(())))
 
 
-def eat(iterable: Iterable) -> None:
-    """Consume `iterable` synchronously"""
-    collections.deque(iterable, maxlen=0)
-
-
-def eat_detach(iterable: Iterable) -> None:
-    """Consume `iterable` asynchronously"""
-    threading.Thread(target=eat, args=(iterable, ), daemon=True).start()
+def eat(iterable: Iterable[Any], async_: bool = False) -> None:
+    """Consume `iterable`, if `async_` then in background thread"""
+    if not async_:
+        collections.deque(iterable, maxlen=0)
+    else:
+        threading.Thread(
+            target=collections.deque, args=(iterable, 0), daemon=True).start()

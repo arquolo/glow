@@ -24,7 +24,8 @@ def patch(obj, **kwargs):
     with contextlib.ExitStack() as stack:
         for key, value in kwargs.items():
             proxy = getattr(obj, key)
-            args = ((proxy, 'value') if isinstance(proxy, Default) else
-                    (obj, key))
-            stack.enter_context(mock.patch.object(*args, value))
+            if isinstance(proxy, Default):
+                stack.enter_context(mock.patch.object(proxy, 'value', value))
+            else:
+                stack.enter_context(mock.patch.object(obj, key, value))
         yield
