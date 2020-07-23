@@ -1,6 +1,6 @@
 __all__ = [
     'Confusion', 'ConfusionGrad', 'accuracy', 'accuracy_balanced', 'iou',
-    'kappa'
+    'kappa', 'kappa_quadratic_weighted'
 ]
 
 import torch
@@ -48,6 +48,14 @@ def kappa(mat):
     observed = mat.diag().sum()
     return 1 - (1 - observed) / (1 - expected).clamp(_EPS)
 
+
+def kappa_quadratic_weighted(mat):
+    y, x = map(torch.arange, mat.shape)
+    weights = (y[:, None] - x[None, :]).double() ** 2
+    weights /= weights.max()
+    expected = mat.sum(0) @ weights @ mat.sum(1)
+    observed = mat.view(-1) @ weights.view(-1)
+    return 1 - observed / expected.clamp(_EPS)
 
 
 def iou(mat):
