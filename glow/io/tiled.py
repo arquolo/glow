@@ -4,6 +4,7 @@ import contextlib
 import ctypes
 import itertools
 import os
+import sys
 import weakref
 from enum import Enum
 from pathlib import Path
@@ -16,31 +17,35 @@ import numpy as np
 
 from .. import call_once, memoize
 
-_libnames = [('libtiff', 5), ('libopenslide', 0)]
 _TIFF: Any = None
 _OSD: Any = None
 
 
-class _CImage(ctypes.Structure):
-    pass
+def _patch_path(prefix):
+    if sys.platform != 'win32':
+        return contextlib.nullcontext()
+    if sys.version_info >= (3, 8):
+        return os.add_dll_directory(prefix)
+    return mock.patch.dict(os.environ,
+                           {'PATH': f'{prefix};{os.environ["PATH"]}'})
 
 
 @call_once
 def _setup_libs():
     global _TIFF, _OSD
-    if os.name == 'nt':
-        _prefix = Path(__file__).parent / 'libs'
-        with mock.patch.dict(os.environ,
-                             {'PATH': f'{_prefix};{os.environ["PATH"]}'}):
-            _TIFF, _OSD = (ctypes.CDLL((_prefix / f'{n}-{v}.dll').as_posix())
-                           for n, v in _libnames)
-        _TIFF.TIFFOpenW.restype = ctypes.POINTER(_CImage)
-    else:
-        _TIFF, _OSD = (ctypes.CDLL(f'{n}.so.{v}') for n, v in _libnames)
-        _TIFF.TIFFOpen.restype = ctypes.POINTER(_CImage)
+    prefix = Path(__file__).parent / 'libs'
+    pattern = ((prefix / '{}-{}.dll').as_posix()
+               if sys.platform == 'win32' else '{}.so.{}')
+    names = map(pattern.format, ('libtiff', 'libopenslide'), (5, 0))
+
+    with _patch_path(prefix):
+        _TIFF, _OSD = map(ctypes.CDLL, names)
+
+    (_TIFF.TIFFOpenW if sys.platform == 'win32' else
+     _TIFF.TIFFOpen).restype = ctypes.POINTER(ctypes.c_ubyte)
 
     _TIFF.TIFFSetErrorHandler(None)
-    _OSD.openslide_open.restype = ctypes.POINTER(_CImage)
+    _OSD.openslide_open.restype = ctypes.POINTER(ctypes.c_ubyte)
     _OSD.openslide_get_error.restype = ctypes.c_char_p
     _OSD.openslide_get_property_value.restype = ctypes.c_char_p
 
