@@ -12,7 +12,6 @@ from threading import RLock
 from typing import Any, Dict, Type
 from unittest import mock
 
-import imagecodecs
 import numpy as np
 
 from .. import call_once, memoize
@@ -319,6 +318,7 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
             _TIFF.TIFFReadRawTile(self._ptr, offset, ctypes.byref(data),
                                   nbytes)
 
+        import imagecodecs
         return imagecodecs.imread(np.asarray(data))
 
     def _get_patch(self, box, **spec) -> np.ndarray:
