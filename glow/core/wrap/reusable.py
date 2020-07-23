@@ -21,8 +21,12 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def _finalize(_: object) -> None:
-    pass
+def _call_in_loop(fn: Callable[..., _T],
+                  loop: asyncio.AbstractEventLoop) -> _T:
+    async def callee():
+        return fn()
+
+    return asyncio.run_coroutine_threadsafe(callee(), loop=loop).result()
 
 
 class _Factory(Protocol[_T_co]):
@@ -32,15 +36,16 @@ class _Factory(Protocol[_T_co]):
 
 @dataclass
 class Reusable(Generic[_T]):
-    factory: _Factory[_T]
-    finalize: Callable[[_T], None] = _finalize
-    delay: float = 0.0
-
     _loop: ClassVar[asyncio.AbstractEventLoop] = make_loop()
-    _lock: asyncio.Lock = field(
-        default_factory=lambda: asyncio.Lock(loop=Reusable._loop))
+    _lock: asyncio.Lock = field(init=False)
+    factory: _Factory[_T]
+    delay: float
+    finalize: Optional[Callable[[_T], None]] = None
     _deleter: Optional[asyncio.TimerHandle] = None
     _box: List[_T] = field(default_factory=list)
+
+    def __post_init__(self):
+        self._lock = _call_in_loop(asyncio.Lock, self._loop)
 
     def get(self) -> _T:
         """Returns inner object, or recreates it"""
@@ -49,7 +54,7 @@ class Reusable(Generic[_T]):
 
     def _finalize(self, ref):
         obj: Optional[_T] = ref()
-        if obj is not None:
+        if obj is not None and self.finalize is not None:
             self.finalize(obj)
 
     async def _get(self) -> _T:
