@@ -8,7 +8,7 @@ from inspect import isgetsetdescriptor, ismemberdescriptor
 
 import wrapt
 
-from .string import Si
+from ._repr import Si
 
 
 def for_unseen(fn, default=Si):
