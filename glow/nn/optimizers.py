@@ -81,12 +81,12 @@ class SGDW(_OptimizerBase):
                 grad = state['exp_avg'] = p.grad.clone().detach_()
             else:
                 grad = state['exp_avg']
-                grad.mul_(momentum).add_(1 - group['dampening'], p.grad)
+                grad.mul_(momentum).add_(p.grad, alpha=1 - group['dampening'])
 
             if group['nesterov']:
-                grad = p.grad.add(momentum, grad)
+                grad = p.grad.add(grad, alpha=momentum)
 
-        p.add_(-group['lr'], grad)
+        p.add_(grad, alpha=-group['lr'])
 
 
 class AdamW(_OptimizerBase):
@@ -141,8 +141,8 @@ class AdamW(_OptimizerBase):
         exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
         beta1, beta2 = group['betas']
 
-        exp_avg.mul_(beta1).add_(1 - beta1, p.grad)
-        exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, p.grad, p.grad)
+        exp_avg.mul_(beta1).add_(p.grad, alpha=1 - beta1)
+        exp_avg_sq.mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
 
         if group['weight_decay'] != 0:
             p.mul_(1 - group['lr'] * group['weight_decay'])
@@ -195,14 +195,14 @@ class RAdam(_OptimizerBase):
         exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
         beta1, beta2 = group['betas']
 
-        exp_avg.mul_(beta1).add_(1 - beta1, p.grad)
-        exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, p.grad, p.grad)
+        exp_avg.mul_(beta1).add_(p.grad, alpha=1 - beta1)
+        exp_avg_sq.mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
 
         if group['weight_decay'] != 0:
             p.data.mul_(1 - group['weight_decay'] * group['lr'])
 
         if is_tractable:
             denom = exp_avg_sq.sqrt().add_(1e-8)
-            p.addcdiv_(-step_size * group['lr'], exp_avg, denom)
+            p.addcdiv_(exp_avg, denom, value=-step_size * group['lr'])
         elif self._decay_to_sgd:
-            p.add_(-step_size * group['lr'], exp_avg)
+            p.add_(exp_avg, alpha=-step_size * group['lr'])
