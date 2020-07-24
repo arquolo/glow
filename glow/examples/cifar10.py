@@ -1,12 +1,14 @@
 import argparse
 import pathlib
-from typing import DefaultDict, List
+from dataclasses import dataclass
+from typing import Callable, DefaultDict, Iterable, List
 
 import glow
 import glow.nn as gnn
 import glow.metrics as m
 import torch
 import torch.nn as nn
+import torch.optim
 from matplotlib import pyplot as plt
 from torchvision import datasets
 from torchvision import transforms as tfs
@@ -71,13 +73,32 @@ def make_model_new(init=16):
     )
 
 
-def loop(loader, step_fn, metrics):
-    meter = m.compose(*metrics)
-    for data, target in loader:
-        data, target = data.cuda(), target.cuda()
-        out = step_fn(data, target)
-        scores = meter.send((out, target))
-        yield {k: v.item() for k, v in scores.items() if v.numel() == 1}
+@dataclass
+class Engine:
+    net: nn.Module
+    optim: torch.optim.Optimizer
+    criterion: Callable
+    metrics: Iterable[m.Metric]
+
+    def _step(self, data, target, is_train):
+        self.net.train(is_train)
+        with torch.set_grad_enabled(is_train):
+            out = self.net(data)
+
+        if is_train:
+            self.optim.zero_grad()
+            self.criterion(out, target).backward()
+            self.optim.step()
+
+        return out.detach()
+
+    def run(self, loader: Iterable, is_train: bool = True):
+        meter = m.compose(*self.metrics)
+        for data, target in loader:
+            data, target = data.cuda(), target.cuda()
+            out = self._step(data, target, is_train)
+            scores = meter.send((out, target))
+            yield {k: v.item() for k, v in scores.items() if v.numel() == 1}
 
 
 def main(root: pathlib.Path, batch_size: int, width: int, epochs: int):
@@ -123,27 +144,16 @@ def main(root: pathlib.Path, batch_size: int, width: int, epochs: int):
         m.Confusion(acc=m.accuracy, kappa=m.kappa),
     ]
 
-    def train_step(data, target):
-        net.train()
-        optim.zero_grad()
-        out = net(data)
-        loss_fn(out, target).backward()
-        optim.step()
-        return out.detach()
-
-    def val_step(data, target):
-        net.eval()
-        with torch.no_grad():
-            return net(data)
-
     scores = DefaultDict[str, List](list)
+    engine = Engine(net, optim, loss_fn, metrics)
+
     for _ in tqdm(range(epochs), desc='epochs'):
         for split in glow.ichunked(
                 tqdm(tload, desc='train', leave=False),
                 size=8000 // batch_size):
-            *_, mt = loop(split, train_step, metrics)
-            *_, mv = loop(
-                tqdm(vload, desc='val', leave=False), val_step, metrics)
+            *_, mt = engine.run(split)
+            *_, mv = engine.run(
+                tqdm(vload, desc='val', leave=False), is_train=False)
 
             names = sorted({*mt} & {*mv})
             # print(', '.join(f'{k}: {mt[k]:.3f}/{mv[k]:.3f}' for k in names))

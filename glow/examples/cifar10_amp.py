@@ -1,8 +1,8 @@
 import argparse
 import contextlib
 import pathlib
-import random
-from typing import DefaultDict
+from dataclasses import dataclass
+from typing import Callable, DefaultDict, Iterable
 
 import glow
 import glow.metrics as m
@@ -17,30 +17,44 @@ from tqdm.auto import tqdm
 
 DEVICE = torch.device('cuda')
 
-torch.backends.cudnn.benchmark = True  # type: ignore
 glow.lock_seed(42)
+torch.backends.cudnn.benchmark = True  # type: ignore
 
 
-def train(net: nn.Module, loader, optim, criterion):
-    for input_, target in loader:
+@dataclass
+class Engine:
+    net: nn.Module
+    optim: gnn.amp.OptimizerWrapper
+    criterion: Callable
+    metrics: Iterable[m.Metric]
+
+    def _step(self, data, target, is_train):
         target = target.to(DEVICE)
-        with optim:
-            out = net(input_)
-            loss = criterion(out, target)
-            optim.backward(loss)
+        out = self.net(data)
+        if is_train:
+            with self.optim:
+                self.optim.backward(self.criterion(out, target))
+        return out.detach(), target
 
-        yield (out.detach(), target)
+    def run(self, loader, pbar, is_train: bool = True) -> dict:
+        scalars = {}
+        meter = m.compose(*self.metrics)
 
+        with contextlib.ExitStack() as stack:
+            stack.callback(self.net.train, self.net.training)
+            self.net.train(is_train)
+            stack.enter_context(torch.set_grad_enabled(is_train))
 
-def validate(net: nn.Module, loader):
-    with contextlib.ExitStack() as stack:
-        stack.callback(net.train, net.training)
-        net.eval()
-        stack.enter_context(torch.no_grad())
-        for input_, target in loader:
-            target = target.to(DEVICE)
-            out = net(input_)
-            yield (out, target)
+            for data, target in loader:
+                scalars = {
+                    k: v.item() for k, v in meter.send(
+                        self._step(data, target, is_train)).items()
+                    if v.numel() == 1
+                }
+                pbar.set_postfix(scalars)
+                pbar.update()
+
+        return scalars
 
 
 # ------------------------------ define model ------------------------------
@@ -102,7 +116,7 @@ def make_model_new(init=16):
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    'root', type=pathlib.Path, help='location to store dataset')
+    'root', type=pathlib.Path, help='location of cifar10/ folder')
 parser.add_argument('--batch-size', type=int, default=4, help='train batch')
 parser.add_argument('--epochs', type=int, default=12, help='count of epochs')
 parser.add_argument('--steps-per-epoch', type=int, help='steps per epoch')
@@ -131,26 +145,13 @@ loader = gnn.make_loader(
 val_loader = gnn.make_loader(ds_val, batch_size=100, multiprocessing=False)
 
 
-def collect(metrics, pbar, outputs):
-    scores = {}
-    meter = m.compose(*metrics)
-
-    for (out, target) in outputs:
-        scores = meter.send((out, target))
-        scores = {k: v.item() for k, v in scores.items() if v.numel() == 1}
-        pbar.set_postfix(scores)
-        pbar.update()
-
-    return scores
-
-
 # net = make_model_default()
 net = make_model_new(args.width)
 print(gnn.param_count(net))
 
 _optim = torch.optim.AdamW(net.parameters())
 optim = gnn.amp_init_opt(
-    net, _optim, device=DEVICE, fp16=args.fp16, allow_skip=True)
+    net, _optim, device=DEVICE, fp16=args.fp16, retries=False)
 
 criterion = nn.CrossEntropyLoss()
 metrics = [
@@ -160,16 +161,15 @@ metrics = [
 
 history = DefaultDict[str, list](list)
 
+engine = Engine(net, optim, criterion, metrics)
 with tqdm(total=epoch_len * args.epochs, desc='train') as pbar:
-    for t_out in glow.ichunked(
-            train(net, loader, optim, criterion), epoch_len):
+    for split in glow.ichunked(loader, epoch_len):
+        tscalars = engine.run(split, pbar)
         with tqdm(total=len(val_loader), desc='val', leave=False) as pbar_val:
-            _scores = (
-                collect(metrics, pbar, t_out),
-                collect(metrics, pbar_val, validate(net, val_loader)),
-            )
-            _tags = sorted({tag for s in _scores for tag in s})
-            scores = {tag: [s[tag] for s in _scores] for tag in _tags}
+            vscalars = engine.run(val_loader, pbar_val, is_train=False)
+
+        _tags = sorted({*tscalars, *vscalars})
+        scores = {tag: [tscalars[tag], vscalars[tag]] for tag in _tags}
 
         for tag, values in scores.items():
             history[tag].append(values)
