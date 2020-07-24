@@ -1,7 +1,7 @@
 import argparse
 import contextlib
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, DefaultDict, Iterable
 
 import glow
@@ -19,21 +19,29 @@ DEVICE = torch.device('cuda')
 
 glow.lock_seed(42)
 torch.backends.cudnn.benchmark = True  # type: ignore
+rg = np.random.default_rng()
 
 
 @dataclass
 class Engine:
     net: nn.Module
-    optim: gnn.amp.OptimizerWrapper
+    opt: torch.optim.Optimizer
     criterion: Callable
     metrics: Iterable[m.Metric]
+    fp16: bool = False
+    _ctx: gnn.amp.OptContext = field(init=False)  # type: ignore
+
+    def __post_init__(self):
+        self._ctx = gnn.get_amp_context(
+            self.net, self.opt, fp16=self.fp16, retries=True)
 
     def _step(self, data, target, is_train):
         target = target.to(DEVICE)
-        out = self.net(data)
+        with gnn.amp.autocast(self.fp16):
+            out = self.net(data.to(DEVICE))
         if is_train:
-            with self.optim:
-                self.optim.backward(self.criterion(out, target))
+            with self._ctx:
+                self._ctx.backward(self.criterion(out, target))
         return out.detach(), target
 
     def run(self, loader, pbar, is_train: bool = True) -> dict:
@@ -136,32 +144,29 @@ ds_val = CIFAR10(args.root / 'cifar10', transform=ToTensor(), train=False)
 
 
 @glow.repeatable(hint=lambda: sample_size)
-def sampler(rg=np.random.default_rng()):
+def sampler():
     return rg.integers(len(ds), size=sample_size)
 
 
 loader = gnn.make_loader(
     ds, sampler(), batch_size=args.batch_size, multiprocessing=False)
-val_loader = gnn.make_loader(ds_val, batch_size=100, multiprocessing=False)
+val_loader = gnn.make_loader(ds_val, batch_size=1000, multiprocessing=False)
 
 
 # net = make_model_default()
 net = make_model_new(args.width)
+net.to(DEVICE)
+opt = torch.optim.AdamW(net.parameters())
 print(gnn.param_count(net))
-
-_optim = torch.optim.AdamW(net.parameters())
-optim = gnn.amp_init_opt(
-    net, _optim, device=DEVICE, fp16=args.fp16, retries=False)
 
 criterion = nn.CrossEntropyLoss()
 metrics = [
     m.Lambda(criterion, name='loss'),
     m.Confusion(acc=m.accuracy, kappa=m.kappa),
 ]
+engine = Engine(net, opt, criterion, metrics, fp16=args.fp16)
 
 history = DefaultDict[str, list](list)
-
-engine = Engine(net, optim, criterion, metrics)
 with tqdm(total=epoch_len * args.epochs, desc='train') as pbar:
     for split in glow.ichunked(loader, epoch_len):
         tscalars = engine.run(split, pbar)
