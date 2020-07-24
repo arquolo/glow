@@ -1,6 +1,10 @@
-# flake8: noqa
-from .base import *
-from .confusion import *
-from .extra import *
+from .base import Metric, Lambda, Staged, compose, to_index, to_prob
+from .confusion import (Confusion, ConfusionGrad, accuracy, accuracy_balanced,
+                        iou, kappa, kappa_quadratic_weighted)
+from .raw import accuracy_, auroc, average_precision, dice
 
-__all__ = base.__all__ + confusion.__all__ + extra.__all__
+__all__ = [
+    'Confusion', 'ConfusionGrad', 'Metric', 'Lambda', 'Staged', 'accuracy',
+    'accuracy_', 'accuracy_balanced', 'auroc', 'average_precision', 'compose',
+    'dice', 'iou', 'kappa', 'kappa_quadratic_weighted', 'to_index', 'to_prob'
+]
