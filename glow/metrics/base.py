@@ -1,16 +1,8 @@
-__all__ = (
-    'Metric',
-    'Lambda',
-    'Staged',
-    'compose',
-    'to_index',
-    'to_prob',
-)
+__all__ = ['Metric', 'Lambda', 'Staged', 'compose', 'to_index', 'to_prob']
 
-import abc
 import itertools
-import typing
-from typing import Callable, Dict, Generator, Sequence, Tuple
+from abc import ABC, abstractmethod
+from typing import Callable, Dict, Generator, Sequence, Tuple, overload
 
 import torch
 from typing_extensions import Protocol
@@ -23,9 +15,9 @@ class _MetricFn(Protocol):
         ...
 
 
-class Metric(abc.ABC):
+class Metric(ABC):
     """Base class for metric"""
-    @abc.abstractmethod
+    @abstractmethod
     def __call__(self, pred, true) -> torch.Tensor:
         raise NotImplementedError
 
@@ -37,11 +29,11 @@ class Lambda(Metric):
     """Wraps arbitary loss function to metric"""
     fn: _MetricFn
 
-    @typing.overload
+    @overload
     def __init__(self, fn: Callable, name: str):
         ...
 
-    @typing.overload
+    @overload
     def __init__(self, fn: _MetricFn, name: None = ...):
         ...
 
@@ -81,7 +73,7 @@ def to_index(pred, true) -> Tuple[int, torch.LongTensor, torch.LongTensor]:
     return c, pred, true
 
 
-def to_prob(pred, true) -> Tuple[int, torch.LongTensor, torch.Tensor]:
+def to_prob(pred, true) -> Tuple[int, torch.Tensor, torch.LongTensor]:
     """
     Convert `pred` of logits with shape [B, C, ...] to probs.
     Drop bad indices.
