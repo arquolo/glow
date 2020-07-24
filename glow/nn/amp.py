@@ -30,7 +30,7 @@ __all__ = ['amp_init', 'amp_init_opt']
 import functools
 import warnings
 from collections import abc
-from typing import Dict, List, Union
+from typing import Dict, Set, Union
 
 import numpy as np
 import torch
@@ -99,10 +99,11 @@ class _MixedOptimizer(OptimizerWrapper):
     def __init__(
             self,
             optim: torch.optim.Optimizer,  # type: ignore
-            allow_skip: bool = False) -> None:
+            retries: bool = True) -> None:
         self._step = 0
         self._scale = _MAX_SCALE
-        self._allow_skip = allow_skip
+        self._devices: Set[torch.device] = set()
+        self._retries = retries
         self._mix_to_full: Dict[nn.Parameter, nn.Parameter] = {}
 
         for param_group in optim.param_groups:
@@ -113,6 +114,7 @@ class _MixedOptimizer(OptimizerWrapper):
                     self._mix_to_full[p] = param_group['params'][i] = p32
                     if p in optim.state:
                         optim.state[p32] = optim.state.pop(p)
+                    self._devices.add(p.device)
 
         super().__init__(optim)
 
@@ -120,27 +122,27 @@ class _MixedOptimizer(OptimizerWrapper):
         self._pending_steps = 0
 
     def _do_grad_transfer(self) -> bool:
-        checks: List[torch.Tensor] = []
         grads: Dict[nn.Parameter, torch.Tensor] = {}
-
+        checks_and_rscales = {
+            dev: (
+                torch.zeros(1).to(dev),
+                torch.full((1, ), 1 / self._scale).to(dev),
+            ) for dev in self._devices
+        }
         for p, p32 in self._mix_to_full.items():
             if p.grad is None:
                 continue
 
-            # delay check
-            if p.dtype == torch.half:
-                checks.append(torch.isfinite(p.grad).all())
             if p32.grad is None:
                 p32.grad = torch.empty_like(p.grad, dtype=torch.float32)
 
             # transfer grads from fp16/fp32 to fp32 with scaling
-            if not self._pending_steps:
-                torch.mul(p.grad, 1 / self._scale, out=p32.grad)
-            else:
-                grads[p32] = p32.grad.add(1 / self._scale, p.grad)
+            grads[p32] = p.grad.float()
+            torch._amp_non_finite_check_and_unscale_(
+                grads[p32], *checks_and_rscales[p.device])
 
         # now check
-        if not torch.stack(checks).all():
+        if any(c.item() for c, _ in checks_and_rscales.values()):
             # nan/inf catched in fp16 grads, reduce scale
             self._step = 0
             self._scale /= 2
@@ -148,7 +150,10 @@ class _MixedOptimizer(OptimizerWrapper):
 
         for p32, grad in grads.items():
             if p32.grad is not None:
-                p32.grad.set_(grad)
+                if not self._pending_steps:
+                    p32.grad.set_(grad)
+                else:
+                    p32.grad.add_(grad)
 
         self._step += 1
         self._pending_steps += 1
@@ -159,7 +164,7 @@ class _MixedOptimizer(OptimizerWrapper):
         return True
 
     def backward(self, loss: torch.Tensor) -> None:
-        retain_graph = not self._allow_skip
+        retain_graph = self._retries
 
         while self._scale > _MIN_SCALE:
             # zero local grads
@@ -172,7 +177,7 @@ class _MixedOptimizer(OptimizerWrapper):
 
             # transfer and check for correctness
             with torch.no_grad():
-                if self._do_grad_transfer() or self._allow_skip:
+                if self._do_grad_transfer() or not self._retries:
                     return
 
         raise OverflowError(f'Cannot decrease scale below {_MIN_SCALE}')
@@ -209,13 +214,13 @@ def amp_init(net: nn.Module,
         dtype = torch.float16
 
     # patch inputs
-    input_caster = functools.partial(_to, device=device, dtype=dtype)
-    net.register_forward_pre_hook(input_caster)
+    net.register_forward_pre_hook(
+        functools.partial(_to, device=device, dtype=dtype))  # type: ignore
     net.to(device, dtype, non_blocking=True)
 
     # patch normalization
     for m in net.modules():
-        if isinstance(m, nn.modules.batchnorm._BatchNorm):  # type: ignore
+        if isinstance(m, nn.modules.batchnorm._NormBase):  # type: ignore
             if m.affine:
                 m.float()
 
@@ -225,18 +230,18 @@ def amp_init_opt(
         opt: torch.optim.Optimizer,  # type: ignore
         device: Union[int, torch.device] = 0,
         fp16: bool = False,
-        allow_skip: bool = False) -> OptimizerWrapper:
+        retries: bool = True) -> OptimizerWrapper:
     """Switch model and optimizer to mixed precision mode
 
     Parameters:
-      - fp16 - enables fp16 mode
-      - allow_skip - skip updates when `backward()` fills grads with NaN/Inf.
-        Only for fp16 mode
+      - fp16 - enables fp16 mode.
+      - retries - if set, probe another scale for the same loss
+        when `backward()` fills grads with NaN/Inf. Only for fp16 mode.
     """
     amp_init(net, device=device, fp16=fp16)
     if not fp16:
         return OptimizerWrapper(opt)
-    return _MixedOptimizer(opt, allow_skip)
+    return _MixedOptimizer(opt, retries)
 
 
 def _warning_on_one_line(message,
