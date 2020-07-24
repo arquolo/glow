@@ -22,7 +22,7 @@ def timer(name: str = 'Task', callback: Callable[[float], object] = None):
         if callback is not None:
             callback(duration)
         else:
-            print(f'{name} done in {duration:.4g} seconds')
+            print(f'{name} done in {Si(duration)}s')
 
 
 def time_this(fn: _F) -> _F:
