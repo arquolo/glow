@@ -10,6 +10,7 @@ import glow.nn as gnn
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+import torch.cuda.amp
 import torch.nn as nn
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import ToTensor
@@ -33,11 +34,11 @@ class Engine:
 
     def __post_init__(self):
         self._ctx = gnn.get_amp_context(
-            self.net, self.opt, fp16=self.fp16, retries=True)
+            self.net, self.opt, fp16=self.fp16, retry_on_inf=True)
 
     def _step(self, data, target, is_train):
         target = target.to(DEVICE)
-        with gnn.amp.autocast(self.fp16):
+        with torch.cuda.amp.autocast(self.fp16):
             out = self.net(data.to(DEVICE))
         if is_train:
             with self._ctx:
@@ -150,7 +151,7 @@ def sampler():
 
 loader = gnn.make_loader(
     ds, sampler(), batch_size=args.batch_size, multiprocessing=False)
-val_loader = gnn.make_loader(ds_val, batch_size=1000, multiprocessing=False)
+val_loader = gnn.make_loader(ds_val, batch_size=100, multiprocessing=False)
 
 
 # net = make_model_default()
