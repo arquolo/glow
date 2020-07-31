@@ -8,7 +8,7 @@ import weakref
 from enum import Enum
 from pathlib import Path
 from threading import RLock
-from typing import Any, Dict, List, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 from unittest import mock
 
 import numpy as np
@@ -39,13 +39,15 @@ def _setup_libs():
     with _patch_path(prefix):
         _TIFF, _OSD = map(ctypes.CDLL, names)
 
+    struct_t = ctypes.POINTER(ctypes.c_ubyte)
     (_TIFF.TIFFOpenW if sys.platform == 'win32' else
-     _TIFF.TIFFOpen).restype = ctypes.POINTER(ctypes.c_ubyte)
+     _TIFF.TIFFOpen).restype = struct_t
 
     _TIFF.TIFFSetErrorHandler(None)
-    _OSD.openslide_open.restype = ctypes.POINTER(ctypes.c_ubyte)
+    _OSD.openslide_open.restype = struct_t
     _OSD.openslide_get_error.restype = ctypes.c_char_p
     _OSD.openslide_get_property_value.restype = ctypes.c_char_p
+    _OSD.openslide_get_property_names.restype = ctypes.POINTER(ctypes.c_char_p)
 
 
 class Color(Enum):
@@ -55,24 +57,17 @@ class Color(Enum):
 
 
 class Codec(Enum):
-    NONE = 1
-    CCITTRLE = 2
-    CCITTFAX3 = CCITT_T4 = 3
-    CCITTFAX4 = CCITT_T6 = 4
+    RAW = 1
+    CCITT = 2
+    CCITTFAX3 = 3
+    CCITTFAX4 = 4
     LZW = 5
     OJPEG = 6
     JPEG = 7
     ADOBE_DEFLATE = 8
-    NEXT = 32766
-    CCITTRLEW = 32771
+    RAW_16 = 32771
     PACKBITS = 32773
     THUNDERSCAN = 32809
-    IT8CTPAD = 32895
-    IT8LW = 32896
-    IT8MP = 32897
-    IT8BL = 32898
-    PIXARFILM = 32908
-    PIXARLOG = 32909
     DEFLATE = 32946
     DCS = 32947
     JPEG2000_YUV = 33003
@@ -80,7 +75,10 @@ class Codec(Enum):
     JBIG = 34661
     SGILOG = 34676
     SGILOG24 = 34677
-    JP2000 = 34712
+    JPEG2000 = 34712
+    LZMA = 34925
+    ZSTD = 50000
+    WEBP = 50001
 
 
 class _Meta(type):
@@ -142,7 +140,7 @@ class TiledImage(metaclass=_Meta):
         return [*self._spec.keys()]
 
     @property
-    def spacing(self) -> List[float]:
+    def spacing(self) -> List[Optional[float]]:
         raise NotImplementedError
 
     def __repr__(self) -> str:
@@ -183,7 +181,7 @@ class _OpenslideImage(
         weakref.finalize(self, _OSD.openslide_close, self._ptr)
 
         bg_color_hex = _OSD.openslide_get_property_value(
-            self._ptr, 'openslide.background-color')
+            self._ptr, b'openslide.background-color')
         self._bg_color = (
             np.full(3, 255, dtype='u1')
             if bg_color_hex is None else bg_color_hex)
@@ -212,14 +210,30 @@ class _OpenslideImage(
             self._bg_color)
 
     @property
-    def spacing(self) -> List[float]:
+    def metadata(self) -> Dict[str, str]:
+        arr = _OSD.openslide_get_property_names(self._ptr)
+        if not arr:
+            return {}
+        m = {}
+        i = 0
+        name = arr[i]
+        while name:
+            m[name.decode()] = _OSD.openslide_get_property_value(
+                self._ptr, name).decode()
+            i += 1
+            name = arr[i]
+        return m
+
+    @property
+    def spacing(self) -> List[Optional[float]]:
         mpp = (
-            _OSD.openslide_get_property_value(self._ptr, f'openslide.mpp-{ax}')
-            for ax in 'yx')
+            _OSD.openslide_get_property_value(
+                self._ptr, f'openslide.mpp-{ax}'.encode()) for ax in 'yx')
         return [float(m) if m else None for m in mpp]
 
 
-class _TiffImage(TiledImage, extensions='svs tif tiff'):
+# class _TiffImage(TiledImage, extensions='svs tif tiff'):
+class _TiffImage(TiledImage, extensions=''):
     def __init__(self, name: str) -> None:
         _setup_libs()
         self._ptr = (
@@ -253,11 +267,14 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         if planar_config != 1:
             raise TypeError(f'Level {level} is not contiguous!')
 
+        desc = self.tag(ctypes.c_char_p, 270).decode()
+        desc = desc.replace('\r\n', '|').split('|')
         spec = {
             'level': level,
             'shape': [self.tag(ctypes.c_uint32, tag) for tag in (257, 256)],
             'bits_per_sample': self.tag(ctypes.c_uint16, 258),
             'sample_format': self.tag(ctypes.c_uint16, 339, default=1),
+            'description': desc,
         }
 
         photometric = Color(self.tag(ctypes.c_uint16, 262))
@@ -354,6 +371,12 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         return out
 
     @property
-    def spacing(self) -> List[float]:
+    def spacing(self) -> List[Optional[float]]:
         mpp = (self.tag(ctypes.c_float, x) for x in (283, 282))
-        return [(10000 / m) if m else None for m in mpp]
+        s = [(10000 / m) if m else None for m in mpp]
+        if any(s):
+            return s
+        for token in self._spec[1]['description']:
+            if 'MPP' in token:
+                return [float(token.split('=')[-1].strip())] * 2
+        return []
