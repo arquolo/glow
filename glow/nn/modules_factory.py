@@ -92,7 +92,7 @@ class Sum(nn.Sequential):
                  *children: nn.Module,
                  tail: nn.Module = None,
                  ident: nn.Module = None,
-                 skip=0.0) -> None:
+                 skip: float = 0.0) -> None:
         super().__init__(*children)
         self.tail = tail
         self.ident = ident
