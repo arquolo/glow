@@ -1,16 +1,29 @@
-__all__ = ('make_loader', )
+__all__ = ['make_loader']
 
+from abc import abstractmethod
 import os
 import functools
-from typing import Iterable, Mapping, Sequence, TypeVar
+from typing import Any, Iterable, Protocol, Sequence, Tuple, TypeVar, Union
 
 import torch
+from torch.utils.data import Dataset, Sampler
 
 from ..core import chunked, repeatable, mapped
 from ..core.pipe.len_helpers import SizedIterable
 
 _KT = TypeVar('_KT')
+_KT_contra = TypeVar('_KT_contra', contravariant=True)
 _NUM_CPUS: int = os.cpu_count()  # type: ignore
+
+
+class _Mapping(Protocol[_KT_contra]):
+    @abstractmethod
+    def __getitem__(self, key: _KT_contra) -> Any:
+        ...
+
+    @abstractmethod
+    def __len__(self) -> int:
+        ...
 
 
 def _get_batch(dataset, indices):
@@ -19,11 +32,13 @@ def _get_batch(dataset, indices):
         for row in zip(*[dataset[index] for index in indices]))
 
 
-def make_loader(dataset: Mapping[_KT, Sequence],
-                sampler: Iterable[_KT] = None,
-                batch_size=1,
-                workers=_NUM_CPUS,
-                multiprocessing=True) -> SizedIterable[Sequence[torch.Tensor]]:
+def make_loader(
+        dataset: Union[_Mapping[_KT], Dataset[Sequence]],
+        sampler: Union[Iterable[_KT], Sampler] = None,
+        batch_size: int = 1,
+        workers: int = _NUM_CPUS,
+        multiprocessing: bool = True
+) -> SizedIterable[Tuple[torch.Tensor, ...]]:
     """Yields batches of `batch_size` from `dataset` in order from  `sampler`.
 
     Parameters:
@@ -44,7 +59,7 @@ def make_loader(dataset: Mapping[_KT, Sequence],
         return mapped(
             chunked_getter,
             chunked_sampler,
-            chunk_size=multiprocessing,
+            chunk_size=1 if multiprocessing else 0,
             workers=workers)
 
     return loop()
