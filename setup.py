@@ -1,4 +1,9 @@
 #!/bin/python3
+"""
+Usage:
+    python setup.py sdist
+    python setup.py bdist_wheel --plat-name=win-amd64
+"""
 
 import io
 import os
