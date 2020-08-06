@@ -1,0 +1,170 @@
+__all__ = ['Parallel', 'delayed']
+
+import itertools
+import multiprocessing as mp
+import os
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from functools import partial
+from unittest import mock
+from typing import Callable, Optional
+
+from ._parallel_backends import (LokyBackend, MultiprocessingBackend,
+                                 SequentialBackend, ThreadingBackend)
+
+_backend = threading.local()
+
+_DEFAULT_CTX = os.environ.get('MP_CTX')
+BACKENDS = {
+    'multiprocessing': MultiprocessingBackend,
+    'threading': ThreadingBackend,
+    'sequential': SequentialBackend,
+    'loky': LokyBackend,
+}
+delayed = partial(partial, partial)
+
+
+def get_active_backend():
+    backend_and_jobs = getattr(_backend, 'backend_and_jobs', None)
+    if backend_and_jobs is not None:
+        backend, _ = backend_and_jobs
+        if backend.supports_sharedmem:
+            return backend_and_jobs
+        return ThreadingBackend(backend.level), 1
+    return LokyBackend(0), 1
+
+
+@dataclass
+class BatchedCalls:
+    tasks: list
+    backend_and_jobs: tuple
+    reducer_callback: Optional[Callable] = None
+
+    def __call__(self):
+        backend, n_jobs = self.backend_and_jobs
+
+        backend_and_jobs = getattr(_backend, 'backend_and_jobs', None)
+        if backend_and_jobs is None:
+            backend.level = 0
+        elif backend.level is None:
+            backend.level = backend_and_jobs[0].level
+
+        with mock.patch.object(
+                _backend, 'backend_and_jobs', (backend, n_jobs), create=True):
+            return [task() for task in self.tasks]
+
+    def __len__(self):
+        return len(self.tasks)
+
+    def __reduce__(self):
+        if self.reducer_callback is not None:
+            self.reducer_callback()
+        return BatchedCalls, (self.tasks, self.backend_and_jobs)
+
+
+class Parallel:
+    _original_iterator = None
+    _iterating = False
+    _aborting = False
+
+    def __init__(self, n_jobs=None, backend=None, pre_dispatch=2,
+                 max_nbytes=1e6):
+        assert n_jobs != 0
+
+        self._batches = deque()
+        self._jobs = deque()
+        self._lock = threading.RLock()
+
+        context = mp.get_context(_DEFAULT_CTX)
+
+        active_backend, context_n_jobs = get_active_backend()
+        n_jobs = (
+            n_jobs if n_jobs is not None else
+            (1 if backend is not None else context_n_jobs))
+        backend = (
+            BACKENDS[backend](active_backend.level)
+            if backend is not None else active_backend)
+
+        self._backend, self._n_jobs = backend.configure(
+            n_jobs, max_nbytes=max_nbytes, context=context)
+        self._pre_dispatch = self._n_jobs * pre_dispatch
+
+    def dispatch_next(self, _, batch_size, timestamp):
+        self._backend.batch_completed(batch_size,
+                                      time.perf_counter() - timestamp)
+        with self._lock:
+            if (self._original_iterator is not None and
+                    not self.dispatch_one_batch(self._original_iterator)):
+                self._iterating = False
+                self._original_iterator = None
+
+    def dispatch_one_batch(self, iterator):
+        ideal_batch = self._backend.compute_batch_size() * self._n_jobs
+
+        with self._lock:
+            try:
+                tasks = self._batches.popleft()
+            except IndexError:
+                islice = [*itertools.islice(iterator, ideal_batch)]
+                if not islice:
+                    return False
+
+                batch_size = len(islice) // self._n_jobs
+                if len(islice) < ideal_batch:
+                    if iterator is self._original_iterator:
+                        batch_size //= 10
+                batch_size = max(1, batch_size)
+
+                tasks, *batches = (
+                    BatchedCalls(islice[i:i + batch_size],
+                                 self._backend.get_nested_backend(),
+                                 self._backend.reducer_callback)
+                    for i in range(0, len(islice), batch_size))
+                self._batches.extend(batches)
+
+            if len(tasks) == 0:
+                return False
+
+            if not self._aborting:
+                callback = partial(
+                    self.dispatch_next,
+                    batch_size=len(tasks),
+                    timestamp=time.perf_counter())
+                self._jobs.append(self._backend.apply_async(tasks, callback))
+            return True
+
+    def __call__(self, iterable):
+        iterator = iter(iterable)
+
+        if self._n_jobs != 1:
+            self._original_iterator = iterator
+            iterator = itertools.islice(iterator, self._pre_dispatch)
+
+        try:
+            if self.dispatch_one_batch(iterator):
+                self._iterating = self._original_iterator is not None
+            while self.dispatch_one_batch(iterator):
+                pass
+
+            if self._n_jobs == 1:
+                self._iterating = False
+
+            while self._iterating or self._jobs:
+                if not self._jobs:
+                    time.sleep(0.01)
+                    continue
+                with self._lock:
+                    job = self._jobs.popleft()
+                try:
+                    yield from job.get()
+                except BaseException:
+                    self._aborting = True
+                    if self._backend is not None:
+                        self._backend.abort_everything()
+                    raise
+        finally:
+            if self._backend is not None:
+                self._backend.terminate()
+            self._jobs = deque()
