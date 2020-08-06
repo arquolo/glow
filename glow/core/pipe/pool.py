@@ -1,4 +1,4 @@
-__all__ = ('mapped', )
+__all__ = ['mapped']
 
 import atexit
 import contextlib
@@ -105,9 +105,11 @@ def mapped(fn: Callable[..., _R],
     if workers == 0:
         return cast(SizedIterable[_R], map(fn, *iterables))
 
+    terminator = None
     stack = contextlib.ExitStack()
     if chunk_size:
         pool = _get_pool(workers)
+        terminator = atexit.register(pool.shutdown, kill_workers=True)
         proxy = serialize(fn)
     else:
         pool = stack.enter_context(ThreadPoolExecutor(workers))
@@ -123,5 +125,7 @@ def mapped(fn: Callable[..., _R],
             iterable = chunked(zip(*iterables), chunk_size)
             fs = (pool.submit(proxy, *item) for item in iterable)
             yield from chain.from_iterable(reducer(fs, stack, latency))
+        if terminator is not None:
+            atexit.unregister(terminator)
 
     return iter_results()
