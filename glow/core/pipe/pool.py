@@ -13,14 +13,14 @@ from typing import Callable, Deque, Iterable, Iterator, Set, TypeVar, cast
 
 import loky
 
-from ..reduction import dispatch_table_patches, serialize
+from ._reduction import reducers, serialize
 from .len_helpers import SizedIterable, as_sized
 from .more import chunked
 
 _T = TypeVar('_T')
 _R = TypeVar('_R')
 _NUM_CPUS = os.cpu_count()
-_GC_TIMEOUT = 10
+_IDLE_WORKER_TIMEOUT = 10
 
 loky.backend.context.set_start_method('loky_init_main')
 
@@ -47,9 +47,9 @@ def _initializer():
 def _get_pool(workers):
     return loky.get_reusable_executor(
         workers,
-        timeout=_GC_TIMEOUT,
-        job_reducers=dispatch_table_patches,
-        result_reducers=dispatch_table_patches,
+        timeout=_IDLE_WORKER_TIMEOUT,
+        job_reducers=reducers,
+        result_reducers=reducers,
         initializer=_initializer,
     )
 
