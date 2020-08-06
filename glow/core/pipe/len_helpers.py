@@ -1,45 +1,57 @@
-__all__ = ('as_sized', 'repeatable')
+__all__ = ['MaybeSizedIterable', 'as_sized', 'repeatable']
 
 import functools
+from abc import abstractmethod
 from itertools import islice
-from typing import Callable, Iterable, Iterator, TypeVar, overload
+from typing import Callable, Iterable, Iterator, TypeVar, Union, overload
 
-from typing_extensions import Protocol
+from typing_extensions import Protocol, runtime_checkable
 
 from .._patch_len import len_hint
 
 _T_co = TypeVar('_T_co', covariant=True)
-_G = TypeVar('_G', bound=Callable)
 
 
-class SizedIterable(Protocol[_T_co]):
-    def __iter__(self) -> Iterator[_T_co]:
-        ...
-
+@runtime_checkable
+class SizedIterable(Iterable[_T_co], Protocol[_T_co]):
+    @abstractmethod
     def __len__(self) -> int:
         ...
+
+
+@runtime_checkable
+class SizedIterator(SizedIterable[_T_co], Protocol[_T_co]):
+    @abstractmethod
+    def __next__(self) -> _T_co:
+        ...
+
+
+MaybeSizedIterable = Union[SizedIterable[_T_co], Iterable[_T_co]]
+MaybeSizedIterator = Union[SizedIterator[_T_co], Iterator[_T_co]]
+
+# ---------------------------------------------------------------------------
 
 
 class SizedIter(islice):  # type: ignore
     pass
 
 
-@len_hint.register(SizedIter)
 def _len_islice(x):
     _, (src, start, *stop_step), done = x.__reduce__()
     if not stop_step:
         return 0
+    stop, step = stop_step
     try:
         total = len(src) + done
+        stop = total if stop is None else min(total, stop)
     except TypeError:
-        total = float('+Inf')
-    stop, step = stop_step
-    stop = total if stop is None else min(total, stop)
+        if stop is None:
+            raise
     return len(range(start, stop, step))
 
 
+len_hint.register(SizedIter, _len_islice)
 _SizeHint = Callable[..., int]
-_GenFn = Callable[..., Iterable[_T_co]]
 _SizedGenFn = Callable[..., SizedIterable[_T_co]]
 
 # ---------------------------------------------------------------------------

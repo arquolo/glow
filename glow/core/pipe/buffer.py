@@ -1,13 +1,13 @@
-__all__ = ('buffered', )
+__all__ = ['buffered']
 
 import contextlib
 import enum
 import queue
 import threading
 from concurrent import futures
-from typing import Callable, Iterable, Iterator, Union, TypeVar
+from typing import Callable, Union, TypeVar
 
-from .len_helpers import as_sized
+from .len_helpers import as_sized, MaybeSizedIterable, MaybeSizedIterator
 from .more import iter_none
 
 
@@ -20,7 +20,8 @@ _MaybeEmpty = Union[_T, _Empty]
 
 
 @as_sized(hint=lambda it, _: len(it))
-def buffered(iterable: Iterable[_T], latency: int = 2) -> Iterator[_T]:
+def buffered(iterable: MaybeSizedIterable[_T],
+             latency: int = 2) -> MaybeSizedIterator[_T]:
     """
     Iterates over `iterable` in background thread with at most `latency`
     items ahead from caller
