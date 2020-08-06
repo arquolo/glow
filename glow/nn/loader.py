@@ -3,7 +3,8 @@ __all__ = ['make_loader']
 from abc import abstractmethod
 import os
 import functools
-from typing import Any, Iterable, Protocol, Sequence, Tuple, TypeVar, Union
+from typing import Any, Iterable, Sequence, Tuple, TypeVar, Union
+from typing_extensions import Protocol
 
 import torch
 from torch.utils.data import Dataset, Sampler
@@ -33,7 +34,7 @@ def _get_batch(dataset, indices):
 
 
 def make_loader(
-        dataset: Union[_Mapping[_KT], Dataset[Sequence]],
+        dataset: Union[_Mapping[_KT], 'Dataset[Sequence]'],
         sampler: Union[Iterable[_KT], Sampler] = None,
         batch_size: int = 1,
         workers: int = _NUM_CPUS,

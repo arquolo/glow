@@ -232,8 +232,7 @@ class _OpenslideImage(
         return [float(m) if m else None for m in mpp]
 
 
-# class _TiffImage(TiledImage, extensions='svs tif tiff'):
-class _TiffImage(TiledImage, extensions=''):
+class _TiffImage(TiledImage, extensions='svs tif tiff'):
     def __init__(self, name: str) -> None:
         _setup_libs()
         self._ptr = (
