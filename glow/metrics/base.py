@@ -1,13 +1,34 @@
-__all__ = ['Metric', 'Lambda', 'Staged', 'compose', 'to_index', 'to_prob']
+__all__ = [
+    'Metric', 'Lambda', 'Scores', 'Staged', 'compose', 'to_index', 'to_prob'
+]
 
 import itertools
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Generator, Sequence, Tuple, overload
+from dataclasses import dataclass, field
+from typing import Callable, Dict, Generator, Sequence, Tuple, Union, overload
 
 import torch
 from typing_extensions import Protocol
 
 from ..core import coroutine
+
+TensorDict = Dict[str, torch.Tensor]
+
+
+@dataclass
+class Scores:
+    scalars: Dict[str, Union[float, int]] = field(default_factory=dict)
+    tensors: Dict[str, torch.Tensor] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, mapping: TensorDict) -> 'Scores':
+        obj = cls()
+        for k, v in mapping.items():
+            if v.numel() == 1:
+                obj.scalars[k] = v.item()
+            else:
+                obj.tensors[k] = v
+        return obj
 
 
 class _MetricFn(Protocol):
@@ -94,10 +115,8 @@ def to_prob(pred, true) -> Tuple[int, torch.Tensor, torch.LongTensor]:
 
 @coroutine
 def _batch_averaged(
-    fn: Metric
-) -> Generator[Dict[str, torch.Tensor], Sequence[torch.Tensor], None]:
+        fn: Metric) -> Generator[TensorDict, Sequence[torch.Tensor], None]:
     assert isinstance(fn, Metric)
-
     args = yield {}
     state = torch.as_tensor(fn(*args))
     for step in itertools.count(2):
@@ -106,10 +125,9 @@ def _batch_averaged(
 
 
 @coroutine
-def compose(
-    *fns: Metric
-) -> Generator[Dict[str, torch.Tensor], Sequence[torch.Tensor], None]:
+def compose(*fns: Metric) -> Generator[Scores, Sequence[torch.Tensor], None]:
     updates = *map(_batch_averaged, fns),
-    args = yield {}
+    args = yield Scores()
     while True:
-        args = yield {k: v for u in updates for k, v in u.send(args).items()}
+        scores = {k: v for u in updates for k, v in u.send(args).items()}
+        args = yield Scores.from_dict(scores)
