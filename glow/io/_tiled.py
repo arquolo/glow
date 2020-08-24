@@ -266,8 +266,8 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         if planar_config != 1:
             raise TypeError(f'Level {level} is not contiguous!')
 
-        desc = self.tag(ctypes.c_char_p, 270).decode()
-        desc = desc.replace('\r\n', '|').split('|')
+        desc = self.tag(ctypes.c_char_p, 270)
+        desc = (desc or b'').decode().replace('\r\n', '|').split('|')
         spec = {
             'level': level,
             'shape': [self.tag(ctypes.c_uint32, tag) for tag in (257, 256)],
