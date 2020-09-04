@@ -81,16 +81,18 @@ class Codec(Enum):
     WEBP = 50001
 
 
-class _Meta(type):
+class _Memoized(type):
     @memoize(
         10_485_760,
         policy='lru',
         key_fn=lambda _, name: Path(name).resolve().as_posix())
-    def __call__(cls, name):
-        return super().__call__(name)
+    def __call__(cls, name: Union[Path, str]):  # type: ignore
+        return super().__call__(Path(name))
 
 
-class TiledImage(metaclass=_Meta):
+class TiledImage(metaclass=_Memoized):
+    """Class for reading multi-scale images"""
+
     name: str
     _num_levels = 0
     _suffixes = set()  # type: ignore
@@ -100,10 +102,9 @@ class TiledImage(metaclass=_Meta):
         for ext in extensions.split():
             cls._type_for[f'.{ext}'] = cls
 
-    def __new__(cls, name: str) -> 'TiledImage':
-        path = Path(name)
+    def __new__(cls, path: Path) -> 'TiledImage':
         if not path.exists():
-            raise FileNotFoundError(name)
+            raise FileNotFoundError(path)
         if cls is not TiledImage:
             return super().__new__(cls)
         try:
@@ -111,8 +112,8 @@ class TiledImage(metaclass=_Meta):
         except KeyError:
             raise ValueError(f'Unknown file format {path}') from None
 
-    def __init__(self, name: str) -> None:
-        self.name = Path(name).as_posix()
+    def __init__(self, path: Path) -> None:
+        self.name = path.as_posix()
         self._lock = RLock()
         self._spec = dict(self._init_spec(self._num_levels))
 
@@ -172,9 +173,9 @@ class TiledImage(metaclass=_Meta):
 class _OpenslideImage(
         TiledImage,
         extensions='bif mrxs ndpi scn svs svsslide tif tiff vms vmu'):
-    def __init__(self, name: str) -> None:
+    def __init__(self, path: Path) -> None:
         _setup_libs()
-        self._ptr = _OSD.openslide_open(name.encode())
+        self._ptr = _OSD.openslide_open(path.as_posix().encode())
         err = _OSD.openslide_get_error(self._ptr)
         if err:
             raise ValueError(err)
@@ -187,7 +188,7 @@ class _OpenslideImage(
             if bg_color_hex is None else bg_color_hex)
 
         self._num_levels = _OSD.openslide_get_level_count(self._ptr)
-        super().__init__(name)
+        super().__init__(path)
 
     def _get_spec(self, level):
         y, x = ctypes.c_int64(), ctypes.c_int64()
@@ -233,16 +234,16 @@ class _OpenslideImage(
 
 
 class _TiffImage(TiledImage, extensions='svs tif tiff'):
-    def __init__(self, name: str) -> None:
+    def __init__(self, path: Path) -> None:
         _setup_libs()
         self._ptr = (
-            _TIFF.TIFFOpenW(name, b'rm') if sys.platform == 'win32' else
-            _TIFF.TIFFOpen(name.encode(), b'rm'))
+            _TIFF.TIFFOpenW(path.as_posix(), b'rm') if sys.platform == 'win32'
+            else _TIFF.TIFFOpen(path.as_posix().encode(), b'rm'))
         assert self._ptr
         weakref.finalize(self, _TIFF.TIFFClose, self._ptr)
 
         self._num_levels = _TIFF.TIFFNumberOfDirectories(self._ptr)
-        super().__init__(name)
+        super().__init__(path)
 
     def tag(self, type_, tag: int, default=None):
         value = type_()
