@@ -11,6 +11,7 @@ from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 from unittest import mock
 
+import cv2
 import numpy as np
 
 from .. import call_once, memoize
@@ -158,8 +159,8 @@ class TiledImage(metaclass=_Memoized):
         if isinstance(slices, slice):
             slices = (slices, slice(None, None, slices.step))
 
-        step = slices[0].step
-        step = 1 if step is None else step
+        rstep = slices[0].step or 1
+        step = max((s for s in self._spec if s <= rstep), default=1)
         spec = self._spec[step]
 
         box = [((0 if s.start is None else s.start // step),
@@ -167,7 +168,12 @@ class TiledImage(metaclass=_Memoized):
                for s, lim in zip(slices, spec['shape'])]
 
         with self._directory(spec['level']):
-            return self._get_patch(box, **spec)
+            image = self._get_patch(box, **spec)
+        if step == rstep:
+            return image
+        f = step / rstep
+        return cv2.resize(
+            image, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
 
 
 class _OpenslideImage(
