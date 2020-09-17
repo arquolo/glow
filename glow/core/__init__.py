@@ -1,7 +1,7 @@
-from . import _patch_scipy, _patch_len, _patch_print
+from . import _patch_len, _patch_print, _patch_scipy
+from ._profile import time_this, timer
 from ._repr import Si, countable, mangle, repr_as_obj
 from ._sizeof import sizeof
-from ._timer import time_this, timer
 from .debug import coroutine, lock_seed, summary, trace, trace_module
 from .pipe import (as_iter, as_sized, buffered, chunked, eat, ichunked,
                    iter_none, mapped, repeatable, sliced, windowed)
