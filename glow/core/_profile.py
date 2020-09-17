@@ -1,4 +1,4 @@
-__all__ = ['time_this', 'timer']
+__all__ = ['memprof', 'time_this', 'timer']
 
 import contextlib
 import functools
@@ -7,9 +7,25 @@ import time
 import weakref
 from typing import Callable, Dict, TypeVar, cast
 
+import psutil
+
 from ._repr import Si
 
 _F = TypeVar('_F', bound=Callable)
+_this = psutil.Process()
+
+
+@contextlib.contextmanager
+def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
+    init = _this.memory_info().rss
+    try:
+        yield
+    finally:
+        size = _this.memory_info().rss - init
+        if callback is not None:
+            callback(size)
+        else:
+            print(f'{name} done: {"+" if size >= 0 else "-"}{Si.bits(size)}')
 
 
 @contextlib.contextmanager
