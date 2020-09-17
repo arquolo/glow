@@ -19,7 +19,7 @@ from .more import chunked
 
 _T = TypeVar('_T')
 _R = TypeVar('_R')
-_NUM_CPUS = os.cpu_count()
+_NUM_CPUS = os.cpu_count() or 0
 _IDLE_WORKER_TIMEOUT = 10
 
 loky.backend.context.set_start_method('loky_init_main')
@@ -88,10 +88,10 @@ def _reduce_completed(fs_submit: Iterator['Future[_T]'],
 
 def mapped(fn: Callable[..., _R],
            *iterables: Iterable[_T],
-           workers=_NUM_CPUS,
-           latency=2,
-           chunk_size=0,
-           ordered=True) -> SizedIterable[_R]:
+           workers: int = _NUM_CPUS,
+           latency: int = 2,
+           chunk_size: int = 0,
+           ordered: bool = True) -> SizedIterable[_R]:
     """Concurrently calls `fn` with args formed from zipped `iterables`.
     Keeps order if nessessary. Never hang. Friendly to CTRL+C.
     Uses all cpu cores by default.

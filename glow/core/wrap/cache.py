@@ -49,6 +49,10 @@ class _CacheAbc(Generic[_T]):
     def keys(self):
         return self.store.keys()
 
+    def clear(self):
+        self.store.clear()
+        self.size = Si.bits()
+
     def __len__(self) -> int:
         return len(self.store)
 

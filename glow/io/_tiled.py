@@ -114,9 +114,12 @@ class TiledImage(metaclass=_Memoized):
             raise ValueError(f'Unknown file format {path}') from None
 
     def __init__(self, path: Path) -> None:
-        self.name = path.as_posix()
+        self.path = path
         self._lock = RLock()
         self._spec = dict(self._init_spec(self._num_levels))
+
+    def __reduce__(self) -> Union[str, Tuple[Any, ...]]:
+        return TiledImage, (self.path, )
 
     def _init_spec(self, num_levels: int):
         assert num_levels
@@ -147,7 +150,7 @@ class TiledImage(metaclass=_Memoized):
 
     def __repr__(self) -> str:
         return (f'{type(self).__name__}'
-                f"('{self.name}', shape={self.shape}, scales={self.scales})")
+                f"('{self.path}', shape={self.shape}, scales={self.scales})")
 
     @contextlib.contextmanager
     def _directory(self, level):
