@@ -162,6 +162,11 @@ class TiledImage(metaclass=_Memoized):
         if isinstance(slices, slice):
             slices = (slices, slice(None, None, slices.step))
 
+        assert slices[0].step is None or slices[0].step >= 1, (
+            'Step should be None or greater than 1')
+        assert slices[0].step == slices[1].step, (
+            'Unequal steps for Y and X are not supported')
+
         rstep = slices[0].step or 1
         step = max((s for s in self._spec if s <= rstep), default=1)
         spec = self._spec[step]
@@ -360,14 +365,14 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         tile = spec['tile']
         samples_per_pixel = spec['samples_per_pixel']
 
+        dy, dx = (low for low, _ in box)
         out = np.zeros(
             [(high - low) for low, high in box] + [samples_per_pixel],
             dtype='u1')
 
         bmin, bmax = np.transpose(box).clip(0, shape)
-        dy, dx = bmin
-        axes = map(slice, bmin // tile * tile, bmax, tile)
-        grid = np.mgrid[tuple(axes)].reshape(2, -1).T
+        axes = *map(slice, bmin // tile * tile, bmax, tile),
+        grid = np.mgrid[axes].reshape(2, -1).T
 
         for (iy, ix), (ty_min, tx_min), (ty_max, tx_max) in zip(
                 grid.tolist(),
