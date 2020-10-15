@@ -88,7 +88,8 @@ def profile(fn: _F) -> _F:
     return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
-def dump_to_onnx(net: nn.Module, *shapes: Tuple[int], device='cpu') -> bytes:
+def dump_to_onnx(net: nn.Module, *shapes: Tuple[int, ...],
+                 device='cpu') -> bytes:
     """Converts model to ONNX graph, represented as bytes
 
     Parameters:
