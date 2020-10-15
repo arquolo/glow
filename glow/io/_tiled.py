@@ -137,12 +137,12 @@ class TiledImage(metaclass=_Memoized):
         raise NotImplementedError
 
     @property
-    def shape(self):
+    def shape(self) -> Tuple[int, ...]:
         return self._spec[1]['shape']
 
     @property
-    def scales(self):
-        return [*self._spec.keys()]
+    def scales(self) -> Tuple[int, ...]:
+        return tuple(self._spec.keys())
 
     @property
     def spacing(self) -> List[Optional[float]]:
@@ -203,7 +203,7 @@ class _OpenslideImage(
         y, x = ctypes.c_int64(), ctypes.c_int64()
         _OSD.openslide_get_level_dimensions(self._ptr, level,
                                             *map(ctypes.byref, (x, y)))
-        return {'level': level, 'shape': [y.value, x.value], 'tile': True}
+        return {'level': level, 'shape': (y.value, x.value), 'tile': True}
 
     def _get_patch(self, box, step=0, level=0, **spec):
         (y_min, y_max), (x_min, x_max) = box
@@ -278,9 +278,10 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
 
         desc = self.tag(ctypes.c_char_p, 270)
         desc = (desc or b'').decode().replace('\r\n', '|').split('|')
+        shape = tuple(self.tag(ctypes.c_uint32, tag) for tag in (257, 256))
         spec = {
             'level': level,
-            'shape': [self.tag(ctypes.c_uint32, tag) for tag in (257, 256)],
+            'shape': shape,
             'bits_per_sample': self.tag(ctypes.c_uint16, 258),
             'sample_format': self.tag(ctypes.c_uint16, 339, default=1),
             'description': desc,
