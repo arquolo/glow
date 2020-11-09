@@ -8,7 +8,7 @@ import weakref
 from enum import Enum
 from pathlib import Path
 from threading import RLock
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type, Union
 from unittest import mock
 
 import cv2
@@ -82,17 +82,50 @@ class Codec(Enum):
     WEBP = 50001
 
 
+class _TileScaler(NamedTuple):
+    """Proxy, moves rescaling out of `TiledImage.__getitem__`"""
+    image: np.ndarray
+    scale: float = 1.
+
+    def view(self, size: Optional[Tuple[int, int]] = None) -> np.ndarray:
+        """
+        Converts region to array of desired size.
+        If size is not set, rounding will be used,
+        otherwise it should be `(height, width)`.
+        """
+        if self.scale == 1.:
+            return self.image
+
+        if size is None:
+            h, w = self.image.shape[:2]
+            size = round(self.scale * h), round(self.scale * w)
+
+        return cv2.resize(self.image, size[::-1], interpolation=cv2.INTER_AREA)
+
+
 class _Memoized(type):
     @memoize(
         10_485_760,
         policy='lru',
         key_fn=lambda _, name: Path(name).resolve().as_posix())
     def __call__(cls, name: Union[Path, str]):  # type: ignore
+        # TODO: make external factory to combine all 3 classes with memoization
         return super().__call__(Path(name))
 
 
 class TiledImage(metaclass=_Memoized):
-    """Class for reading multi-scale images"""
+    """Class for reading multi-scale images.
+
+    Usage:
+    ```
+    from glow.io import TiledImage
+
+    slide = TiledImage('test.svs')
+    shape: 'Tuple[int, int]' = slide.shape
+    scales: 'Tuple[int, int]' = slide.scales
+    image: np.ndarray = slide[:2048, :2048].view()  # Get numpy.ndarray
+    ```
+    """
 
     name: str
     _num_levels = 0
@@ -158,7 +191,8 @@ class TiledImage(metaclass=_Memoized):
             yield
 
     def __getitem__(self,
-                    slices: Union[Tuple[slice, slice], slice]) -> np.ndarray:
+                    slices: Union[Tuple[slice, slice], slice]) -> _TileScaler:
+        """Retrieves tile"""
         if isinstance(slices, slice):
             slices = (slices, slice(None, None, slices.step))
 
@@ -177,11 +211,7 @@ class TiledImage(metaclass=_Memoized):
 
         with self._directory(spec['level']):
             image = self._get_patch(box, **spec)
-        if step == rstep:
-            return image
-        f = step / rstep
-        return cv2.resize(
-            image, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
+        return _TileScaler(image, step / rstep)
 
 
 class _OpenslideImage(
