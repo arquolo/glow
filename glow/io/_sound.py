@@ -23,6 +23,17 @@ class Sound(wrapt.ObjectProxy):
 
     Parameters:
       - rate - sample rate
+
+    Usage:
+    ```python
+    from glow.io import Sound
+
+    sound = Sound.load('test.flac')  # Array-like wrapper
+    rate: int = sound.rate
+    shape: Tuple[int, int] = sound.shape
+    dtype: numpy.dtype = sound.dtype
+    sound.play()  # Plays sound through default device
+    ```
     """
 
     def __init__(self, array: np.ndarray, rate: int = 44100):

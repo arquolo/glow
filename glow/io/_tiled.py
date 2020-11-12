@@ -121,8 +121,8 @@ class TiledImage(metaclass=_Memoized):
     from glow.io import TiledImage
 
     slide = TiledImage('test.svs')
-    shape: 'Tuple[int, int]' = slide.shape
-    scales: 'Tuple[int, int]' = slide.scales
+    shape: 'Tuple[int, ...]' = slide.shape
+    scales: 'Tuple[int, ...]' = slide.scales
     image: np.ndarray = slide[:2048, :2048].view()  # Get numpy.ndarray
     ```
     """
