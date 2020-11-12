@@ -93,10 +93,10 @@ class _TileScaler(NamedTuple):
         If size is not set, rounding will be used,
         otherwise it should be `(height, width)`.
         """
-        if self.scale == 1.:
-            return self.image
-
         if size is None:
+            if self.scale == 1.:
+                return self.image
+
             h, w = self.image.shape[:2]
             size = round(self.scale * h), round(self.scale * w)
 
