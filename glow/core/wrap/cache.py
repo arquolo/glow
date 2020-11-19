@@ -64,7 +64,7 @@ class _CacheAbc(Generic[_T]):
             self.store[key] = record
             self.size += record.size
 
-    def evict(self, size: int) -> bool:
+    def evict(self, size: Si) -> bool:
         """Try to release `size` bytes from storage. Return True on success"""
         raise NotImplementedError
 
@@ -98,7 +98,7 @@ class _CacheBase(_CacheAbc[_T]):
 
 
 class _HeapCache(_CacheBase[_T]):
-    def evict(self, size: int) -> bool:
+    def evict(self, size: Si) -> bool:
         return self.size + size <= self.capacity
 
 
@@ -109,7 +109,7 @@ class _LruCache(_CacheBase[_T]):
         self.store[key] = record = self.store.pop(key)
         return record.value
 
-    def evict(self, size: int) -> bool:
+    def evict(self, size: Si) -> bool:
         if size > self.capacity:
             return False
 

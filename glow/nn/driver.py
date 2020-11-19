@@ -17,11 +17,11 @@ class _GpuState(NamedTuple):
 def get_gpu_state() -> _GpuState:
     """Returns count of available GPUs and size of free memory VRAM"""
     from py3nvml.py3nvml import (
-        nvmlInit,
-        nvmlShutdown,
         nvmlDeviceGetCount,
         nvmlDeviceGetHandleByIndex,
         nvmlDeviceGetMemoryInfo,
+        nvmlInit,
+        nvmlShutdown,
     )
     with contextlib.ExitStack() as stack:
         nvmlInit()

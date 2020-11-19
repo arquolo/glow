@@ -6,7 +6,7 @@ Usage:
 """
 
 import io
-import os
+import sys
 from pathlib import Path
 from zipfile import ZipFile
 from urllib.request import urlopen
@@ -20,21 +20,21 @@ _URL = ('https://github.com/openslide/openslide-winbuild/releases/download'
         '/v20171122/openslide-win64-20171122.zip')
 
 
-def _download_deps(self, path: Path) -> None:
-    if self.dry_run or (os.name != 'nt') or path.exists():
+def _download_deps(cmd, path: Path) -> None:
+    if cmd.dry_run or (sys.platform != 'win32') or path.exists():
         return
 
     from tqdm import tqdm
-    self.mkpath(path.as_posix())
+    cmd.mkpath(path.as_posix())
     try:
-        r = urlopen(_URL)
+        reply = urlopen(_URL)
         buf = io.BytesIO()
         with tqdm(
                 desc='Retrieve shared libraries',
-                total=int(r.info().get('Content-Length')),
+                total=int(reply.info().get('Content-Length')),
                 unit='B',
                 unit_scale=True) as pbar:
-            for chunk in iter(lambda: r.read(1024), b''):
+            while chunk := reply.read(1024):
                 pbar.update(buf.write(chunk))
         with ZipFile(buf) as zf:
             for name in zf.namelist():

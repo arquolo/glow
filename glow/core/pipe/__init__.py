@@ -4,6 +4,6 @@ from .more import as_iter, chunked, eat, ichunked, sliced, windowed
 from .pool import mapped
 
 __all__ = [
-    'buffered', 'as_sized', 'as_iter', 'chunked', 'eat', 'ichunked',
-    'mapped', 'repeatable', 'sliced', 'windowed'
+    'buffered', 'as_sized', 'as_iter', 'chunked', 'eat', 'ichunked', 'mapped',
+    'repeatable', 'sliced', 'windowed'
 ]

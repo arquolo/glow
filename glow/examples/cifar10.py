@@ -5,13 +5,13 @@ from typing import DefaultDict
 import glow
 import glow.metrics as m
 import glow.nn as gnn
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.cuda.amp
 import torch.nn as nn
-from torchvision.datasets import CIFAR10
 from torchvision import transforms as tfs
+from torchvision.datasets import CIFAR10
 from tqdm.auto import tqdm
 
 DEVICE = torch.device('cuda')

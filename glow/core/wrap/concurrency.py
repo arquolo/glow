@@ -1,8 +1,8 @@
 __all__ = ['call_once', 'threadlocal', 'interpreter_lock', 'shared_call']
 
 import contextlib
-import sys
 import functools
+import sys
 import threading
 from concurrent.futures import Future
 from typing import Callable, TypeVar, cast

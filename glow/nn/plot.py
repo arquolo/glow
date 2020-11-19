@@ -6,8 +6,8 @@ from typing import Any, Dict, Tuple
 
 import graphviz
 import torch
-from torch.autograd import Function
 from torch import nn
+from torch.autograd import Function
 
 from ..core import Si, mangle
 

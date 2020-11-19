@@ -5,7 +5,7 @@ import enum
 import queue
 import threading
 from concurrent import futures
-from typing import Callable, TypeVar, Union
+from typing import TypeVar, Union
 
 from .len_helpers import MaybeSizedIterable, MaybeSizedIterator, as_sized
 
@@ -44,7 +44,6 @@ def buffered(iterable: MaybeSizedIterable[_T],
         pull.callback(stop.set)
 
         task = src.submit(consume)
-        q_get: Callable[[], _MaybeEmpty[_T]] = q.get
-        while (item := q_get()) is not _empty:
+        while (item := q.get()) is not _empty:
             yield item
         task.result()  # throws if `consume` is dead

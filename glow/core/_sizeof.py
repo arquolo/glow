@@ -1,10 +1,11 @@
 __all__ = ['sizeof']
 
 import enum
-import sys
 import functools
+import sys
 from collections import abc
 from inspect import isgetsetdescriptor, ismemberdescriptor
+from typing import Set
 
 import wrapt
 
@@ -13,7 +14,7 @@ from ._repr import Si
 
 def for_unseen(fn, default=Si):
     """protection from self-referencing"""
-    def wrapper(obj, seen=None):
+    def wrapper(obj, seen: Set[int] = None) -> Si:
         if seen is None:
             seen = set()
         id_ = id(obj)
@@ -28,7 +29,7 @@ def for_unseen(fn, default=Si):
 
 @functools.singledispatch
 @for_unseen
-def sizeof(obj, seen=None) -> Si:
+def sizeof(obj, seen: Set[int] = None) -> Si:
     """
     Computes size of object, no matter how complex it is
 

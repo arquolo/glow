@@ -8,7 +8,7 @@ from typing import Any, Iterable, Protocol, Sequence, Tuple, TypeVar, Union
 import torch
 from torch.utils.data import Dataset, Sampler
 
-from ..core import chunked, repeatable, mapped
+from ..core import chunked, mapped, repeatable
 from ..core.pipe.len_helpers import SizedIterable
 
 _KT = TypeVar('_KT')
