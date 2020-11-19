@@ -12,12 +12,11 @@ __all__ = (
 )
 
 from types import MappingProxyType
-from typing import Tuple
+from typing import Literal, Protocol, Tuple
 
 import cv2
 import numba
 import numpy as np
-from typing_extensions import Literal, Protocol
 
 _MATRICES = MappingProxyType({
     key: cv2.normalize(np.float32(mat), None, norm_type=cv2.NORM_L1)

@@ -5,10 +5,10 @@ __all__ = [
 import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Generator, Sequence, Tuple, Union, overload
+from typing import (Callable, Dict, Generator, Protocol, Sequence, Tuple,
+                    Union, overload)
 
 import torch
-from typing_extensions import Protocol
 
 from ..core import coroutine
 

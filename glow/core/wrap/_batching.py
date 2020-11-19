@@ -6,10 +6,8 @@ import contextlib
 import functools
 import threading
 from dataclasses import dataclass, field
-from typing import (Dict, Hashable, Iterable, List, NamedTuple, Tuple, TypeVar,
-                    Union, cast)
-
-from typing_extensions import Protocol
+from typing import (Dict, Hashable, Iterable, List, NamedTuple, Protocol,
+                    Tuple, TypeVar, Union, cast)
 
 from .reusable import make_loop
 

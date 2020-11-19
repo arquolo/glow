@@ -5,10 +5,9 @@ import enum
 import queue
 import threading
 from concurrent import futures
-from typing import Callable, Union, TypeVar
+from typing import Callable, TypeVar, Union
 
-from .len_helpers import as_sized, MaybeSizedIterable, MaybeSizedIterator
-from .more import iter_none
+from .len_helpers import MaybeSizedIterable, MaybeSizedIterator, as_sized
 
 
 class _Empty(enum.Enum):
@@ -17,6 +16,7 @@ class _Empty(enum.Enum):
 
 _T = TypeVar('_T')
 _MaybeEmpty = Union[_T, _Empty]
+_empty = _Empty.token
 
 
 @as_sized(hint=lambda it, _: len(it))
@@ -31,8 +31,8 @@ def buffered(iterable: MaybeSizedIterable[_T],
 
     def consume():
         with contextlib.ExitStack() as push:
-            push.callback(q.put, _Empty.token)  # match last q.get
-            push.callback(q.put, _Empty.token)  # signal to iter_none
+            push.callback(q.put, _empty)  # match last q.get
+            push.callback(q.put, _empty)  # signal to stop iteration
             for item, _ in zip(iterable, iter(stop.is_set, True)):
                 q.put(item)
             if stop.is_set():
@@ -45,5 +45,6 @@ def buffered(iterable: MaybeSizedIterable[_T],
 
         task = src.submit(consume)
         q_get: Callable[[], _MaybeEmpty[_T]] = q.get
-        yield from iter_none(q_get, _Empty.token)
+        while (item := q_get()) is not _empty:
+            yield item
         task.result()  # throws if `consume` is dead

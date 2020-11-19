@@ -1,10 +1,9 @@
 __all__ = ['make_loader']
 
-from abc import abstractmethod
-import os
 import functools
-from typing import Any, Iterable, Sequence, Tuple, TypeVar, Union
-from typing_extensions import Protocol
+import os
+from abc import abstractmethod
+from typing import Any, Iterable, Protocol, Sequence, Tuple, TypeVar, Union
 
 import torch
 from torch.utils.data import Dataset, Sampler

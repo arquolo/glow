@@ -3,9 +3,8 @@ __all__ = ['MaybeSizedIterable', 'as_sized', 'repeatable']
 import functools
 from abc import abstractmethod
 from itertools import islice
-from typing import Callable, Iterable, Iterator, TypeVar, Union, overload
-
-from typing_extensions import Protocol, runtime_checkable
+from typing import (Callable, Iterable, Iterator, Protocol, TypeVar, Union,
+                    overload, runtime_checkable)
 
 from .._patch_len import len_hint
 

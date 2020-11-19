@@ -5,13 +5,11 @@ import functools
 import threading
 import weakref
 from collections import Counter
-from typing import (Callable, Dict, Generic, Hashable, MutableMapping,
+from typing import (Callable, Dict, Generic, Hashable, Literal, MutableMapping,
                     Type, TypeVar, cast)
 
-from typing_extensions import Literal
-
-from .._sizeof import sizeof
 from .._repr import Si
+from .._sizeof import sizeof
 from .concurrency import interpreter_lock
 
 _T = TypeVar('_T')

@@ -5,23 +5,19 @@ import io
 import logging
 import mmap
 import os
+import pickle
 import sys
 import tempfile
 import threading
 import weakref
 from itertools import starmap
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional
 
 import loky
 import wrapt
 
-SharedMemory: Any = None
-if sys.version_info >= (3, 8):
-    import pickle
-    from multiprocessing.shared_memory import SharedMemory
-else:
-    import pickle5 as pickle
 
 _SYSTEM_SHM_MIN_SIZE = int(2e9)
 _SYSTEM_SHM = Path('/dev/shm')

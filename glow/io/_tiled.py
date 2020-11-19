@@ -9,7 +9,6 @@ from enum import Enum
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Type, Union
-from unittest import mock
 
 import cv2
 import numpy as np
@@ -23,10 +22,7 @@ _OSD: Any = None
 def _patch_path(prefix):
     if sys.platform != 'win32':
         return contextlib.nullcontext()
-    if sys.version_info >= (3, 8):
-        return os.add_dll_directory(prefix)
-    return mock.patch.dict(os.environ,
-                           {'PATH': f'{prefix};{os.environ["PATH"]}'})
+    return os.add_dll_directory(prefix)
 
 
 @call_once

@@ -4,8 +4,8 @@ import asyncio
 import threading
 import weakref
 from dataclasses import dataclass, field
-from typing import Callable, ClassVar, Generic, List, Optional, TypeVar
-from typing_extensions import Protocol
+from typing import (Callable, ClassVar, Generic, List, Optional, Protocol,
+                    TypeVar)
 
 _T = TypeVar('_T')
 _T_co = TypeVar('_T_co', covariant=True)

@@ -1,23 +1,21 @@
-__all__ = [
-    'as_iter', 'chunked', 'eat', 'ichunked', 'iter_none', 'sliced', 'windowed'
-]
+__all__ = ['as_iter', 'chunked', 'eat', 'ichunked', 'sliced', 'windowed']
 
 import collections
 import collections.abc
 import enum
 import threading
-from itertools import chain, count, islice, repeat, starmap, takewhile, tee
-from typing import (Any, Callable, Iterable, Iterator, Optional, Sequence,
-                    TypeVar, Union, overload)
+from itertools import chain, count, islice, repeat, tee
+from typing import Any, Iterable, Iterator, Sequence, TypeVar, Union
 
 from .len_helpers import SizedIter, as_sized
-
-_T = TypeVar('_T')
-_U = TypeVar('_U')
 
 
 class _Empty(enum.Enum):
     token = 0
+
+
+_T = TypeVar('_T')
+_empty = _Empty.token
 
 
 def as_iter(obj: Union[Iterable[_T], _T, None],
@@ -89,33 +87,11 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
     iter_ = iter(it)
-    # while (item := next(iter_, _Empty.token)) is not _Empty.token:  # ! py38
-    while True:
-        item: Union[_T, _Empty] = next(iter_, _Empty.token)
-        if item is _Empty.token:  # check that end reached
-            return
-
+    while (item := next(iter_, _empty)) is not _empty:
         iter_, rest = tee(chain([item], iter_))  # clone source
         yield SizedIter(islice(iter_, size), size)
 
         iter_ = islice(rest, size, None)
-
-
-@overload
-def iter_none(fn: Callable[[], Optional[_T]],
-              empty: None = ...) -> Iterator[_T]:
-    ...
-
-
-@overload
-def iter_none(fn: Callable[[], Union[_T, _U]],
-              empty: _U = ...) -> Iterator[_T]:
-    ...
-
-
-def iter_none(fn, empty=None):
-    """Yields `fn()` until it is `marker`"""
-    return takewhile(lambda r: r is not empty, starmap(fn, repeat(())))
 
 
 def eat(iterable: Iterable[Any], async_: bool = False) -> None:
