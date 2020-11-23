@@ -252,17 +252,14 @@ class _OpenslideImage(
 
     @property
     def metadata(self) -> Dict[str, str]:
-        arr = _OSD.openslide_get_property_names(self._ptr)
-        if not arr:
-            return {}
-        m = {}
+        m: Dict[str, str] = {}
+        if not (names := _OSD.openslide_get_property_names(self._ptr)):
+            return m
         i = 0
-        name = arr[i]
-        while name:
+        while name := names[i]:
             m[name.decode()] = _OSD.openslide_get_property_value(
                 self._ptr, name).decode()
             i += 1
-            name = arr[i]
         return m
 
     @property

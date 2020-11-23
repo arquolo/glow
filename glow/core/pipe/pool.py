@@ -72,16 +72,15 @@ def _reduce_completed(fs_submit: Iterator['Future[_T]'],
     stack.callback(lambda: {fut.cancel() for fut in fs})
     done: 'queue.Queue[Future[_T]]' = queue.Queue()
 
-    def submit() -> Iterator['Future[_T]']:
+    def submit_with_callback() -> Iterator['Future[_T]']:
         for f in fs_submit:
             f.add_done_callback(done.put)
             yield f
 
-    fs_submit_ = submit()
+    fs_submit_ = submit_with_callback()
     fs.update(islice(fs_submit_, latency))
     while fs:
-        fut = done.get()
-        yield fut.result()
+        yield (fut := done.get()).result()
         fs.remove(fut)
         fs.update(islice(fs_submit_, 1))
 

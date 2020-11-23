@@ -76,7 +76,8 @@ def make_model_new(init=16):
 
 # parse args
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument(
     'root', type=pathlib.Path, help='location of cifar10/ folder')
 parser.add_argument('--batch-size', type=int, default=4, help='train batch')
@@ -85,7 +86,7 @@ parser.add_argument('--steps-per-epoch', type=int, help='steps per epoch')
 parser.add_argument('--width', type=int, default=32, help='width of network')
 parser.add_argument(
     '--fp16', action='store_true', help='enable mixed precision mode')
-parser.add_argument('--plot', action='store_true', help='disable plot')
+parser.add_argument('--plot', action='store_true', help='enable plot')
 
 args = parser.parse_args()
 
@@ -143,12 +144,12 @@ with tqdm(total=epoch_len * args.epochs, desc='train') as pbar:
 
 if args.plot:
     fig = plt.figure(f'batch_size={args.batch_size}, fp16={args.fp16}')
-    for i, (tag, values) in enumerate(history.items(), 1):
+    for i, (tag, values_) in enumerate(history.items(), 1):
         ax = fig.add_subplot(1, len(history), i)
-        ax.legend(ax.plot(values), ['train', 'val'])
+        ax.legend(ax.plot(values_), ['train', 'val'])
         ax.set_title(tag)
         ax.set_ylim([
-            int(min(x for xs in values for x in xs)),
-            int(max(x for xs in values for x in xs) + 0.999)
+            int(min(x for xs in values_ for x in xs)),
+            int(max(x for xs in values_ for x in xs) + 0.999)
         ])
     plt.show()
