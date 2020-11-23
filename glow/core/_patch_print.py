@@ -5,9 +5,8 @@ Adds some thread safety.
 __all__ = ['apply']
 
 import builtins
-import functools
+from functools import update_wrapper, wraps
 from threading import RLock
-from typing import Any
 
 import wrapt
 
@@ -15,17 +14,25 @@ _print = builtins.print
 _lock = RLock()
 
 
-@functools.wraps(_print)
+@wraps(_print)
 def locked_print(*args, **kwargs):
     with _lock:
         _print(*args, **kwargs)
 
 
-def patch_print(tqdm: Any) -> None:
-    def new_print(*args, sep=' ', end='\n', file=None, **kwargs) -> None:
-        tqdm.tqdm.write(sep.join(map(str, args)), end=end, file=file)
+def tqdm_print(module, *values, sep=' ', end='\n', file=None, flush=False):
+    module.tqdm.write(sep.join(map(str, values)), end=end, file=file)
 
-    builtins.print = functools.update_wrapper(new_print, _print)
+
+def patch_print(module) -> None:
+    # Create blank to force initialization of cls._lock and cls._instances
+    tqdm = module.tqdm
+    tqdm(disable=True)
+
+    def tqdm_print(*values, sep=' ', end='\n', file=None, flush=False):
+        tqdm.write(sep.join(map(str, values)), end=end, file=file)
+
+    builtins.print = update_wrapper(tqdm_print, _print)
 
 
 def apply() -> None:
