@@ -92,15 +92,22 @@ def mapped(fn: Callable[..., _R],
            latency: int = 2,
            chunk_size: int = 0,
            ordered: bool = True) -> SizedIterable[_R]:
-    """Concurrently calls `fn` with args formed from zipped `iterables`.
-    Keeps order if nessessary. Never hang. Friendly to CTRL+C.
-    Uses all cpu cores by default.
+    """Returns an iterator equivalent to map(fn, *iterables).
+
+    Differences:
+    - Uses multiple threads or processes, whether chunks_size is zero or not.
+    - Unlike multiprocessing.Pool or concurrent.futures.Executor
+      *almost* never deadlocks on any exception or Ctrl-C interruption.
 
     Parameters:
-      - workers - count of workers, equals to `os.cpu_count()` by default
-      - latency - count of tasks each workers can grab
-      - chunk_size - when non zero, size of chunk to pass to each `Process`
-      - ordered - when false, yields items in order of completion
+    - fn - A callable that will take as many arguments as there are passed
+      iterables.
+    - workers - Count of workers, by default all hardware threads are occupied.
+    - latency - Count of tasks each worker can grab.
+    - chunk_size - The size of the chunks the iterable will be broken into
+      before being passed to a worker. Zero disables multiprocessing.
+
+    Calls may be evaluated out-of-order.
     """
     if workers == 0:
         return cast(SizedIterable[_R], map(fn, *iterables))

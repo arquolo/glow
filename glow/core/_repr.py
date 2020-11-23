@@ -6,8 +6,7 @@ import wrapt
 
 
 def mangle() -> Callable[[str], Optional[str]]:
-    """
-    Appends number to already seen strings, making them distinct
+    """Appends number to already seen strings, making them distinct
 
     >>> mangled = mangle()
     >>> mangled('a')
@@ -33,8 +32,7 @@ def mangle() -> Callable[[str], Optional[str]]:
 
 
 def countable() -> Callable[[object], int]:
-    """
-    Accumulates and enumerates objects. Readable alternative to `id()`.
+    """Accumulates and enumerates objects. Readable alternative to id().
 
     >>> id_ = countable()
     >>> id_('a')
@@ -58,16 +56,16 @@ def repr_as_obj(d: dict) -> str:
 
 
 class Si(wrapt.ObjectProxy):
-    """Converts value to human readable string. Uses
+    """Wrapper for numbers with human-readable formatting.
 
-    Parameters:
-      - si - whether to use metric prefixes (True) or binary (False)
-
+    Use metric prefixes:
     >>> s = Si(10 ** 6)
     >>> s
     Si(1M)
     >>> print(s)
     1M
+
+    Use binary prefixes:
     >>> print(Si.bits(2 ** 20))
     1MiB
 

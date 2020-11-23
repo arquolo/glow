@@ -13,7 +13,7 @@ from ._repr import Si
 
 
 def for_unseen(fn, default=Si):
-    """protection from self-referencing"""
+    """Protection from self-referencing"""
     def wrapper(obj, seen: Set[int] = None) -> Si:
         if seen is None:
             seen = set()
@@ -30,8 +30,7 @@ def for_unseen(fn, default=Si):
 @functools.singledispatch
 @for_unseen
 def sizeof(obj, seen: Set[int] = None) -> Si:
-    """
-    Computes size of object, no matter how complex it is
+    """Computes size of object, no matter how complex it is.
 
     Inspired by
     [PySize](https://github.com/bosswissam/pysize/blob/master/pysize.py)

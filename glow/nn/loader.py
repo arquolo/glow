@@ -39,12 +39,12 @@ def make_loader(
         workers: int = _NUM_CPUS,
         multiprocessing: bool = True
 ) -> SizedIterable[Tuple[torch.Tensor, ...]]:
-    """Yields batches of `batch_size` from `dataset` in order from  `sampler`.
+    """Yields batches of batch_size from dataset in order from sampler.
 
     Parameters:
-      - batch_size - size of batch, each workers computes batch independently
-      - workers - count of worker threads/processes, same as `os.cpu_count()`
-      - multiprocessing - whether to use processes or threads
+    - batch_size - size of batch, each workers computes batch independently.
+    - workers - Count of workers, by default all hardware threads are occupied.
+    - multiprocessing - whether to use processes or threads.
     """
     if sampler is None:
         sampler = range(len(dataset))  # type: ignore

@@ -50,16 +50,16 @@ def indent(elem, level=0):
 
 
 class Svg:
-    """Converts raster `mask` (2d numpy.ndarray of integers) to SVG-file.
+    """Converts raster mask (2d numpy.ndarray of integers) to SVG-file.
 
     Parameters:
-      - classes - list of all class names (except for 0th class),
-        i-th name will be assigned to (i+1)th index.
+    - classes - list of all class names (except for 0th class),
+      i-th name will be assigned to (i+1)th index.
 
     Usage:
     ```
-        mask = cv2.imread('sample.png', cv2.IMREAD_GRAYSCALE)
-        Svg(mask, ['pos', 'neg']).save('sample.svg')
+    mask = cv2.imread('sample.png', cv2.IMREAD_GRAYSCALE)
+    Svg(mask, ['pos', 'neg']).save('sample.svg')
     ```
     """
     def __init__(self, mask: np.ndarray, classes: List[str]):

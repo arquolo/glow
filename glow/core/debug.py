@@ -80,7 +80,7 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
 
 
 def trace_module(name):
-    """Enables call logging for each callable inside module `name`"""
+    """Enables call logging for each callable inside module name"""
     wrapt.register_post_import_hook(_set_trace, name)
 
 

@@ -29,7 +29,8 @@ def as_iter(obj: Union[Iterable[_T], _T, None],
 
 
 def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
-    """
+    """Retrieve overlapped windows from iterable.
+
     >>> [*windowed(range(5), 3)]
     [(0, 1, 2), (1, 2, 3), (2, 3, 4)]
     """
@@ -38,9 +39,7 @@ def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     return zip(*slices)
 
 
-def sliced(it: Sequence[_T], size: int) -> Iterator[Sequence[_T]]:
-    """
-    Yields slices of at most `size` items from `sequence`.
+    """Split sequence to slices of at most size items each.
 
     >>> s = sliced(range(10), 3)
     >>> len(s)
@@ -59,9 +58,8 @@ def chunk_hint(it, size):
 
 @as_sized(hint=chunk_hint)
 def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
-    """
-    Iterates over `iterable` packing consecutive items to chunks
-    with size at most of `size`.
+    """Split iterable to chunks of at most size items each.
+    Each next() on result will advance passed iterable to size items.
 
     >>> s = chunked(range(10), 3)
     >>> len(s)
@@ -74,17 +72,16 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
 
 
 @as_sized(hint=chunk_hint)
-def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
-    """
-    Iterates over `iterable` packing consecutive items to chunks
-    with size at most of `size`. Yields iterators.
+    """Split iterable to chunks of at most size items each.
+
+    Does't consume items from passed iterable to return complete chunk
+    unlike chunked, as yields iterators, not sequences.
 
     >>> s = ichunked(range(10), 3)
     >>> len(s)
     4
-    >>> chunks = [*s]
-    >>> [(*chunk, ) for chunk in chunks]
-    [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
+    >>> [[*chunk] for chunk in s]
+    [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
     """
     iter_ = iter(it)
     while (item := next(iter_, _empty)) is not _empty:

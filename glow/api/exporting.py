@@ -11,25 +11,25 @@ class ExportError(Exception):
 
 
 def export(obj):
-    """
-    Exposes `obj` to `__all__` in module, parent to where it was defined.
-    However it breaks intellisense.
-    Example usage:
+    """Exposes obj to __all__ in module parent to where it was defined,
+    although breaking intellisense.
 
-    ### `package/subpackage.py`:
-    ```python
+    Usage:
+
+    In package/subpackage.py:
+    ```
     from glow.api import export
 
     @export
     def func():
         pass
     ```
-    ### `package/__init__.py`:
-    ```python
+    In package/__init__.py:
+    ```
     from . import subpackage
     ```
-    ### `__main__.py`:
-    ```python
+    In main.py:
+    ```
     # not `from package.subpackage import func`
     from package import func
     func()
@@ -53,10 +53,10 @@ def export(obj):
 
 
 def import_tree(pkg: str):
-    """
-    Imports all subpackages. Example usage:
+    """Imports all subpackages.
 
-    ```python
+    Usage:
+    ```
     __import__('glow.api', fromlist=['api']).import_tree(__name__)
     ```
     """
@@ -67,7 +67,7 @@ def import_tree(pkg: str):
 
 
 def get_wild_imports(module: ModuleType) -> Tuple[str, ...]:
-    """Get contents of `module.__all__` if possible"""
+    """Get contents of module.__all__ if possible"""
     __all__ = getattr(module, '__all__', None)
     if __all__ is not None:
         return __all__

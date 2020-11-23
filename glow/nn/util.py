@@ -25,7 +25,7 @@ def device() -> torch.device:
 
 @contextmanager
 def _set_eval(net: nn.Module) -> Iterator[None]:
-    """Locally switch net to 'eval' mode"""
+    """Locally switch net to eval-mode"""
     was_train = net.training
     try:
         net.eval()
@@ -54,7 +54,7 @@ def frozen(net: nn.Module) -> Iterator[None]:
 def inference(net: nn.Module) -> Iterator[None]:
     """Blocks net from changing its state. Useful while inference.
 
-    Net is switched to eval mode, and grads' computation is turned off.
+    Net is switched to eval mode, and gradient computation is turned off.
     Works as context manager"""
     with _set_eval(net):
         with torch.no_grad():
@@ -62,16 +62,18 @@ def inference(net: nn.Module) -> Iterator[None]:
 
 
 def param_count(net: nn.Module) -> Si:
-    """Count of parameters in `net`, both training and not"""
+    """Count of parameters in net, both training and not"""
     return Si(sum(p.numel() for p in net.parameters()))
 
 
 def profile(fn: _F) -> _F:
     """Decorator to profile CUDA ops. Use with `nvprof`
 
-    Use in script launched via
-    `nvprof --profile-from-start off -o trace.prof -- python main.py`
-
+    Use in script launched via:
+    ```bash
+    nvprof --profile-from-start off -o trace.prof -- python main.py
+    ```
+    Usage:
     >>> @profile
     ... def train_loop():
     ...     for data in loader:
@@ -93,16 +95,14 @@ def dump_to_onnx(net: nn.Module, *shapes: Tuple[int, ...],
     """Converts model to ONNX graph, represented as bytes
 
     Parameters:
-      - net - torch.nn.Module to convert
-      - shapes - Shapes of input data, all except batch dimension
+    - net - torch.nn.Module to convert
+    - shapes - Shapes of input data, all except batch dimension
 
     Example usage:
-
     >>> net = torch.nn.Linear(4, 4)
     >>> bytes_ = dump_to_onnx(net, [4])
 
     To restore graph:
-
     >>> from onnxruntime import backend
     >>> rep = backend.prepare(bytes_or_filename, device='cpu')
     >>> rep.run([np.zeros(4, 4)])[0]

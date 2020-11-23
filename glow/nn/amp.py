@@ -189,25 +189,25 @@ def get_amp_context(net: nn.Module,
     """Switch model and optimizer to mixed precision mode
 
     Parameters:
-      - fp16 - enables fp16 mode.
-      - retry_on_inf - if set, probe another scale for the same loss
-        when `backward()` fills grads with NaN/Inf. Only for fp16 mode.
+    - fp16 - enables fp16 mode.
+    - retry_on_inf - if set, probe another scale for the same loss
+      when backward() fills grads with NaN/Inf. Only for fp16 mode.
 
     Example:
     ```
-        # Creates model and optimizer in default precision
-        model = Net()
-        optimizer = optim.SGD(model.parameters(), ...)
+    # Creates model and optimizer in default precision
+    model = Net()
+    optimizer = optim.SGD(model.parameters(), ...)
 
-        # Before training loop
-        ctx = gnn.get_amp_context(model, optimizer, fp16=True)
+    # Before training loop
+    ctx = gnn.get_amp_context(model, optimizer, fp16=True)
 
-        for input, target in data:
-            with torch.cuda.amp.autocast():
-                output = model(input)
-            with ctx:  # Enter resets grads, exit updates parameters
-                loss = loss_fn(output, target)
-                ctx.backward(loss)
+    for input, target in data:
+        with torch.cuda.amp.autocast():
+            output = model(input)
+        with ctx:  # Enter resets grads, exit updates parameters
+            loss = loss_fn(output, target)
+            ctx.backward(loss)
     ```
 
     """

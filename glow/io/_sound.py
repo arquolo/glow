@@ -22,10 +22,10 @@ class Sound(wrapt.ObjectProxy):
     """Wraps numpy.array to be playable as sound
 
     Parameters:
-      - rate - sample rate
+    - rate - sample rate to use for playback
 
     Usage:
-    ```python
+    ```
     from glow.io import Sound
 
     sound = Sound.load('test.flac')  # Array-like wrapper

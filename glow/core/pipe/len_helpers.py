@@ -72,9 +72,11 @@ def as_sized(gen_fn: Callable[..., Iterable[_T_co]],
 def as_sized(gen_fn=None, *, hint):
     """Packs generator function with size hint, thus making it sized.
 
-    `hint` - callable which returns `len` of result iterable.
-    It should have same signature as `gen`.
-    If it catches TypeError while calling it, skips packing.
+    Parameters:
+    - hint - callable which returns size of result iterable.
+      It should have same signature as gen_fn.
+
+    No packing occurs if hint fails with TypeError.
 
     >>> @as_sized(hint=len)
     ... def make_squares(it):

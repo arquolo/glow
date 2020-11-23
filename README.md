@@ -20,7 +20,7 @@ pip install -U glow[io]  # If you need io features
 pip install -U glow[cv,io]  # If you need all
 ```
 </details>
-Glow is compatible with: Python 3.7+, PyTorch 1.7+.
+Glow is compatible with: Python 3.8+, PyTorch 1.7+.
 Tested on ArchLinux, Ubuntu 18.04/20.04, Windows 10.
 
 ## Structure

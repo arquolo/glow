@@ -121,8 +121,8 @@ def elastic(image: np.ndarray,
     """Elastic deformation of image
 
     Parameters:
-      - scale - max offset for each pixel
-      - sigma - size of gaussian kernel
+    - scale - max offset for each pixel
+    - sigma - size of gaussian kernel
     """
     offsets = rg.random((2, *image.shape[:2]), dtype='f4')
     offsets *= (2 * scale)
