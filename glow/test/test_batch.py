@@ -1,15 +1,15 @@
 import random
-
-import glow
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
 
-@pytest.mark.parametrize('deco', [glow.batched, glow.batched_async])
-def test_as_is(deco):
+import glow
+
+
+def test_as_is():
     load = MagicMock(side_effect=lambda x: x)
 
-    @deco
+    @glow.memoize(8192, batched=True)
     def load_batch(xs):
         return [load(x) for x in xs]
 
@@ -18,14 +18,13 @@ def test_as_is(deco):
         results = load_batch(numbers)
         assert numbers == results
 
-    called_with = (x for (x, ), _ in load.call_args_list)
+    called_with = (f'({x},){{}}' for (x, ), _ in load.call_args_list)
     assert sorted(called_with) == sorted(load_batch.cache)
 
 
 @pytest.mark.parametrize('workers', [2, 4] * 10)
-@pytest.mark.parametrize('deco', [glow.batched, glow.batched_async])
-def test_thread_safe(deco, workers):
-    @deco
+def test_thread_safe(workers):
+    @glow.memoize(8192, batched=True)
     def load_batch(xs):
         return [*xs]
 
