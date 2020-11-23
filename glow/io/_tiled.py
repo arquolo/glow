@@ -105,7 +105,6 @@ class _Memoized(type):
         policy='lru',
         key_fn=lambda _, name: Path(name).resolve().as_posix())
     def __call__(cls, name: Union[Path, str]):  # type: ignore
-        # TODO: make external factory to combine all 3 classes with memoization
         return super().__call__(Path(name))
 
 
