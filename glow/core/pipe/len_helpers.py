@@ -137,7 +137,7 @@ class _PartialIter(Iterable[_T_co]):
 
     def __repr__(self) -> str:
         line = repr(self.gen.func)
-        if args := ','.join(f'{v!r}' for v in self.gen.args):
+        if args := ', '.join(f'{v!r}' for v in self.gen.args):
             line += f', {args}'
         if kwargs := ','.join(
                 f'{k}={v!r}' for k, v in self.gen.keywords.items()):
