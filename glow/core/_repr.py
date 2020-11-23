@@ -75,13 +75,13 @@ class Si(wrapt.ObjectProxy):
     _prefixes = 'qryzafpnum kMGTPEZYRQ'
     _prefixes_bin = _prefixes[_prefixes.index(' '):].upper()
 
-    def __init__(self, value: Union[float, int] = 0, si: bool = True):
+    def __init__(self, value: Union[float, int] = 0, _si: bool = True):
         super().__init__(value)
-        self._self_si = si
+        self._self_si = _si
 
     @classmethod
     def bits(cls, value: Union[float, int] = 0) -> 'Si':
-        return cls(value, si=False)
+        return cls(value, _si=False)
 
     def __str__(self):
         x = self.__wrapped__

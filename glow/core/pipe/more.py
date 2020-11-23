@@ -23,7 +23,7 @@ def as_iter(obj: Union[Iterable[_T], _T, None],
     """Make iterator from object"""
     if obj is None:
         return ()
-    if isinstance(obj, collections.abc.Iterable):
+    if isinstance(obj, abc.Iterable):
         return islice(obj, times)
     return repeat(obj) if times is None else repeat(obj, times)
 
@@ -34,11 +34,11 @@ def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     >>> [*windowed(range(5), 3)]
     [(0, 1, 2), (1, 2, 3), (2, 3, 4)]
     """
-    iters = tee(it, size)
-    slices = map(islice, iters, count(), repeat(None))
-    return zip(*slices)
+    return zip(*(islice(it_, start, None)
+                 for start, it_ in enumerate(tee(it, size))))
 
 
+def sliced(seq: Sequence[_T], size: int) -> Iterator[Sequence[_T]]:
     """Split sequence to slices of at most size items each.
 
     >>> s = sliced(range(10), 3)
@@ -47,9 +47,9 @@ def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     >>> [*s]
     [range(0, 3), range(3, 6), range(6, 9), range(9, 10)]
     """
-    offsets = range(len(it) + size)
+    offsets = range(len(seq) + size)
     slices = map(slice, offsets[0::size], offsets[size::size])
-    return map(it.__getitem__, slices)
+    return map(seq.__getitem__, slices)
 
 
 def chunk_hint(it, size):
@@ -83,12 +83,15 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     >>> [[*chunk] for chunk in s]
     [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
     """
-    iter_ = iter(it)
-    while (item := next(iter_, _empty)) is not _empty:
-        iter_, rest = tee(chain([item], iter_))  # clone source
-        yield SizedIter(islice(iter_, size), size)
+    head = iter(it)
+    while (item := next(head, _empty)) is not _empty:
+        it1 = islice(chain([item], head), size)  # Restore iterable
+        it1, it2 = tee(it1)  # Fork to keep not-yet-consumed
+        yield _SizedIterable(it1, size)
+        eat(it2)  # Advance to head[size:]
 
-        iter_ = islice(rest, size, None)
+
+def eat(iterable: Iterable[Any], daemon: bool = False) -> None:
 
 
 def eat(iterable: Iterable[Any], async_: bool = False) -> None:

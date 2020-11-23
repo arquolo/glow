@@ -44,8 +44,8 @@ def _initializer():
         _mp_profile()
 
 
-def _get_pool(workers):
-    return loky.get_reusable_executor(
+def _get_pool(workers: int) -> Executor:
+    return loky.get_reusable_executor(  # type: ignore
         workers,
         timeout=_IDLE_WORKER_TIMEOUT,
         job_reducers=reducers,
