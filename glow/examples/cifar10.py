@@ -102,14 +102,14 @@ ds = CIFAR10(args.root / 'cifar10', transform=tft, download=True)
 ds_val = CIFAR10(args.root / 'cifar10', transform=tfs.ToTensor(), train=False)
 
 
-@glow.repeatable(hint=lambda: sample_size)
-def sampler():
+@glow.partial_iter(hint=lambda: sample_size)
+def subset_sampler():
     return rg.integers(len(ds), size=sample_size)
 
 
 loader = gnn.make_loader(
-    ds, sampler(), batch_size=args.batch_size, multiprocessing=False)
-val_loader = gnn.make_loader(ds_val, batch_size=100, multiprocessing=False)
+    ds, args.batch_size, subset_sampler(), multiprocessing=False)
+val_loader = gnn.make_loader(ds_val, 100, multiprocessing=False)
 
 # net = make_model_default()
 net = make_model_new(args.width)

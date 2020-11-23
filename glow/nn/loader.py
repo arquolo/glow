@@ -8,7 +8,7 @@ from typing import Any, Iterable, Protocol, Sequence, Tuple, TypeVar, Union
 import torch
 from torch.utils.data import Dataset, Sampler
 
-from ..core import chunked, mapped, repeatable
+from ..core import chunked, mapped, partial_iter
 from ..core.pipe.len_helpers import SizedIterable
 
 _KT = TypeVar('_KT')
@@ -34,8 +34,8 @@ def _get_batch(dataset, indices):
 
 def make_loader(
         dataset: Union[_Mapping[_KT], 'Dataset[Sequence]'],
+        batch_size: int,
         sampler: Union[Iterable[_KT], Sampler] = None,
-        batch_size: int = 1,
         workers: int = _NUM_CPUS,
         multiprocessing: bool = True
 ) -> SizedIterable[Tuple[torch.Tensor, ...]]:
@@ -53,7 +53,7 @@ def make_loader(
     size = len(range(0, len(sampler), batch_size))  # type: ignore
     chunked_getter = functools.partial(_get_batch, dataset)
 
-    @repeatable(hint=lambda: size)
+    @partial_iter(hint=lambda: size)
     def loop():
         chunked_sampler = chunked(sampler, batch_size)
         return mapped(

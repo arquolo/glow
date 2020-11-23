@@ -1,10 +1,10 @@
-__all__ = ['MaybeSizedIterable', 'as_sized', 'repeatable']
+__all__ = ['MaybeSizedIterable', 'as_sized', 'as_iterable_class']
 
+from dataclasses import dataclass
 import functools
-from abc import abstractmethod
 from itertools import islice
-from typing import (Callable, Iterable, Iterator, Protocol, TypeVar, Union,
-                    overload, runtime_checkable)
+from typing import (Callable, Generic, Iterable, Iterator, Optional, Protocol, Sized,
+                    TypeVar, Union, overload, runtime_checkable)
 
 from .._patch_len import len_hint
 
@@ -12,27 +12,33 @@ _T_co = TypeVar('_T_co', covariant=True)
 
 
 @runtime_checkable
-class SizedIterable(Iterable[_T_co], Protocol[_T_co]):
-    @abstractmethod
-    def __len__(self) -> int:
-        ...
-
-
-@runtime_checkable
-class SizedIterator(SizedIterable[_T_co], Protocol[_T_co]):
-    @abstractmethod
-    def __next__(self) -> _T_co:
-        ...
+class SizedIterable(Sized, Iterable[_T_co], Protocol[_T_co]):
+    pass
 
 
 MaybeSizedIterable = Union[SizedIterable[_T_co], Iterable[_T_co]]
-MaybeSizedIterator = Union[SizedIterator[_T_co], Iterator[_T_co]]
 
 # ---------------------------------------------------------------------------
 
 
-class SizedIter(islice):  # type: ignore
-    pass
+@dataclass(repr=False, frozen=True)
+class _SizedIterable(Generic[_T_co]):
+    it: Iterable[_T_co]
+    size: int
+
+    def __iter__(self) -> Iterator[_T_co]:
+        return iter(self.it)
+
+    def __len__(self) -> int:
+        return self.size
+
+    def __repr__(self) -> str:
+        cls = type(self.it)
+        line = f'{cls.__module__}.{cls.__qualname__} object '
+        if name := getattr(self.it, '__qualname__', None):
+            line += f'{name} '
+        line += f'at 0x{id(self.it):X} with {self.size} items'
+        return f'<{line}>'
 
 
 def _len_islice(x):
@@ -49,7 +55,7 @@ def _len_islice(x):
     return len(range(start, stop, step))
 
 
-len_hint.register(SizedIter, _len_islice)
+len_hint.register(islice, _len_islice)
 _SizeHint = Callable[..., int]
 _SizedGenFn = Callable[..., SizedIterable[_T_co]]
 
@@ -104,7 +110,7 @@ def as_sized(gen_fn=None, *, hint):
     def wrapper(*args, **kwargs):
         gen = gen_fn(*args, **kwargs)
         try:
-            return SizedIter(gen, hint(*args, **kwargs))
+            return _SizedIterable(gen, hint(*args, **kwargs))
         except TypeError:
             return gen
 
@@ -114,8 +120,8 @@ def as_sized(gen_fn=None, *, hint):
 # ---------------------------------------------------------------------------
 
 
-class _Repeatable(Iterable[_T_co]):
-    def __init__(self, hint: Callable[..., int],
+class _PartialIter(Iterable[_T_co]):
+    def __init__(self, hint: Optional[Callable[..., int]],
                  gen_fn: Callable[..., Iterable[_T_co]], *args: object,
                  **kwargs: object) -> None:
         self.gen = functools.partial(gen_fn, *args, **kwargs)
@@ -125,25 +131,54 @@ class _Repeatable(Iterable[_T_co]):
         return iter(self.gen())
 
     def __len__(self) -> int:
+        if self.hint is None:
+            raise TypeError('Size hint is not provided')
         return self.hint(*self.gen.args, **self.gen.keywords)
+
+    def __repr__(self) -> str:
+        line = repr(self.gen.func)
+        if args := ','.join(f'{v!r}' for v in self.gen.args):
+            line += f', {args}'
+        if kwargs := ','.join(
+                f'{k}={v!r}' for k, v in self.gen.keywords.items()):
+            line += f', {kwargs}'
+        return f'<{type(self).__qualname__}({line})>'
 
 
 @overload
-def repeatable(
-    hint: _SizeHint
+def partial_iter(
+    hint: _SizeHint = ...
 ) -> Callable[[Callable[..., Iterable[_T_co]]], _SizedGenFn[_T_co]]:
     ...
 
 
 @overload
-def repeatable(gen_fn: Callable[..., Iterable[_T_co]],
-               hint: _SizeHint) -> Callable[..., SizedIterable[_T_co]]:
+def partial_iter(gen_fn: Callable[..., Iterable[_T_co]],
+                 hint: _SizeHint = ...) -> Callable[..., SizedIterable[_T_co]]:
     ...
 
 
-def repeatable(gen_fn=None, *, hint):
+def partial_iter(gen_fn=None, *, hint=None):
+    """Helper for generator functions. Adds re-iterability.
+
+    Simplifies such code:
+    ```python
+    class A:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+        def __iter__(self):
+            <iter block using args, kwargs>
+    ```
+    To this:
+    ```python
+    @partial_iter()
+    def func(*args, **kwargs):
+        <iter block using args, kwargs>
+    ```
+    """
     if gen_fn is None:
-        return functools.partial(repeatable, hint=hint)
+        return functools.partial(partial_iter, hint=hint)
 
     return functools.wraps(gen_fn)(
-        functools.partial(_Repeatable, hint, gen_fn))
+        functools.partial(_PartialIter, hint, gen_fn))

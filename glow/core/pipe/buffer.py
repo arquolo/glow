@@ -7,7 +7,8 @@ import threading
 from concurrent import futures
 from typing import TypeVar, Union
 
-from .len_helpers import MaybeSizedIterable, MaybeSizedIterator, as_sized
+from .len_helpers import MaybeSizedIterable, as_sized
+
 
 
 class _Empty(enum.Enum):
@@ -21,7 +22,7 @@ _empty = _Empty.token
 
 @as_sized(hint=lambda it, _: len(it))
 def buffered(iterable: MaybeSizedIterable[_T],
-             latency: int = 2) -> MaybeSizedIterator[_T]:
+             latency: int = 2) -> MaybeSizedIterable[_T]:
     """
     Iterates over `iterable` in background thread with at most `latency`
     items ahead from caller

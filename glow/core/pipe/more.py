@@ -1,13 +1,14 @@
-__all__ = ['as_iter', 'chunked', 'eat', 'ichunked', 'sliced', 'windowed']
+__all__ = [
+    'as_iter', 'chunked', 'eat', 'ichunked', 'roundrobin', 'sliced', 'windowed'
+]
 
-import collections
-import collections.abc
 import enum
 import threading
-from itertools import chain, count, islice, repeat, tee
-from typing import Any, Iterable, Iterator, Sequence, TypeVar, Union
+from collections import abc, deque
+from itertools import chain, cycle, islice, repeat, tee
+from typing import Iterable, Iterator, Sequence, TypeVar, Union
 
-from .len_helpers import SizedIter, as_sized
+from .len_helpers import _SizedIterable, as_sized
 
 
 class _Empty(enum.Enum):
@@ -72,6 +73,7 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
 
 
 @as_sized(hint=chunk_hint)
+def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterable[_T]]:
     """Split iterable to chunks of at most size items each.
 
     Does't consume items from passed iterable to return complete chunk
@@ -91,13 +93,18 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
         eat(it2)  # Advance to head[size:]
 
 
-def eat(iterable: Iterable[Any], daemon: bool = False) -> None:
-
-
-def eat(iterable: Iterable[Any], async_: bool = False) -> None:
-    """Consume `iterable`, if `async_` then in background thread"""
-    if not async_:
-        collections.deque(iterable, maxlen=0)
+def eat(iterable: abc.Iterable, daemon: bool = False) -> None:
+    """Consume iterable, daemonize if needed (move to background thread)"""
+    if not daemon:
+        deque(iterable, 0)
     else:
-        threading.Thread(
-            target=collections.deque, args=(iterable, 0), daemon=True).start()
+        threading.Thread(target=deque, args=(iterable, 0), daemon=True).start()
+
+
+@as_sized(hint=lambda *it: sum(map(len, it)))
+def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
+    """roundrobin('ABC', 'D', 'EF') --> A D E B F C"""
+    iters = cycle(map(iter, iterables))
+    for pending in range(len(iterables))[::-1]:
+        yield from map(next, iters)
+        iters = cycle(islice(iters, pending))
