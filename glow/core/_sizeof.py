@@ -13,7 +13,7 @@ from ._import_hook import when_imported
 from ._repr import Si
 
 
-def for_unseen(fn, default=Si):
+def for_unseen(fn, default=Si.bits):
     """Protection from self-referencing"""
     def wrapper(obj, seen: Set[int] = None) -> Si:
         if seen is None:
@@ -54,9 +54,10 @@ def sizeof(obj, seen: Set[int] = None) -> Si:
         size += sum(sizeof(item, seen) for item in obj)
 
     if hasattr(obj, '__slots__'):
-        size += sum(sizeof(getattr(obj, slot, None), seen)
-                    for class_ in type(obj).mro()
-                    for slot in getattr(class_, '__slots__', ()))
+        size += sum(
+            sizeof(getattr(obj, slot, None), seen)
+            for class_ in type(obj).mro()
+            for slot in getattr(class_, '__slots__', ()))
     return Si.bits(size)
 
 

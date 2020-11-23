@@ -10,7 +10,6 @@ from typing import TypeVar, Union
 from .len_helpers import MaybeSizedIterable, as_sized
 
 
-
 class _Empty(enum.Enum):
     token = 0
 
