@@ -1,29 +1,42 @@
 __all__ = ['memoize']
 
 import argparse
+import asyncio
+import concurrent.futures as cf
+import contextlib
+import enum
 import functools
 import threading
-import weakref
 from collections import Counter
-from typing import (Callable, Dict, Generic, Hashable, Literal, MutableMapping,
-                    Type, TypeVar, cast)
+from dataclasses import InitVar, dataclass, field
+from typing import (Any, Callable, ClassVar, Dict, Generic, Hashable, KeysView,
+                    Literal, MutableMapping, NamedTuple, Optional, Sequence,
+                    Type, TypeVar, Union, cast, overload)
+from weakref import WeakValueDictionary
 
 from .._repr import Si
 from .._sizeof import sizeof
 from .concurrency import interpreter_lock
+from .reusable import make_loop
+
+
+class _Empty(enum.Enum):
+    token = 0
+
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
+_Fbatch = TypeVar('_Fbatch', bound=Callable[[Sequence], list])
 _Policy = Literal['raw', 'lru', 'mru']
 _KeyFn = Callable[..., Hashable]
+_empty = _Empty.token
 
 
-class Record(Generic[_T]):
+@dataclass(repr=False)
+class _Node(Generic[_T]):
     __slots__ = ('value', 'size')
-
-    def __init__(self, value: _T) -> None:
-        self.value = value
-        self.size = sizeof(value)
+    value: _T
+    size: Si
 
     def __repr__(self) -> str:
         return f'({self.value} / {self.size})'
@@ -38,57 +51,76 @@ class Stats(argparse.Namespace):
         return self.__dict__[name]
 
 
-class _CacheAbc(Generic[_T]):
-    store: Dict[Hashable, Record[_T]]
-    stats: Stats
-    size: Si
-    capacity: Si
-
-    def keys(self):
-        return self.store.keys()
-
-    def clear(self):
-        self.store.clear()
-        self.size = Si.bits()
-
+class _IStore(Generic[_T]):
     def __len__(self) -> int:
-        return len(self.store)
+        raise NotImplementedError
 
-    def __getitem__(self, key: Hashable) -> _T:
-        """Retrieve value from cache"""
-        return self.store[key].value
+    def store_clear(self) -> None:
+        raise NotImplementedError
 
-    def __setitem__(self, key: Hashable, value: _T) -> None:
-        record = Record(value)
-        if self.evict(record.size):
-            self.store[key] = record
-            self.size += record.size
+    def store_get(self, key: Hashable) -> Optional[_Node[_T]]:
+        raise NotImplementedError
 
-    def evict(self, size: Si) -> bool:
-        """Try to release `size` bytes from storage. Return True on success"""
+    def store_set(self, key: Hashable, node: _Node[_T]) -> None:
+        raise NotImplementedError
+
+    def can_swap(self, size: Si) -> bool:
         raise NotImplementedError
 
 
-class _CacheBase(_CacheAbc[_T]):
-    refs: MutableMapping[int, '_CacheBase'] = weakref.WeakValueDictionary()
+@dataclass(repr=False)
+class _InitializedStore:
+    capacity_int: InitVar[int]
 
-    def __init__(self, capacity: int) -> None:
-        self.capacity = Si.bits(capacity)
-        self.size = Si.bits()
-        self.store: Dict[Hashable, Record[_T]] = {}
-        self.stats = Stats()
-        self.lock = threading.RLock()
+    size: Si = Si.bits(0)
+    stats: Stats = field(default_factory=Stats)
+
+    def __post_init__(self, capacity_int: int):
+        self.capacity = Si.bits(capacity_int)
+
+
+@dataclass(repr=False)
+class _DictMixin(_InitializedStore, _IStore[_T]):
+    lock: threading.RLock = field(default_factory=threading.RLock)
+
+    def clear(self):
+        with self.lock:
+            self.store_clear()
+            self.size = Si.bits()
+
+    def keys(self) -> KeysView:
+        raise NotImplementedError
+
+    def __getitem__(self, key: Hashable) -> Union[_T, _Empty]:
+        with self.lock:
+            if node := self.store_get(key):
+                self.stats.hits += 1
+                return node.value
+        return _empty
+
+    def __setitem__(self, key: Hashable, value: _T) -> None:
+        with self.lock:
+            self.stats.misses += 1
+            size = sizeof(value)
+            if (self.size + size <= self.capacity) or self.can_swap(size):
+                self.store_set(key, _Node(value, size))
+                self.size += size
+
+
+@dataclass(repr=False)
+class _ReprMixin(_InitializedStore, _IStore[_T]):
+    refs: ClassVar[MutableMapping[int, '_ReprMixin']] = WeakValueDictionary()
+
+    def __post_init__(self, capacity_int: int) -> None:
         self.refs[id(self)] = self
 
     def __repr__(self) -> str:
-        with self.lock:
-            line = (
-                f'{type(self).__name__}'
-                f'(items={len(self)}, used={self.size}, total={self.capacity})'
-            )
-            if any(vars(self.stats).values()):
-                line += f'-{self.stats}'
-            return line
+        line = (
+            f'{type(self).__name__}'
+            f'(items={len(self)}, used={self.size}, total={self.capacity})')
+        if any(vars(self.stats).values()):
+            line += f'-{self.stats}'
+        return line
 
     @classmethod
     def status(cls) -> str:
@@ -97,19 +129,41 @@ class _CacheBase(_CacheAbc[_T]):
                              for id_, value in sorted(cls.refs.items()))
 
 
-class _HeapCache(_CacheBase[_T]):
-    def evict(self, size: Si) -> bool:
-        return self.size + size <= self.capacity
+@dataclass(repr=False)
+class _Store(_ReprMixin[_T], _DictMixin[_T]):
+    store: Dict[Hashable, _Node[_T]] = field(default_factory=dict)
+
+    def __len__(self) -> int:
+        return len(self.store)
+
+    def keys(self) -> KeysView:
+        return self.store.keys()
+
+    def store_clear(self) -> None:
+        self.store.clear()
+
+    def store_get(self, key: Hashable) -> Optional[_Node[_T]]:
+        return self.store.get(key)
+
+    def store_set(self, key: Hashable, node: _Node[_T]) -> None:
+        self.store[key] = node
 
 
-class _LruCache(_CacheBase[_T]):
+class _HeapCache(_Store[_T]):
+    def can_swap(self, size: Si) -> bool:
+        return False
+
+
+class _LruCache(_Store[_T]):
     drop_recent = False
 
-    def __getitem__(self, key: Hashable) -> _T:
-        self.store[key] = record = self.store.pop(key)
-        return record.value
+    def store_get(self, key: Hashable) -> Optional[_Node[_T]]:
+        if node := self.store.pop(key, None):
+            self.store[key] = node
+            return node
+        return None
 
-    def evict(self, size: Si) -> bool:
+    def can_swap(self, size: Si) -> bool:
         if size > self.capacity:
             return False
 
@@ -126,52 +180,155 @@ class _MruCache(_LruCache[_T]):
     drop_recent = True
 
 
-def _memoize(cache: _CacheBase, key_fn: _KeyFn, fn: _F) -> _F:
+# -------------------------------- wrapping --------------------------------
+
+
+def _memoize(cache: _DictMixin, key_fn: _KeyFn, fn: _F) -> _F:
     def wrapper(*args, **kwargs):
         key = key_fn(*args, **kwargs)
-        try:
-            with cache.lock:
-                value = cache[key]
-                cache.stats.hits += 1
-        except KeyError:
-            try:
-                value = fn(*args, **kwargs)
-            except BaseException as exc:
-                exc.__context__ = None
-                raise
-            with cache.lock:
-                cache.stats.misses += 1
-                cache[key] = value
-        return value  # noqa: R504
+
+        if (value := cache[key]) is not _empty:
+            return value
+
+        cache[key] = value = fn(*args, **kwargs)
+        return value
 
     wrapper.cache = cache  # type: ignore
     return cast(_F, functools.update_wrapper(wrapper, fn))
+
+
+# ----------------------- wrapper with batching support ----------------------
+
+
+class _Job(NamedTuple):
+    token: Any
+    future: Union[asyncio.Future, cf.Future]
+
+
+def _dispatch(fn: _Fbatch, cache: Dict[Hashable, object],
+              queue: Dict[Hashable, _Job]) -> None:
+    jobs = {**queue}
+    queue.clear()
+
+    try:
+        values = fn([job.token for job in jobs.values()])
+        assert len(values) == len(jobs)
+
+        for job, value in zip(jobs.values(), values):
+            job.future.set_result(value)
+
+    except BaseException as exc:
+        for key, job in jobs.items():
+            cache.pop(key)
+            job.future.set_exception(exc)
+
+
+def _memoize_batched_aio(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
+    assert callable(fn)
+    cache: Dict[Hashable, asyncio.Future] = {}
+    queue: Dict[Hashable, _Job] = {}
+    loop = make_loop()
+
+    def _load(token) -> asyncio.Future:
+        key = key_fn(token)
+        if result := cache.get(key):
+            return result
+
+        loop = asyncio.get_running_loop()
+        cache[key] = future = loop.create_future()
+        queue[key] = _Job(token, future)
+        if len(queue) == 1:
+            loop.call_soon(_dispatch, fn, cache, queue)
+
+        return future
+
+    async def _load_many(tokens: Sequence) -> list:
+        return list(await asyncio.gather(*map(_load, tokens)))
+
+    def wrapper(tokens: Sequence) -> list:
+        coro = _load_many(tokens)
+        return asyncio.run_coroutine_threadsafe(coro, loop).result()
+
+    wrapper.cache = cache  # type: ignore
+    return cast(_Fbatch, functools.update_wrapper(wrapper, fn))
+
+
+def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
+    assert callable(fn)
+    lock = threading.RLock()
+    cache: Dict[Hashable, cf.Future] = {}
+    queue: Dict[Hashable, _Job] = {}
+
+    def _load(stack: contextlib.ExitStack, token: Any) -> cf.Future:
+        key = key_fn(token)
+        with lock:
+            if result := cache.get(key):
+                return result
+
+            cache[key] = future = cf.Future()  # type: ignore
+            queue[key] = _Job(token, future)
+            if len(queue) == 1:
+                stack.callback(_dispatch, fn, cache, queue)
+
+        return future
+
+    def wrapper(tokens: Sequence) -> list:
+        with contextlib.ExitStack() as stack:
+            futs = [_load(stack, token) for token in tokens]
+        return [fut.result() for fut in futs]
+
+    wrapper.cache = cache  # type: ignore
+    return cast(_Fbatch, functools.update_wrapper(wrapper, fn))
+
+
+# ----------------------------- factory wrappers -----------------------------
 
 
 def _key_fn(*args, **kwargs) -> str:
     return f'{args}{kwargs}'
 
 
+@overload
 def memoize(capacity: int,
-            policy: _Policy = 'raw',
-            key_fn: _KeyFn = _key_fn) -> Callable[[_F], _F]:
+            *,
+            policy: _Policy = ...,
+            key_fn: _KeyFn = ...) -> Callable[[_F], _F]:
+    ...
+
+
+@overload
+def memoize(capacity: int,
+            *,
+            batched: Literal[True],
+            policy: _Policy = ...,
+            key_fn: _KeyFn = ...) -> Callable[[_Fbatch], _Fbatch]:
+    ...
+
+
+def memoize(
+    capacity: int,
+    *,
+    batched: bool = False,
+    policy: _Policy = 'raw',
+    key_fn: _KeyFn = _key_fn
+) -> Union[Callable[[_F], _F], Callable[[_Fbatch], _Fbatch]]:
     """Returns dict-cache decorator.
 
     Parameters:
-      - capacity - size in bytes
-      - policy - eviction policy, one of "raw", "lru" or "mru"
+    - capacity - size in bytes
+    - policy - eviction policy, one of "raw", "lru" or "mru"
     """
     if not capacity:
         return lambda fn: fn
 
-    caches: Dict[str, Type[_CacheBase]] = {
+    caches: Dict[str, Type[_Store]] = {
         'raw': _HeapCache,
         'lru': _LruCache,
         'mru': _MruCache,
     }
-    cache_cls = caches.get(policy)
-    if cache_cls is None:
-        raise ValueError(
-            f'Unknown policy: "{policy}". Only "{set(caches)}" are available')
-
-    return functools.partial(_memoize, cache_cls(capacity), key_fn)
+    if (cache_cls := caches.get(policy)) is not None:
+        if batched:
+            return functools.partial(_memoize_batched, key_fn)
+        return functools.partial(_memoize, cache_cls(capacity), key_fn)
+    raise ValueError(f'Unknown policy: "{policy}". '
+                     f'Only "{set(caches)}" are available')
