@@ -10,7 +10,10 @@ import threading
 import types
 from typing import Callable, Counter, Generator, TypeVar, cast
 
+import numpy as np
 import wrapt
+
+from ._import_hook import register_post_import_hook
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable[..., Generator])
@@ -81,7 +84,7 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
 
 def trace_module(name):
     """Enables call logging for each callable inside module name"""
-    wrapt.register_post_import_hook(_set_trace, name)
+    register_post_import_hook(_set_trace, name)
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +136,7 @@ def lock_seed(seed: int) -> None:
     """Set seed for all modules: random/numpy/torch"""
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
-
-    def _numpy_seed(numpy):
-        numpy.random.seed(seed)
+    np.random.seed(seed)
 
     def _torch_seed(torch):
         import torch
@@ -145,5 +146,4 @@ def lock_seed(seed: int) -> None:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    wrapt.when_imported('numpy')(_numpy_seed)
-    wrapt.when_imported('torch')(_torch_seed)
+    register_post_import_hook(_torch_seed, 'torch')

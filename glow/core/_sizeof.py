@@ -7,8 +7,9 @@ from collections import abc
 from inspect import isgetsetdescriptor, ismemberdescriptor
 from typing import Set
 
-import wrapt
+import numpy as np
 
+from ._import_hook import when_imported
 from ._repr import Si
 
 
@@ -72,7 +73,6 @@ def _sizeof_torch(obj, _=None) -> Si:
     return Si.bits(size)  # TODO: test, maybe useless when grads are attached
 
 
-wrapt.when_imported('numpy')(
-    lambda numpy: sizeof.register(numpy.ndarray, _sizeof_numpy))
-wrapt.when_imported('torch')(
+sizeof.register(np.ndarray, _sizeof_numpy)
+when_imported('torch')(
     lambda torch: sizeof.register(torch.Tensor, _sizeof_torch))

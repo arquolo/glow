@@ -8,7 +8,7 @@ import builtins
 from functools import update_wrapper, wraps
 from threading import RLock
 
-import wrapt
+from ._import_hook import register_post_import_hook
 
 _print = builtins.print
 _lock = RLock()
@@ -37,4 +37,4 @@ def patch_print(module) -> None:
 
 def apply() -> None:
     builtins.print = locked_print
-    wrapt.register_post_import_hook(patch_print, 'tqdm')
+    register_post_import_hook(patch_print, 'tqdm')

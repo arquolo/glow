@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional
 
 import loky
-import wrapt
 
+from .._import_hook import when_imported
 
 _SYSTEM_SHM_MIN_SIZE = int(2e9)
 _SYSTEM_SHM = Path('/dev/shm')
@@ -126,6 +126,7 @@ if False:
     _CACHE: Dict[int, Any] = {}
     _LOCK = threading.RLock()
 
+    import numpy as np
     from ..wrap.cache import memoize
 
     @memoize(100_000_000, policy='lru', key_fn=id)
@@ -152,19 +153,16 @@ if False:
         return args  # noqa: R504
 
     def _np_recreate(uid, memo, fmt, shape):
-        import numpy as np
         return np.asarray(memoryview(memo.buf).cast(fmt, shape))
 
-    @wrapt.when_imported('numpy')
-    def _numpy_hook(numpy):
-        reducers[numpy.ndarray] = _np_reduce
-        # reducers[numpy.ndarray] = _np_reduce_cached
+    reducers[np.ndarray] = _np_reduce
+    # reducers[np.ndarray] = _np_reduce_cached
 
 
 # -------------------------------- untested --------------------------------
 
 
-@wrapt.when_imported('torch')
+@when_imported('torch')
 def _torch_hook(torch):
     reducers.update({
         torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
