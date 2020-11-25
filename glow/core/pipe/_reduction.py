@@ -13,7 +13,7 @@ import weakref
 from itertools import starmap
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional
+from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional, Sequence
 
 import loky
 
@@ -209,7 +209,7 @@ class _ShmemProxy(_Proxy):
 class _Task(NamedTuple):
     proxy: _Proxy
 
-    def __call__(self, *chunk):
+    def __call__(self, *chunk) -> Sequence:
         return tuple(starmap(self.proxy.get().item, chunk))
 
 

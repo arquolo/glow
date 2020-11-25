@@ -2,7 +2,6 @@ from typing import NamedTuple
 
 import glow
 import numpy as np
-import pytest
 
 DEATH_RATE = 0
 SIZE = 100
@@ -54,7 +53,7 @@ class AsResult(NamedTuple):
 
 
 def run_glow(task, *args):
-    return glow.mapped(task, *args, workers=2, chunk_size=1)
+    return glow.mapped(task, *args, num_workers=2, mp=True)
 
 
 def run_joblib(task, *args):
@@ -121,14 +120,14 @@ def do_work(seed, offset):
     return seed
 
 
-def _test_interrupt(ordered):
+def _test_interrupt():
     """Should die gracefully on Ctrl-C"""
     sources = (
         source(SIZE),
         np.random.randint(2 ** 10, size=SIZE),
     )
     # sources = map(glow.buffered, sources)
-    res = glow.mapped(do_work, *sources, chunk_size=1, ordered=ordered)
+    res = glow.mapped(do_work, *sources, mp=True)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')
@@ -142,22 +141,14 @@ def _test_interrupt(ordered):
     print('\rmain done')
 
 
-@pytest.mark.parametrize('order', [True, False])
-def test_interrupt(order):
-    rs = _test_interrupt(order)
-    if order:
-        assert [*rs] == [*range(SIZE)]
-    else:
-        assert {*rs} == {*range(SIZE)}
+def test_interrupt():
+    rs = _test_interrupt()
+    assert [*rs] == [*range(SIZE)]
 
 
-@pytest.mark.parametrize('order', [True, False])
-def test_interrupt_with_buffer(order):
-    rs = glow.buffered(_test_interrupt(order))
-    if order:
-        assert [*rs] == [*range(SIZE)]
-    else:
-        assert {*rs} == {*range(SIZE)}
+def test_interrupt_with_buffer():
+    rs = glow.buffered(_test_interrupt())
+    assert [*rs] == [*range(SIZE)]
 
 
 if __name__ == '__main__':

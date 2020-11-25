@@ -1,24 +1,26 @@
 __all__ = ['mapped']
 
 import atexit
-import contextlib
 import os
-import queue
 import signal
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from contextlib import ExitStack
 from cProfile import Profile
+from dataclasses import dataclass
+from functools import partial
 from itertools import chain, islice
 from pstats import Stats
-from typing import Callable, Deque, Iterable, Iterator, Set, TypeVar, cast
+from threading import RLock
+from time import perf_counter
+from typing import (Callable, Deque, Iterable, Iterator, Optional, Sequence,
+                    Tuple, TypeVar, cast)
 
 import loky
 
 from ._reduction import reducers, serialize
-from .len_helpers import SizedIterable, as_sized
-from .more import chunked
+from .more import chunked, sliced
 
 _T = TypeVar('_T')
-_R = TypeVar('_R')
 _NUM_CPUS = os.cpu_count() or 0
 _IDLE_WORKER_TIMEOUT = 10
 
@@ -44,9 +46,9 @@ def _initializer():
         _mp_profile()
 
 
-def _get_pool(workers: int) -> Executor:
+def _get_pool(num_workers: int) -> Executor:
     return loky.get_reusable_executor(  # type: ignore
-        workers,
+        num_workers,
         timeout=_IDLE_WORKER_TIMEOUT,
         job_reducers=reducers,
         result_reducers=reducers,
@@ -54,47 +56,116 @@ def _get_pool(workers: int) -> Executor:
     )
 
 
-def _reduce_ordered(fs_submit: Iterator['Future[_T]'],
-                    stack: contextlib.ExitStack, latency: int) -> Iterator[_T]:
-    fs = Deque['Future[_T]']()
-    stack.callback(lambda: {fut.cancel() for fut in reversed(fs)})
+class _AutoSize:
+    MIN_DURATION = 0.2
+    MAX_DURATION = 2.0
+    size: int = 1
+    duration: float = 0.0
 
-    fs.extend(islice(fs_submit, latency))
-    while fs:
-        yield fs.popleft().result()
-        fs.extend(islice(fs_submit, 1))
+    def __init__(self) -> None:
+        self.lock = RLock()
+
+    def suggest(self):
+        with self.lock:
+            if 0 < self.duration < self.MIN_DURATION:
+                self.size *= 2
+                self.duration = 0.0
+
+            elif self.duration > self.MAX_DURATION:
+                size = int(2 * self.size * self.MIN_DURATION / self.duration)
+                size = max(size, 1)
+                if self.size != size:
+                    self.duration = 0.0
+                    self.size = size
+
+            return self.size
+
+    def update(self, size, init, _):
+        with self.lock:
+            if size != self.size:
+                return
+            duration = perf_counter() - init
+            self.duration = ((0.8 * self.duration + 0.2 * duration)
+                             if self.duration > 0 else duration)
 
 
-def _reduce_completed(fs_submit: Iterator['Future[_T]'],
-                      stack: contextlib.ExitStack,
-                      latency: int) -> Iterator[_T]:
-    fs: Set['Future[_T]'] = set()
-    stack.callback(lambda: {fut.cancel() for fut in fs})
-    done: 'queue.Queue[Future[_T]]' = queue.Queue()
+@dataclass
+class _Mapped(Iterable[_T]):
+    proxy: Callable[..., Sequence[_T]]
+    iterables: Tuple[Iterable, ...]
+    num_workers: int
+    latency: int
+    mp: bool
+    chunksize: Optional[int]
 
-    def submit_with_callback() -> Iterator['Future[_T]']:
-        for f in fs_submit:
-            f.add_done_callback(done.put)
-            yield f
+    def _submit(self, executor: Executor,
+                iterable: Iterable[tuple],
+                chunksize: int) -> Iterator[Future]:
+        for chunk in chunked(iterable, chunksize):
+            yield executor.submit(self.proxy, *chunk)
 
-    fs_submit_ = submit_with_callback()
-    fs.update(islice(fs_submit_, latency))
-    while fs:
-        yield (fut := done.get()).result()
-        fs.remove(fut)
-        fs.update(islice(fs_submit_, 1))
+    def _submit_auto(self, executor: Executor,
+                     iterable: Iterable[tuple]) -> Iterator[Future]:
+        iter_ = iter(iterable)
+        njobs = self.num_workers
+        asize = _AutoSize()
+
+        while items := [*islice(iter_, asize.suggest() * njobs)]:
+            for chunk in sliced(items, max(1, len(items) // njobs)):
+                if not chunk:
+                    continue
+                fut = executor.submit(self.proxy, *chunk)
+                fut.add_done_callback(
+                    partial(asize.update, len(chunk), perf_counter()))
+                yield fut
+
+    def _iter_chunks(self, stack: ExitStack,
+                     jobs: Iterator[Future]) -> Iterator[Sequence[_T]]:
+        results = Deque[Future]()
+        stack.callback(lambda: {fut.cancel() for fut in reversed(results)})
+
+        results.extend(islice(jobs, self.latency + self.num_workers))
+        while results:
+            yield results.popleft().result()
+            results.extend(islice(jobs, 1))
+
+    def __iter__(self) -> Iterator[_T]:
+        terminator = None
+        if self.mp:
+            executor = _get_pool(self.num_workers)
+            terminator = atexit.register(executor.shutdown, kill_workers=True)
+        else:
+            executor = ThreadPoolExecutor(self.num_workers)
+
+        with ExitStack() as stack:
+            if not self.mp:
+                stack.enter_context(executor)
+
+            iterable = zip(*self.iterables)
+            if self.mp and self.chunksize is None:
+                chunks = self._submit_auto(executor, iterable)
+            else:
+                chunks = self._submit(executor, iterable, self.chunksize or 1)
+
+            yield from chain.from_iterable(self._iter_chunks(stack, chunks))
+
+        if terminator is not None:
+            atexit.unregister(terminator)
+
+    def __len__(self) -> int:
+        return min(map(len, self.iterables))  # type: ignore
 
 
-def mapped(fn: Callable[..., _R],
-           *iterables: Iterable[_T],
-           workers: int = _NUM_CPUS,
+def mapped(func: Callable[..., _T],
+           *iterables: Iterable,
+           num_workers: int = _NUM_CPUS,
            latency: int = 2,
-           chunk_size: int = 0,
-           ordered: bool = True) -> SizedIterable[_R]:
+           mp: bool = False,
+           chunksize: Optional[int] = None) -> _Mapped[_T]:
     """Returns an iterator equivalent to map(fn, *iterables).
 
     Differences:
-    - Uses multiple threads or processes, whether chunks_size is zero or not.
+    - Uses multiple threads or processes, whether chunksize is zero or not.
     - Unlike multiprocessing.Pool or concurrent.futures.Executor
       *almost* never deadlocks on any exception or Ctrl-C interruption.
 
@@ -102,36 +173,25 @@ def mapped(fn: Callable[..., _R],
     - fn - A callable that will take as many arguments as there are passed
       iterables.
     - workers - Count of workers, by default all hardware threads are occupied.
-    - latency - Count of tasks each worker can grab.
-    - chunk_size - The size of the chunks the iterable will be broken into
-      before being passed to a worker. Zero disables multiprocessing.
+    - latency - Count of extra tasks each worker can grab.
+    - mp - Whether use multiple processes or threads.
+    - chunksize - The size of the chunks the iterable will be broken into
+      before being passed to a worker. By default is estimated automatically.
 
     Calls may be evaluated out-of-order.
     """
-    if workers == 0:
-        return cast(SizedIterable[_R], map(fn, *iterables))
+    if not num_workers:
+        raise ValueError('num_workers should be greater than 0')
+        # return cast(_Mapped[_T], map(func, *iterables))
 
-    terminator = None
-    stack = contextlib.ExitStack()
-    if chunk_size:
-        pool = _get_pool(workers)
-        terminator = atexit.register(pool.shutdown, kill_workers=True)
-        proxy = serialize(fn)
-    else:
-        pool = stack.enter_context(ThreadPoolExecutor(workers))
-        proxy = serialize(fn, mp=False)
-        chunk_size = 1
+    if not mp and chunksize is not None:
+        raise ValueError('In threaded mode chunksize is not supported')
 
-    latency += workers
-    reducer = _reduce_ordered if ordered else _reduce_completed
-
-    @as_sized(hint=lambda: min(map(len, iterables)))  # type: ignore
-    def iter_results():
-        with stack:
-            iterable = chunked(zip(*iterables), chunk_size)
-            fs = (pool.submit(proxy, *item) for item in iterable)
-            yield from chain.from_iterable(reducer(fs, stack, latency))
-        if terminator is not None:
-            atexit.unregister(terminator)
-
-    return iter_results()
+    return _Mapped(
+        cast(Callable[..., Sequence[_T]], serialize(func, mp)),
+        iterables,
+        num_workers=num_workers,
+        latency=latency,
+        mp=mp,
+        chunksize=chunksize,
+    )

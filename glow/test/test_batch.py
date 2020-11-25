@@ -22,13 +22,13 @@ def test_as_is():
     assert sorted(called_with) == sorted(load_batch.cache)
 
 
-@pytest.mark.parametrize('workers', [2, 4] * 10)
-def test_thread_safe(workers):
+@pytest.mark.parametrize('num_workers', [2, 4] * 10)
+def test_thread_safe(num_workers):
     @glow.memoize(8192, batched=True)
     def load_batch(xs):
         return [*xs]
 
     numbers = random.choices(range(100), k=100)
     nchunks = glow.chunked(numbers, 5)
-    rchunks = glow.mapped(load_batch, nchunks, workers=workers)
+    rchunks = glow.mapped(load_batch, nchunks, num_workers=num_workers)
     assert [r for c in rchunks for r in c] == numbers
