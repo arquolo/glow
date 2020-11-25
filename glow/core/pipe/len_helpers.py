@@ -1,10 +1,10 @@
-__all__ = ['MaybeSizedIterable', 'as_sized', 'as_iterable_class']
+__all__ = ['MaybeSizedIterable', 'as_sized', 'partial_iter']
 
-from dataclasses import dataclass
 import functools
+from dataclasses import dataclass
 from itertools import islice
-from typing import (Callable, Generic, Iterable, Iterator, Optional, Protocol, Sized,
-                    TypeVar, Union, overload, runtime_checkable)
+from typing import (Callable, Generic, Iterable, Iterator, Optional, Protocol,
+                    Sized, TypeVar, Union, overload, runtime_checkable)
 
 from .._patch_len import len_hint
 
