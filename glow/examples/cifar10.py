@@ -8,8 +8,8 @@ import glow.nn as gnn
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.cuda.amp
 import torch.nn as nn
+from torch.utils.data import RandomSampler
 from torchvision import transforms as tfs
 from torchvision.datasets import CIFAR10
 from tqdm.auto import tqdm
@@ -103,13 +103,11 @@ ds = CIFAR10(args.root / 'cifar10', transform=tft, download=True)
 ds_val = CIFAR10(args.root / 'cifar10', transform=tfs.ToTensor(), train=False)
 
 
-@glow.partial_iter(hint=lambda: sample_size)
-def subset_sampler():
-    return rg.integers(len(ds), size=sample_size)
-
-
 loader = gnn.make_loader(
-    ds, args.batch_size, subset_sampler(), multiprocessing=False)
+    ds,
+    args.batch_size,
+    sampler=RandomSampler(ds, True, sample_size),
+    multiprocessing=False)
 val_loader = gnn.make_loader(ds_val, 100, multiprocessing=False)
 
 # net = make_model_default()

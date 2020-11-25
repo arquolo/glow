@@ -1,65 +1,74 @@
 __all__ = ['make_loader']
 
-import functools
 import os
-from abc import abstractmethod
-from typing import Any, Iterable, Protocol, Sequence, Tuple, TypeVar, Union
+from dataclasses import dataclass
+from typing import Any, Callable, Iterator, Optional, Tuple
 
 import torch
 from torch.utils.data import Dataset, Sampler
 
-from ..core import chunked, mapped, partial_iter
-from ..core.pipe.len_helpers import SizedIterable
+from ..core import chunked, mapped
 
-_KT = TypeVar('_KT')
-_KT_contra = TypeVar('_KT_contra', contravariant=True)
-_NUM_CPUS: int = os.cpu_count()  # type: ignore
+_CollateFn = Callable[[Any], Tuple[torch.Tensor, ...]]
+_NUM_CPUS: int = os.cpu_count() or 1
 
 
-class _Mapping(Protocol[_KT_contra]):
-    @abstractmethod
-    def __getitem__(self, key: _KT_contra) -> Any:
-        ...
-
-    @abstractmethod
-    def __len__(self) -> int:
-        ...
-
-
-def _get_batch(dataset, indices):
+def _default_collate(batch) -> Tuple[torch.Tensor, ...]:
     return tuple(
         torch.stack([torch.as_tensor(item) for item in row])
-        for row in zip(*[dataset[index] for index in indices]))
+        for row in zip(*batch))
+
+
+@dataclass
+class _Loader:
+    dataset: Dataset
+    batch_size: int
+    sampler: Sampler
+    num_workers: int
+    mp: bool
+    collate_fn: Optional[_CollateFn]
+    chunksize: Optional[int]
+
+    def __iter__(self) -> Iterator[Tuple[torch.Tensor, ...]]:
+        samples = mapped(
+            self.dataset.__getitem__,
+            self.sampler,
+            mp=self.mp,
+            chunksize=self.chunksize,
+            num_workers=self.num_workers)
+        batches = chunked(samples, self.batch_size)
+        return (batches if self.collate_fn is None  # type: ignore
+                else map(self.collate_fn, batches))
+
+    def __len__(self) -> int:
+        indices = range(0, len(self.sampler), self.batch_size)  # type: ignore
+        return len(indices)
 
 
 def make_loader(
-        dataset: Union[_Mapping[_KT], 'Dataset[Sequence]'],
-        batch_size: int,
-        sampler: Union[Iterable[_KT], Sampler] = None,
-        workers: int = _NUM_CPUS,
-        multiprocessing: bool = True
-) -> SizedIterable[Tuple[torch.Tensor, ...]]:
+    dataset: Dataset,
+    batch_size: int,
+    sampler: Sampler = None,
+    num_workers: int = _NUM_CPUS,
+    multiprocessing: bool = True,
+    collate_fn: Optional[_CollateFn] = _default_collate,
+    chunk_from_batch: bool = False,
+) -> _Loader:
     """Yields batches of batch_size from dataset in order from sampler.
 
     Parameters:
     - batch_size - size of batch, each workers computes batch independently.
     - workers - Count of workers, by default all hardware threads are occupied.
     - multiprocessing - whether to use processes or threads.
+    - chunk_from_batch - Set count of samples to pass each worker. If set
+      then chunksize will be equal to batch_size, otherwise it will be
+      estimated automatically.
     """
     if sampler is None:
         sampler = range(len(dataset))  # type: ignore
-
     assert sampler is not None
-    size = len(range(0, len(sampler), batch_size))  # type: ignore
-    chunked_getter = functools.partial(_get_batch, dataset)
 
-    @partial_iter(hint=lambda: size)
-    def loop():
-        chunked_sampler = chunked(sampler, batch_size)
-        return mapped(
-            chunked_getter,
-            chunked_sampler,
-            chunk_size=1 if multiprocessing else 0,
-            workers=workers)
+    chunksize = batch_size if multiprocessing and chunk_from_batch else None
 
-    return loop()
+    return _Loader(dataset, batch_size, sampler, num_workers, multiprocessing,
+                   collate_fn, chunksize)
