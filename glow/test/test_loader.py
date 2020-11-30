@@ -1,10 +1,11 @@
 from itertools import count, islice
 
 import torch
+from torch.utils import data
 from glow.nn import make_loader
 
 
-class Dataset:
+class Dataset(data.Dataset):
     def __getitem__(self, index):
         return index,
 
@@ -12,7 +13,7 @@ class Dataset:
         return 1
 
 
-class Sampler:
+class Sampler(data.Sampler):
     def __init__(self, n):
         self.n = n
         self.count = count()
@@ -25,7 +26,12 @@ class Sampler:
 
 
 def test_loader():
-    loader = make_loader(Dataset(), Sampler(5), multiprocessing=False)
+    loader = make_loader(
+        Dataset(),
+        1,
+        sampler=Sampler(5),
+        multiprocessing=False,
+    )
     assert len(loader) == 5
     assert torch.as_tensor([*loader]).tolist() == [[0], [1], [2], [3], [4]]
     assert len(loader) == 5

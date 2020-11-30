@@ -1,27 +1,27 @@
-__all__ = ['MaybeSizedIterable', 'as_sized', 'partial_iter']
+__all__ = ['as_sized', 'partial_iter']
 
 import functools
 from dataclasses import dataclass
-from itertools import islice
 from typing import (Callable, Generic, Iterable, Iterator, Optional, Protocol,
-                    Sized, TypeVar, Union, overload, runtime_checkable)
-
-from .._patch_len import len_hint
+                    Sized, TypeVar, overload, runtime_checkable)
 
 _T_co = TypeVar('_T_co', covariant=True)
 
 
 @runtime_checkable
 class SizedIterable(Sized, Iterable[_T_co], Protocol[_T_co]):
-    pass
+    ...
 
 
-MaybeSizedIterable = Union[SizedIterable[_T_co], Iterable[_T_co]]
+@runtime_checkable
+class SizedIterator(Sized, Iterator[_T_co], Protocol[_T_co]):
+    ...
+
 
 # ---------------------------------------------------------------------------
 
 
-@dataclass(repr=False, frozen=True)
+@dataclass(repr=False)
 class _SizedIterable(Generic[_T_co]):
     it: Iterable[_T_co]
     size: int
@@ -41,21 +41,19 @@ class _SizedIterable(Generic[_T_co]):
         return f'<{line}>'
 
 
-def _len_islice(x):
-    _, (src, start, *stop_step), done = x.__reduce__()
-    if not stop_step:
-        return 0
-    stop, step = stop_step
-    try:
-        total = len(src) + done
-        stop = total if stop is None else min(total, stop)
-    except TypeError:
-        if stop is None:
-            raise
-    return len(range(start, stop, step))
+@dataclass(repr=False)
+class _SizedIterator(_SizedIterable[_T_co]):
+    it: Iterator[_T_co]
+    size: int
+
+    def __iter__(self) -> Iterator[_T_co]:
+        return self
+
+    def __next__(self) -> _T_co:
+        self.size = max(0, self.size - 1)
+        return next(self.it)
 
 
-len_hint.register(islice, _len_islice)
 _SizeHint = Callable[..., int]
 _SizedGenFn = Callable[..., SizedIterable[_T_co]]
 
@@ -110,7 +108,9 @@ def as_sized(gen_fn=None, *, hint):
     def wrapper(*args, **kwargs):
         gen = gen_fn(*args, **kwargs)
         try:
-            return _SizedIterable(gen, hint(*args, **kwargs))
+            size = hint(*args, **kwargs)
+            return (_SizedIterator if isinstance(gen, Iterator) else
+                    _SizedIterable)(gen, size)
         except TypeError:
             return gen
 

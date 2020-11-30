@@ -76,8 +76,8 @@ def _len_islice(x):
     _, (src, start, *stop_step), done = x.__reduce__()
     if not stop_step:
         return 0
-    total = len(src) + done
     stop, step = stop_step
+    total = len(src) + done
     stop = total if stop is None else min(total, stop)
     return len(range(start, stop, step))
 

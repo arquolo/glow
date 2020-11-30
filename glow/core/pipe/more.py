@@ -8,7 +8,7 @@ from collections import abc, deque
 from itertools import chain, cycle, islice, repeat, tee
 from typing import Iterable, Iterator, Sequence, TypeVar, Union
 
-from .len_helpers import _SizedIterable, as_sized
+from .len_helpers import _SizedIterator, as_sized
 
 
 class _Empty(enum.Enum):
@@ -73,7 +73,7 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
 
 
 @as_sized(hint=chunk_hint)
-def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterable[_T]]:
+def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
     """Split iterable to chunks of at most size items each.
 
     Does't consume items from passed iterable to return complete chunk
@@ -89,7 +89,7 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterable[_T]]:
     while (item := next(head, _empty)) is not _empty:
         it1 = islice(chain([item], head), size)  # Restore iterable
         it1, it2 = tee(it1)  # Fork to keep not-yet-consumed
-        yield _SizedIterable(it1, size)
+        yield _SizedIterator(it1, size)
         eat(it2)  # Advance to head[size:]
 
 

@@ -112,8 +112,8 @@ def source(size):
 def do_work(seed, offset):
     rg = np.random.default_rng(seed + offset)
     n = 10
-    a = rg.rand(2 ** n, 2 ** n).astype('f4')
-    b = rg.rand(2 ** n, 2 ** n).astype('f4')
+    a = rg.random((2 ** n, 2 ** n), dtype='f4')
+    b = rg.random((2 ** n, 2 ** n), dtype='f4')
     (a @ b).sum()
     if rg.uniform() < DEATH_RATE:
         raise ValueError(f'Worker died: {seed}') from None
@@ -133,8 +133,8 @@ def _test_interrupt():
         print(end=f'\rmain {r} computes...')
         rg = np.random.default_rng(r)
         n = 10
-        a = rg.rand(2 ** n, 2 ** n).astype('f4')
-        b = rg.rand(2 ** n, 2 ** n).astype('f4')
+        a = rg.random((2 ** n, 2 ** n), dtype='f4')
+        b = rg.random((2 ** n, 2 ** n), dtype='f4')
         (a @ b).sum()
         yield r
         print(end=f'\rmain {r} waits...')
