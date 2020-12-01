@@ -7,21 +7,24 @@ import time
 import weakref
 from typing import Callable, Dict, TypeVar, cast
 
-import psutil
-
 from ._repr import Si
 
 _F = TypeVar('_F', bound=Callable)
-_this = psutil.Process()
+_THIS = None
 
 
 @contextlib.contextmanager
 def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
-    init = _this.memory_info().rss
+    global _THIS
+    if _THIS is None:
+        import psutil
+        _THIS = psutil.Process()
+
+    init = _THIS.memory_info().rss
     try:
         yield
     finally:
-        size = _this.memory_info().rss - init
+        size = _THIS.memory_info().rss - init
         if callback is not None:
             callback(size)
         else:
