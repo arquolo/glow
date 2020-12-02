@@ -5,7 +5,7 @@ __all__ = ['get_amp_context']
 import warnings
 from collections import abc
 from functools import partial
-from typing import Dict, Optional, Set, overload
+from typing import Dict, Optional, Set
 
 import numpy as np
 import torch
@@ -24,9 +24,9 @@ def _apply(xs, fn):
     if isinstance(xs, (str, bytes, np.ndarray)):
         return xs
     if isinstance(xs, abc.Mapping):
-        return dict(_apply(kv, fn) for kv in xs.items())
+        return dict(_apply(kv, fn) for kv in xs.items())  # type: ignore
     if isinstance(xs, abc.Iterable):
-        return type(xs)(_apply(x, fn) for x in xs)
+        return type(xs)(_apply(x, fn) for x in xs)  # type: ignore
     return xs
 
 
@@ -144,7 +144,7 @@ class _AmpContext(OptContext):
         self._step = self._step.to(loss.device, non_blocking=True)
         self._scale = self._scale.to(loss.device, non_blocking=True)
 
-        while self._scale.item() > _MIN_SCALE:
+        while self._scale.item() > _MIN_SCALE:  # type: ignore
             for p in self._grads:  # zero local grads
                 if p.grad is not None:
                     p.grad.detach_().zero_()
@@ -164,22 +164,6 @@ class _AmpContext(OptContext):
 
 def _deep_to_hook(_, xs, device=None, dtype=None):
     return deep_to(xs, device, dtype)
-
-
-@overload
-def get_amp_context(net: nn.Module,
-                    opt: torch.optim.Optimizer,
-                    fp16: bool = False,
-                    retry_on_inf: bool = True) -> OptContext:
-    ...
-
-
-@overload
-def get_amp_context(net: nn.Module,
-                    *,
-                    fp16: bool = False,
-                    retry_on_inf: bool = True) -> None:
-    ...
 
 
 def get_amp_context(net: nn.Module,

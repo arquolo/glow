@@ -1,6 +1,6 @@
 __all__ = ['patch', 'Default']
 
-import contextlib
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Any
 from unittest import mock
@@ -19,9 +19,9 @@ class Default:
         return self.value
 
 
-@contextlib.contextmanager
+@contextmanager
 def patch(obj, **kwargs):
-    with contextlib.ExitStack() as stack:
+    with ExitStack() as stack:
         for key, value in kwargs.items():
             proxy = getattr(obj, key)
             if isinstance(proxy, Default):

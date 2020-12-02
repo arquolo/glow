@@ -1,9 +1,9 @@
 __all__ = ['sizeof']
 
-import enum
 import functools
 import sys
 from collections import abc
+from enum import Enum
 from inspect import isgetsetdescriptor, ismemberdescriptor
 from typing import Set
 
@@ -37,7 +37,7 @@ def sizeof(obj, seen: Set[int] = None) -> Si:
     [PySize](https://github.com/bosswissam/pysize/blob/master/pysize.py)
     """
     size = sys.getsizeof(obj)
-    if isinstance(obj, (str, bytes, bytearray, Si, enum.Enum)):
+    if isinstance(obj, (str, bytes, bytearray, Si, Enum)):
         return Si.bits(size)
 
     if hasattr(obj, '__dict__'):

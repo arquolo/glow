@@ -1,10 +1,10 @@
 __all__ = ['memprof', 'time_this', 'timer']
 
-import contextlib
 import functools
 import threading
 import time
 import weakref
+from contextlib import contextmanager
 from typing import Callable, Dict, TypeVar, cast
 
 from ._repr import Si
@@ -13,7 +13,7 @@ _F = TypeVar('_F', bound=Callable)
 _THIS = None
 
 
-@contextlib.contextmanager
+@contextmanager
 def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
     global _THIS
     if _THIS is None:
@@ -31,7 +31,7 @@ def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
             print(f'{name} done: {"+" if size >= 0 else "-"}{Si.bits(size)}')
 
 
-@contextlib.contextmanager
+@contextmanager
 def timer(name: str = 'Task', callback: Callable[[float], object] = None):
     init = time.perf_counter()
     try:

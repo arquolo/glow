@@ -1,10 +1,10 @@
 __all__ = ['TiledImage']
 
-import contextlib
 import ctypes
 import os
 import sys
 import weakref
+from contextlib import contextmanager, nullcontext
 from enum import Enum
 from pathlib import Path
 from threading import RLock
@@ -21,7 +21,7 @@ _OSD: Any = None
 
 def _patch_path(prefix):
     if sys.platform != 'win32':
-        return contextlib.nullcontext()
+        return nullcontext()
     return os.add_dll_directory(prefix)
 
 
@@ -180,7 +180,7 @@ class TiledImage(metaclass=_Memoized):
         return (f'{type(self).__name__}'
                 f"('{self.path}', shape={self.shape}, scales={self.scales})")
 
-    @contextlib.contextmanager
+    @contextmanager
     def _directory(self, level):
         with self._lock:
             yield
@@ -289,7 +289,7 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
             return default
         return value.value
 
-    @contextlib.contextmanager
+    @contextmanager
     def _directory(self, level):
         with super()._directory(level):
             _TIFF.TIFFSetDirectory(self._ptr, level)

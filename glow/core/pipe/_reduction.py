@@ -13,7 +13,8 @@ import weakref
 from itertools import starmap
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, List, NamedTuple, Optional, Sequence
+from typing import (Any, Callable, ClassVar, Dict, List, NamedTuple, Optional,
+                    Sequence)
 
 import loky
 

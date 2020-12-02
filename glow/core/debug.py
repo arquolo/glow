@@ -1,6 +1,5 @@
 __all__ = ['coroutine', 'lock_seed', 'summary', 'trace', 'trace_module']
 
-import contextlib
 import functools
 import gc
 import inspect
@@ -8,6 +7,7 @@ import os
 import random
 import threading
 import types
+from contextlib import suppress
 from typing import Callable, Counter, Generator, TypeVar, cast
 
 import numpy as np
@@ -66,14 +66,14 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
         return
 
     for name in obj.__dict__:
-        with contextlib.suppress(AttributeError, TypeError):
+        with suppress(AttributeError, TypeError):
             member = getattr(obj, name)
             if not callable(member):
                 continue
             decorated = trace(member)
 
             for m in (decorated, member, obj):
-                with contextlib.suppress(AttributeError):
+                with suppress(AttributeError):
                     decorated.__module__ = m.__module__
                     break
             else:

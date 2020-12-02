@@ -1,7 +1,7 @@
 __all__ = ['plot_model']
 
-import contextlib
 import functools
+from contextlib import ExitStack
 from typing import Any, Dict, Tuple
 
 import graphviz
@@ -180,7 +180,7 @@ def plot_model(model: nn.Module, *input_shapes: Tuple[int, ...], device='cpu'):
         {id(var) for var in inputs},
         {id(var): name for name, var in params.items()},
     )
-    with contextlib.ExitStack() as stack:
+    with ExitStack() as stack:
         for name, m in model.named_modules(prefix='root'):
             stack.callback(
                 m.register_forward_pre_hook(

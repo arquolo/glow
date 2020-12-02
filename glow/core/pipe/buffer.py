@@ -2,11 +2,11 @@ __all__ = ['buffered']
 
 import atexit
 import enum
-import threading
 from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass
 from queue import Queue
+from threading import Event
 from typing import (Callable, Iterable, Iterator, Optional, Protocol, Tuple,
                     TypeVar, Union)
 
@@ -47,7 +47,7 @@ def _setup(
     ex: Executor
     if not num_workers:
         return stack.enter_context(
-            ThreadPoolExecutor(1)), Queue(latency), threading.Event(), None
+            ThreadPoolExecutor(1)), Queue(latency), Event(), None
 
     context = loky.backend.context.get_context('loky_init_main')
     ex = loky.get_reusable_executor(num_workers, context)  # type: ignore

@@ -3,15 +3,15 @@ __all__ = ['memoize']
 import argparse
 import asyncio
 import concurrent.futures as cf
-import contextlib
 import enum
 import functools
-import threading
 from collections import Counter
+from contextlib import ExitStack
 from dataclasses import InitVar, dataclass, field
+from threading import RLock
 from typing import (Any, Callable, ClassVar, Dict, Generic, Hashable, KeysView,
                     Literal, MutableMapping, NamedTuple, Optional, Sequence,
-                    Type, TypeVar, Union, cast, overload)
+                    Type, TypeVar, Union, cast)
 from weakref import WeakValueDictionary
 
 from .._repr import Si
@@ -81,7 +81,7 @@ class _InitializedStore:
 
 @dataclass(repr=False)
 class _DictMixin(_InitializedStore, _IStore[_T]):
-    lock: threading.RLock = field(default_factory=threading.RLock)
+    lock: RLock = field(default_factory=RLock)
 
     def clear(self):
         with self.lock:
@@ -256,11 +256,11 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
 
 def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
     assert callable(fn)
-    lock = threading.RLock()
+    lock = RLock()
     cache: Dict[Hashable, cf.Future] = {}
     queue: Dict[Hashable, _Job] = {}
 
-    def _load(stack: contextlib.ExitStack, token: Any) -> cf.Future:
+    def _load(stack: ExitStack, token: Any) -> cf.Future:
         key = key_fn(token)
         with lock:
             if result := cache.get(key):
@@ -274,7 +274,7 @@ def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
         return future
 
     def wrapper(tokens: Sequence) -> list:
-        with contextlib.ExitStack() as stack:
+        with ExitStack() as stack:
             futs = [_load(stack, token) for token in tokens]
         return [fut.result() for fut in futs]
 
@@ -289,23 +289,6 @@ def _key_fn(*args, **kwargs) -> str:
     return f'{args}{kwargs}'
 
 
-@overload
-def memoize(capacity: int,
-            *,
-            policy: _Policy = ...,
-            key_fn: _KeyFn = ...) -> Callable[[_F], _F]:
-    ...
-
-
-@overload
-def memoize(capacity: int,
-            *,
-            batched: Literal[True],
-            policy: _Policy = ...,
-            key_fn: _KeyFn = ...) -> Callable[[_Fbatch], _Fbatch]:
-    ...
-
-
 def memoize(
     capacity: int,
     *,
@@ -316,8 +299,9 @@ def memoize(
     """Returns dict-cache decorator.
 
     Parameters:
-    - capacity - size in bytes
-    - policy - eviction policy, one of "raw", "lru" or "mru"
+    - capacity - size in bytes.
+    - policy - eviction policy, either "raw" (no eviction), or "lru"
+      (evict oldest), or "mru" (evict most recent).
     """
     if not capacity:
         return lambda fn: fn

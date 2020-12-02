@@ -1,7 +1,7 @@
 __all__ = ['get_gpu_state']
 
-import contextlib
 import os
+from contextlib import ExitStack
 from typing import NamedTuple, Sequence
 
 from ..core import Si
@@ -16,14 +16,11 @@ class _GpuState(NamedTuple):
 
 def get_gpu_state() -> _GpuState:
     """Returns count of available GPUs and size of free memory VRAM"""
-    from py3nvml.py3nvml import (
-        nvmlDeviceGetCount,
-        nvmlDeviceGetHandleByIndex,
-        nvmlDeviceGetMemoryInfo,
-        nvmlInit,
-        nvmlShutdown,
-    )
-    with contextlib.ExitStack() as stack:
+    from py3nvml.py3nvml import (nvmlDeviceGetCount,
+                                 nvmlDeviceGetHandleByIndex,
+                                 nvmlDeviceGetMemoryInfo, nvmlInit,
+                                 nvmlShutdown)
+    with ExitStack() as stack:
         nvmlInit()
         stack.callback(nvmlShutdown)
 

@@ -4,14 +4,14 @@ import functools
 
 import torch
 import torch.jit
+import torch.nn.functional as F
 from torch import nn
-from torch.nn import functional
 
 from ..core import repr_as_obj
 
 
 class Activation(nn.Module):
-    closure = staticmethod(functional.relu)
+    closure = staticmethod(F.relu)
 
     @classmethod
     def new(cls, inplace=True):
@@ -88,13 +88,13 @@ class Mish(_ModuleBase):
         @staticmethod
         @torch.jit.script
         def _forward(x):
-            return functional.softplus(x).tanh().mul(x)
+            return F.softplus(x).tanh().mul(x)
 
         @staticmethod
         @torch.jit.script
         def _backward(x, grad):
             sig = x.sigmoid()
-            tanh = functional.softplus(x).tanh()
+            tanh = F.softplus(x).tanh()
             return (tanh + x * sig * (1 - tanh * tanh)).mul(grad)
 
 
@@ -117,7 +117,7 @@ class UpsampleArea(_Upsample):
     """
     def forward(self, x):
         size = tuple(s * self.scale for s in x.shape[2:])
-        return nn.functional.interpolate(
+        return F.interpolate(
             x, size, mode=self._ndim_to_mode[x.ndim], align_corners=False)
 
 
@@ -130,5 +130,5 @@ class UpsamplePoint(_Upsample):
     """
     def forward(self, x):
         size = tuple((s - 1) * self.scale + 1 for s in x.shape[2:])
-        return nn.functional.interpolate(
+        return F.interpolate(
             x, size, mode=self._ndim_to_mode[x.ndim], align_corners=True)

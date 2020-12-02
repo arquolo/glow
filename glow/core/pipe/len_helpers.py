@@ -104,7 +104,6 @@ def as_sized(gen_fn=None, *, hint):
     if gen_fn is None:
         return functools.partial(as_sized, hint=hint)
 
-    @functools.wraps(gen_fn)
     def wrapper(*args, **kwargs):
         gen = gen_fn(*args, **kwargs)
         try:
@@ -114,7 +113,7 @@ def as_sized(gen_fn=None, *, hint):
         except TypeError:
             return gen
 
-    return wrapper
+    return functools.update_wrapper(wrapper, gen_fn)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +178,5 @@ def partial_iter(gen_fn=None, *, hint=None):
     """
     if gen_fn is None:
         return functools.partial(partial_iter, hint=hint)
-
-    return functools.wraps(gen_fn)(
-        functools.partial(_PartialIter, hint, gen_fn))
+    return functools.update_wrapper(
+        functools.partial(_PartialIter, hint, gen_fn), gen_fn)
