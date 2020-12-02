@@ -6,14 +6,15 @@ from .debug import coroutine, lock_seed, summary, trace, trace_module
 from .pipe import (as_iter, as_sized, buffered, chunked, eat, ichunked, mapped,
                    partial_iter, roundrobin, sliced, windowed)
 from .wrap import (Reusable, call_once, interpreter_lock, memoize, shared_call,
-                   threadlocal)
+                   stream_batched, threadlocal)
 
 __all__ = [
     'Reusable', 'Si', 'as_iter', 'as_sized', 'buffered', 'call_once',
     'coroutine', 'countable', 'chunked', 'eat', 'ichunked', 'interpreter_lock',
     'lock_seed', 'mangle', 'mapped', 'memprof', 'memoize', 'partial_iter',
-    'repr_as_obj', 'roundrobin', 'shared_call', 'sizeof', 'sliced', 'summary',
-    'threadlocal', 'time_this', 'timer', 'trace', 'trace_module', 'windowed'
+    'repr_as_obj', 'roundrobin', 'shared_call', 'sizeof', 'sliced',
+    'stream_batched', 'summary', 'threadlocal', 'time_this', 'timer', 'trace',
+    'trace_module', 'windowed'
 ]
 
 _patch_print.apply()

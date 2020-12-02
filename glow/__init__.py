@@ -34,6 +34,14 @@ Refactor:
     glow.__init__
     - Add explicit imports from glow.core.*
 
+    glow.core.wrap
+    - Combine to single module
+      - (*args, **kwargs) -> Any:
+        - call_once - converts function to singleton
+        - memoize - cache calls with coalencing (unite with shared_call)
+        - stream_batched - group calls to batches
+        - memoize_batched - cache and coalence calls
+
     glow.io._tiled
     - Make external factory to combine all 3 classes with memoization. Drop
       usage of metaclass as ambiguous.

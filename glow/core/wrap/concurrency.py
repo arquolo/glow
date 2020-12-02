@@ -1,11 +1,17 @@
-__all__ = ['call_once', 'threadlocal', 'interpreter_lock', 'shared_call']
+__all__ = [
+    'stream_batched', 'call_once', 'threadlocal', 'interpreter_lock',
+    'shared_call'
+]
 
 import functools
 import sys
 import threading
+import time
 from concurrent.futures import Future
 from contextlib import ExitStack, contextmanager
-from typing import Callable, TypeVar, cast
+from queue import Empty, SimpleQueue
+from threading import Thread
+from typing import Any, Callable, Sequence, TypeVar, cast
 from weakref import WeakValueDictionary
 
 _T = TypeVar('_T')
@@ -97,3 +103,59 @@ def shared_call(fn: _F) -> _F:
         return future.result()
 
     return cast(_F, functools.update_wrapper(wrapper, fn))
+
+
+def _batch_apply(func: Callable, args: Sequence, futures: Sequence[Future]):
+    try:
+        results = func(args)
+        assert len(args) == len(results)
+    except BaseException as exc:
+        for fut in futures:
+            fut.set_exception(exc)
+    else:
+        for fut, res in zip(futures, results):
+            fut.set_result(res)
+
+
+def stream_batched(func=None, *, batch_size, latency=0.1, timeout=20.):
+    """
+    Delays start of computation up to `latency` seconds
+    in order to fill batch to batch_size items and
+    send it at once to target function.
+    `timeout` specifies timeout to wait results from worker.
+
+    Simplified version of https://github.com/ShannonAI/service-streamer
+    """
+    if func is None:
+        return functools.partial(
+            stream_batched,
+            batch_size=batch_size,
+            latency=latency,
+            timeout=timeout)
+
+    assert callable(func)
+    inputs = SimpleQueue()
+
+    def _serve_forever():
+        while True:
+            batch = []
+            end_time = time.monotonic() + latency
+            while (len(batch) < batch_size and
+                   (time_left := end_time - time.monotonic()) > 0):
+                try:
+                    batch.append(inputs.get(timeout=time_left))
+                except Empty:
+                    if not batch:
+                        time.sleep(0.001)
+                    break
+            jobs, fs = zip(*batch)
+            _batch_apply(func, jobs, fs)
+
+    def wrapper(batch):
+        futures = [Future() for _ in batch]
+        for fut, sample in zip(futures, batch):
+            inputs.put((fut, sample))
+        return [fut.result(timeout=timeout) for fut in futures]
+
+    Thread(target=_serve_forever, daemon=True).start()
+    return functools.update_wrapper(wrapper, func)
