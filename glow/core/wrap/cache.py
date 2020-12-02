@@ -112,6 +112,7 @@ class _ReprMixin(_InitializedStore, _IStore[_T]):
     refs: ClassVar[MutableMapping[int, '_ReprMixin']] = WeakValueDictionary()
 
     def __post_init__(self, capacity_int: int) -> None:
+        super().__post_init__(capacity_int)
         self.refs[id(self)] = self
 
     def __repr__(self) -> str:
