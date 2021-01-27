@@ -30,13 +30,13 @@ for _seq in _iterables:
 @len_hint.register(zip)
 def _len_zip(x):
     _, seqs = x.__reduce__()
-    return min(map(len, seqs))
+    return min(map(len, seqs), default=0)
 
 
 @len_hint.register(map)
 def _len_map(x):
     _, (_fn, *seqs) = x.__reduce__()
-    return min(map(len, seqs))
+    return min(map(len, seqs), default=0)
 
 
 # --------------------------- itertools.infinite ---------------------------

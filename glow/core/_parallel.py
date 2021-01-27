@@ -254,7 +254,7 @@ class _Mapped(Iterable[_T]):
             yield from chain.from_iterable(self._iter_chunks(stack, chunks))
 
     def __len__(self) -> int:
-        return min(map(len, self.iterables))  # type: ignore
+        return min(map(len, self.iterables), default=0)  # type: ignore
 
 
 def mapped(func: Callable[..., _T],
