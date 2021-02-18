@@ -8,8 +8,8 @@ Usage:
 import io
 import sys
 from pathlib import Path
-from zipfile import ZipFile
 from urllib.request import urlopen
+from zipfile import ZipFile
 
 import setuptools
 from setuptools.command.develop import develop
@@ -42,7 +42,7 @@ def _download_deps(cmd, path: Path) -> None:
                     continue
                 with zf.open(name) as f:
                     (path / Path(name).name).write_bytes(f.read())
-    except BaseException:
+    except BaseException:  # noqa: B902
         for p in path.glob('*.dll'):
             p.unlink()
         path.unlink()

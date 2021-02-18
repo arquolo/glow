@@ -1,7 +1,8 @@
 from itertools import islice
 
-import glow
 from tqdm.auto import tqdm
+
+import glow
 
 
 def iter_fibs():

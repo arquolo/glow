@@ -3,12 +3,12 @@ from __future__ import annotations  # until 3.10
 __all__ = ['memprof', 'time_this', 'timer']
 
 import functools
+import inspect
 import threading
 import time
 import weakref
-import inspect
-from contextlib import contextmanager
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import TypeVar, cast
 
 from ._repr import Si

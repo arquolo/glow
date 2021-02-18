@@ -130,6 +130,7 @@ if False:
     _LOCK = threading.RLock()
 
     import numpy as np
+
     from ..wrap.cache import memoize
 
     @memoize(100_000_000, policy='lru', key_fn=id)

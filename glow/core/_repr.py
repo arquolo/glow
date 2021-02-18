@@ -96,7 +96,7 @@ class Si(wrapt.ObjectProxy):
         origin = prefixes.find(' ') + 1
 
         x *= unit ** origin
-        for prefix in prefixes:  # noqa: B008
+        for prefix in prefixes:  # noqa: B007
             x /= unit
             if -unit_thres < x < unit_thres:
                 break

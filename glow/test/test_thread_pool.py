@@ -1,7 +1,8 @@
 from typing import NamedTuple
 
-import glow
 import numpy as np
+
+import glow
 
 DEATH_RATE = 0
 SIZE = 100
@@ -38,8 +39,8 @@ class AsArg(NamedTuple):
 
 class AsArgRepeated(AsArg):
     def args(self):
-        for args in super().args():
-            return [[*args]] * NUM_STEPS
+        args, = super().args()
+        return [[*args]] * NUM_STEPS
 
 
 class AsResult(NamedTuple):

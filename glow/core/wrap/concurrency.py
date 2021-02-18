@@ -62,7 +62,7 @@ class _DeferredStack(ExitStack):
         def apply(future: Future[_T]) -> None:
             try:
                 result = fn(*args, **kwargs)
-            except BaseException as exc:
+            except BaseException as exc:  # noqa: B902
                 future.set_exception(exc)
             else:
                 future.set_result(result)
@@ -112,7 +112,7 @@ def _batch_apply(func: Callable, args: Sequence, futures: Sequence[Future]):
     try:
         results = func(args)
         assert len(args) == len(results)
-    except BaseException as exc:
+    except BaseException as exc:  # noqa: B902
         for fut in futures:
             fut.set_exception(exc)
     else:

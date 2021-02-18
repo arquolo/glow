@@ -2,6 +2,7 @@ from itertools import count, islice
 
 import torch
 from torch.utils import data
+
 from glow.nn import make_loader
 
 

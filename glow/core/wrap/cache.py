@@ -220,7 +220,7 @@ def _dispatch(fn: Callable[[Sequence], list], cache: dict[Hashable, object],
         for job, value in zip(jobs.values(), values):
             job.future.set_result(value)
 
-    except BaseException as exc:
+    except BaseException as exc:  # noqa: B902
         for key, job in jobs.items():
             cache.pop(key)
             job.future.set_exception(exc)

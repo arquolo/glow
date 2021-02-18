@@ -4,7 +4,7 @@ __all__ = ['make_loader']
 
 import os
 import warnings
-from collections.abc import Iterator, Sequence, Sized
+from collections.abc import Iterator, Mapping, Sequence, Sized
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -40,10 +40,10 @@ def pin_memory(data):
         return data
     if isinstance(data, tuple) and hasattr(data, '_fields'):  # namedtuple
         return type(data)(*(pin_memory(sample) for sample in data))
-    if isinstance(data, abc.Sequence):
+    if isinstance(data, Sequence):
         return [pin_memory(sample) for sample in data]
 
-    if isinstance(data, abc.Mapping):
+    if isinstance(data, Mapping):
         return {k: pin_memory(sample) for k, sample in data.items()}
 
     return data
@@ -276,6 +276,8 @@ def make_loader(dataset: Dataset,
         else:
             sampler = _AutoSamplerProxy(sampler)
 
-        chunksize = batch_size if multiprocessing and chunk_from_batch else None
+        chunksize = None
+        if multiprocessing and chunk_from_batch:
+            chunksize = batch_size
         return _MapLoader(batch_size, num_workers, collate_fn, pin_memory,
                           dataset, sampler, multiprocessing, chunksize)

@@ -4,9 +4,6 @@ import argparse
 import pathlib
 from collections import defaultdict
 
-import glow
-import glow.metrics as m
-import glow.nn as gnn
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -15,6 +12,10 @@ from torch.utils.data import RandomSampler
 from torchvision import transforms as tfs
 from torchvision.datasets import CIFAR10
 from tqdm.auto import tqdm
+
+import glow
+import glow.metrics as m
+import glow.nn as gnn
 
 DEVICE = torch.device('cuda')
 
