@@ -24,10 +24,11 @@ Glow is compatible with: Python 3.8+, PyTorch 1.7+.
 Tested on ArchLinux, Ubuntu 18.04/20.04, Windows 10.
 
 ## Structure
-- `glow.*` - core parts, available out the box
-- `glow.io.*` - IO wrappers to access data in convenient formats
+- `glow.*` - Core parts, available out the box
+- `glow.cv.*` - Tools for computer vision tasks
+- `glow.io.*` - I/O wrappers to access data in convenient formats
 - `glow.transforms` - Some custom-made augmentations for data
-- `glow.nn.` - Neural nets and building blocks for them
+- `glow.nn` - Neural nets and building blocks for them
 - `glow.metrics` - Metric to use while training your neural network
 
 ## Core features

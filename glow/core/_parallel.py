@@ -94,7 +94,7 @@ def _get_executor(num_workers: int, mp: bool) -> Iterator[Executor]:
         result_reducers=reducers,
         initializer=_initializer,
     )
-    # Kill workers if fail occures
+    # Kill workers if failure occurs
     terminator = atexit.register(executor.shutdown, kill_workers=True)
     yield executor
     atexit.unregister(terminator)  # Cancel killing workers if all ok
@@ -275,6 +275,7 @@ def mapped(func: Callable[..., _T],
       iterables.
     - workers - Count of workers, by default all hardware threads are occupied.
     - latency - Count of extra tasks each worker can grab.
+      Queue size is latency + workers.
     - mp - Whether use multiple processes or threads.
     - chunksize - The size of the chunks the iterable will be broken into
       before being passed to a worker. By default is estimated automatically.
