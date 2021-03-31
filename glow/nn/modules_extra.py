@@ -1,13 +1,8 @@
-__all__ = ['Cat']
+__all__ = ()
 
 import torch
 from torch import nn
 from torch.utils.checkpoint import checkpoint
-
-
-class Cat(nn.Sequential):
-    def forward(self, x):
-        return torch.cat([m(x) for m in self.children()], dim=1)
 
 
 class _CatConv(nn.Sequential):  # a-la DenseNet
