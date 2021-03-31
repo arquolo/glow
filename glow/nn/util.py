@@ -5,14 +5,17 @@ __all__ = [
 ]
 
 import functools
+import pickle
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from io import BytesIO
+from pathlib import Path
 from typing import Callable, TypeVar, cast
 
 import torch
 import torch.autograd
 import torch.cuda
+import torch.jit
 import torch.onnx
 from torch import nn
 
@@ -131,3 +134,29 @@ def dump_to_onnx(net: nn.Module, *shapes: tuple[int, ...],
         opset_version=11,
         do_constant_folding=True)
     return buf.getvalue()
+
+
+# ----------------- tracing ----------------------
+
+
+class LazilyTraced(nn.Module):
+    def __init__(self, impl: nn.Module):
+        super().__init__()
+        self.impl = impl
+        self.traced: torch.jit.TracedModule | None = None
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.is_grad_enabled():
+            return self.impl(x)
+
+        if self.traced is None:
+            with torch.cuda.amp.autocast(False):
+                self.traced = torch.jit.trace(self.impl, x[:2])
+        return self.traced(x)
+
+    def save(self, path: Path, **metadata):
+        buf = BytesIO()
+        if self.traced is not None:
+            self.traced.save(buf)
+        with path.open('wb') as fp:
+            pickle.dump({'traced': buf.getvalue(), 'meta': metadata}, fp)
