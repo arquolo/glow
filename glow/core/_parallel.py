@@ -6,6 +6,7 @@ import atexit
 import enum
 import os
 import signal
+import sys
 from collections import deque
 from collections.abc import Iterator
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
@@ -13,7 +14,7 @@ from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from dataclasses import dataclass
 from functools import partial
-from itertools import chain, islice
+from itertools import chain, islice, starmap
 from pstats import Stats
 from queue import Queue
 from threading import Event, RLock
@@ -82,8 +83,12 @@ def _initializer():
 def _get_executor(num_workers: int, mp: bool) -> Iterator[Executor]:
     """Safe wrapper for ThreadPoolExecutor or ProcessPoolExecutor"""
     if not mp:
-        with ThreadPoolExecutor(num_workers) as executor:
+        executor = ThreadPoolExecutor(num_workers)
+        try:
             yield executor
+        finally:  # Don't wait workers if failure occurs
+            # TODO: with py3.9 use `cancel_futures=True`
+            executor.shutdown(wait=sys.exc_info()[0] is None)
         return
 
     executor: Executor = loky.get_reusable_executor(  # type: ignore
@@ -174,7 +179,7 @@ class _AutoSize:
     def __init__(self) -> None:
         self.lock = RLock()
 
-    def suggest(self):
+    def suggest(self) -> int:
         with self.lock:
             if 0 < self.duration < self.MIN_DURATION:
                 self.size *= 2
@@ -210,48 +215,46 @@ class _Mapped(Iterable[_T]):
     mp: bool
     chunksize: int | None
 
-    def _submit(self, executor: Executor, iterable: Iterable[tuple],
+    @staticmethod
+    def _submit(submit: Callable[..., Future], iterator: Iterator[tuple],
                 chunksize: int) -> Iterator[Future]:
-        for chunk in chunked(iterable, chunksize):
-            yield executor.submit(self.proxy, *chunk)
+        return starmap(submit, chunked(iterator, chunksize))
 
-    def _submit_auto(self, executor: Executor,
-                     iterable: Iterable[tuple]) -> Iterator[Future]:
-        iter_ = iter(iterable)
-        njobs = self.num_workers
+    @staticmethod
+    def _submit_auto(submit: Callable[..., Future], iterator: Iterator[tuple],
+                     njobs: int) -> Iterator[Future]:
         asize = _AutoSize()
-
-        while items := [*islice(iter_, asize.suggest() * njobs)]:
+        while items := [*islice(iterator, asize.suggest() * njobs)]:
             for chunk in sliced(items, max(1, len(items) // njobs)):
-                if not chunk:
-                    continue
-                fut = executor.submit(self.proxy, *chunk)
+                fut = submit(*chunk)
                 fut.add_done_callback(
                     partial(asize.update, len(chunk), perf_counter()))
                 yield fut
 
-    def _iter_chunks(self, stack: ExitStack,
+    def _iter_chunks(self, guard: ExitStack,
                      jobs: Iterator[Future]) -> Iterator[Sequence[_T]]:
-        results: deque[Future] = deque()
-        stack.callback(lambda: {fut.cancel() for fut in reversed(results)})
-
-        results.extend(islice(jobs, self.latency + self.num_workers))
-        while results:
-            yield results.popleft().result()
-            results.extend(islice(jobs, 1))
+        ring: deque[Future] = deque()
+        guard.callback(lambda: {fut.cancel() for fut in reversed(ring)})
+        with guard:  # Use only when we've approached to jobs
+            ring.extend(islice(jobs, self.latency + self.num_workers))
+            while ring:
+                yield ring.popleft().result()
+                ring.extend(islice(jobs, 1))
 
     def __iter__(self) -> Iterator[_T]:
-        with ExitStack() as stack:
-            executor = stack.enter_context(
-                _get_executor(self.num_workers, self.mp))
+        iterable = zip(*self.iterables)
 
-            iterable = zip(*self.iterables)
-            if self.mp and self.chunksize is None:
-                chunks = self._submit_auto(executor, iterable)
-            else:
-                chunks = self._submit(executor, iterable, self.chunksize or 1)
+        guard = ExitStack()
+        executor = guard.enter_context(
+            _get_executor(self.num_workers, self.mp))
 
-            yield from chain.from_iterable(self._iter_chunks(stack, chunks))
+        submit = partial(executor.submit, self.proxy)
+        if self.mp and self.chunksize is None:
+            chunks = self._submit_auto(submit, iterable, self.num_workers)
+        else:
+            chunks = self._submit(submit, iterable, self.chunksize or 1)
+
+        return chain.from_iterable(self._iter_chunks(guard, chunks))
 
     def __len__(self) -> int:
         return min(map(len, self.iterables), default=0)  # type: ignore
