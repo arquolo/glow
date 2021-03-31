@@ -10,7 +10,7 @@ from torch import nn
 from .. import repr_as_obj
 
 
-class Activation(nn.Module):
+class Activation(nn.Module):  # TODO: deprecate and/or refactor
     closure = staticmethod(F.relu)
 
     @classmethod
@@ -54,8 +54,11 @@ class Noise(nn.Module):
         return f'std={self.std}'
 
 
+# ------------------------- EfficientNet activations -------------------------
+
+
 class _ModuleBase(nn.Module):
-    class _AutoFn(torch.autograd.Function):  # type: ignore
+    class _AutoFn(torch.autograd.Function):
         @classmethod
         def forward(cls, ctx, x):
             ctx.save_for_backward(x)

@@ -9,7 +9,7 @@ from ..api import Default
 from .modules import Activation
 
 
-class Nonlinear:
+class Nonlinear:  # TODO: deprecate and/or refactor
     """`order` specifies order of blocks:
         - `-`: weight
         - `N`: normalization
@@ -67,7 +67,7 @@ def conv(cin, cout=0, stride=1, padding=1, **kwargs):
         **kwargs)
 
 
-class Cat(nn.Sequential):
+class Cat(nn.Sequential):  # TODO: deprecate and/or refactor
     """
     Helper for U-Net-like modules
 
@@ -81,7 +81,7 @@ class Cat(nn.Sequential):
         return torch.cat([x, super().forward(x)], dim=1)
 
 
-class Sum(nn.Sequential):
+class Sum(nn.Sequential):  # TODO: deprecate and/or refactor
     """Helper for ResNet-like modules"""
     kind = 'resnet'
     expansion = Default()

@@ -71,7 +71,7 @@ class OptContext:
             self.__dict__.update(
                 _apply(state_dict, lambda src: dst.pop(0).copy_(src)))
 
-    def __enter__(self) -> 'OptContext':
+    def __enter__(self) -> OptContext:
         self.zero_grad()
         return self
 

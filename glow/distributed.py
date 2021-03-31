@@ -6,9 +6,9 @@ __all__ = [
 ]
 
 import pickle
-from pathlib import Path
-from functools import partial, update_wrapper
 from collections.abc import Callable
+from functools import partial, update_wrapper
+from pathlib import Path
 from typing import Any, Protocol, TypeVar, cast
 
 import torch
@@ -51,7 +51,7 @@ def reduce_if_needed(*tensors: torch.Tensor,
             op.wait()
         if mean:
             tensors = *(t / world for t in tensors),
-    return tensors
+    return tensors  # noqa: R504
 
 
 # --------------------------------- wrappers ---------------------------------
@@ -150,6 +150,6 @@ def once_per_world(fn: _F) -> _F:
         if rank == 0 and world > 1:  # parent
             tmp.unlink()
 
-        return result
+        return result  # noqa: R504
 
     return cast(_F, update_wrapper(wrapper, fn))
