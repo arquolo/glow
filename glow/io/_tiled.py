@@ -149,10 +149,11 @@ class TiledImage(_Decoder):
     def _init_spec(self, num_levels: int):
         assert num_levels > 0
         zero, *specs = (self._get_spec(level) for level in range(num_levels))
-        shape = zero['shape']
+        h, w, c = zero['shape']
         for spec in [zero, *specs]:
             if spec:
-                spec['step'] = step = round(shape[0] / spec['shape'][0])
+                spec['step'] = step = round(h / spec['shape'][0])
+                spec['shape'] = *(s // step for s in (h, w)), c
                 yield step, spec
 
     @property
@@ -171,8 +172,8 @@ class TiledImage(_Decoder):
         """Retrieves tile"""
         if isinstance(slices, slice):
             slices = (slices, slice(None, None, slices.step))
-        assert slices[0].step is None or slices[0].step >= 1, (
-            'Step should be None or greater than 1')
+        assert slices[0].step is None or slices[0].step > 0, (
+            'Step should be None or greater than 0')
         assert slices[0].step == slices[1].step, (
             'Unequal steps for Y and X are not supported')
 
@@ -262,7 +263,7 @@ class _OpenslideImage(
     def spacing(self) -> float | None:
         mpp = (self._tag(f'openslide.mpp-{ax}'.encode()) for ax in 'yx')
         if s := [float(m) for m in mpp if m]:
-            return np.mean(s)
+            return float(np.mean(s))
         return None
 
     def dzi(self, tile: int = 256) -> _Dzi:
@@ -427,7 +428,8 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         dy, dx = (low for low, _ in box)
         out = np.zeros([(high - low) for low, high in box] + [spp], dtype='u1')
 
-        bmin, bmax = np.transpose(box).clip(0, spec['shape'][:2])
+        hw = spec['shape'][:2]
+        bmin, bmax = np.transpose(box).clip(0, hw)  # type: ignore
         axes = *map(slice, bmin // tile * tile, bmax, tile),
         grid = np.mgrid[axes].transpose(1, 2, 0)  # [H, W, 2]
         if not grid.size:
@@ -458,7 +460,7 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         s = [(10_000 / m) for t in TiffTag.RESOLUTION
              if (m := self._tag(ctypes.c_float, t))]
         if s:
-            return np.mean(s)
+            return float(np.mean(s))
         for token in self._spec[1]['description']:
             if 'MPP' in token:
                 return float(token.split('=')[-1].strip())
