@@ -402,6 +402,12 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         return spec
 
     def _get_tile(self, y, x, **spec) -> np.ndarray:
+        offset = _TIFF.TIFFComputeTile(self._ptr, x, y, 0, 0)
+        nbytes = int(spec['tile_sizes'][offset])
+
+        if not nbytes:  # If nothing to read, don't read
+            return np.zeros(spec['tile'], dtype='u1')
+
         if spec['compression'] not in [Codec.JPEG2000_RGB, Codec.JPEG2000_YUV]:
             image = np.empty(spec['tile'], dtype='u1')
             isok = _TIFF.TIFFReadTile(self._ptr,
@@ -409,9 +415,6 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
                                       0, 0)
             assert isok != -1
             return image
-
-        offset = _TIFF.TIFFComputeTile(self._ptr, x, y, 0, 0)
-        nbytes = int(spec['tile_sizes'][offset])
 
         data = ctypes.create_string_buffer(nbytes)
         _TIFF.TIFFReadRawTile(self._ptr, offset, data, len(data))
