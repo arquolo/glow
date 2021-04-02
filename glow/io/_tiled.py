@@ -232,22 +232,37 @@ class _OpenslideImage(
         y, x = ctypes.c_int64(), ctypes.c_int64()
         _OSD.openslide_get_level_dimensions(self._ptr, level,
                                             *map(ctypes.byref, (x, y)))
-        return {'level': level, 'shape': (y.value, x.value)}
+        return {'level': level, 'shape': (y.value, x.value, 3)}
 
-    def _get_patch(self, box, step=0, level=0, **_):
-        (y_min, y_max), (x_min, x_max) = box
+    def _get_patch(self, box, step=0, level=0, **spec):
+        (y_min2, y_max2), (x_min2, x_max2) = box
+
+        box = np.array(box)
+        valid_box = box.T.clip([0, 0], spec['shape'][:2]).T
+
+        (y_min, y_max), (x_min, x_max) = valid_box
+        if y_min == y_max or x_min == x_max:  # Patch is outside slide
+            return np.broadcast_to(self.bg_color,
+                                   (y_max2 - y_min2, x_max2 - x_min2, 3))
 
         data = np.empty((y_max - y_min, x_max - x_min, 4), dtype='u1')
         data_ptr = ctypes.c_void_p(data.ctypes.data)
-        _OSD.openslide_read_region(self._ptr, data_ptr, x_min * step,
-                                   y_min * step, level, x_max - x_min,
-                                   y_max - y_min)
+        _OSD.openslide_read_region(self._ptr, data_ptr, int(x_min * step),
+                                   int(y_min * step), level,
+                                   int(x_max - x_min), int(y_max - y_min))
 
         rgb = data[..., 2::-1]
         opacity = data[..., 3:]
-        return np.where(
+        crop = np.where(
             opacity, (255 * rgb.astype('u2') // opacity.clip(1)).astype('u1'),
             self.bg_color)
+
+        offsets = np.abs(valid_box - box).ravel().tolist()
+        if not any(offsets):
+            return crop
+        bg_color = self.bg_color.tolist()
+        return cv2.copyMakeBorder(
+            crop, *offsets, borderType=cv2.BORDER_CONSTANT, value=bg_color)
 
     @property
     def metadata(self) -> dict[str, str]:
