@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 __all__ = [
     'ChannelMix', 'ChannelShuffle', 'CutOut', 'BitFlipNoise', 'Elastic',
     'LumaJitter', 'DegradeJpeg', 'DegradeQuality', 'FlipAxis', 'HsvShift',
@@ -48,7 +50,7 @@ class MultiNoise(Transform):
 
         scale = rg.random(image.shape[:2], dtype='f4')
         scale *= (self.high - self.low)
-        scale -= self.low
+        scale += self.low
         return {'scale': scale[..., None]}
 
     def apply(self, image: np.ndarray, scale: np.ndarray) -> np.ndarray:
@@ -278,7 +280,7 @@ class Elastic(Transform):
     """Elastic deformation of image
 
     Parameters:
-    - scale - max offset for each pixel
+    - scale - max shift for each pixel
     - sigma - size of gaussian kernel
     """
 
