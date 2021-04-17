@@ -128,7 +128,7 @@ class _Tiler(_Sized):
         if ix and self.cells[iy, ix - 1]:
             x0 += self.overlap
         return self.data[y0 * scale:y1 * scale:scale,  # type: ignore
-                         x0 * scale:x1 * scale:scale].view()
+                         x0 * scale:x1 * scale:scale]
 
     def _rejoin_tiles(
             self, image_parts: Iterable[np.ndarray]) -> Iterator[np.ndarray]:

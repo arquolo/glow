@@ -52,30 +52,6 @@ def _setup_libs():
     _OSD.openslide_get_property_names.restype = ctypes.POINTER(ctypes.c_char_p)
 
 
-# --------------------------------- rescaler ---------------------------------
-
-
-class _TileScaler(NamedTuple):
-    """Proxy, moves rescaling out of `TiledImage.__getitem__`"""
-    image: np.ndarray
-    scale: float = 1.
-
-    def view(self, size: tuple[int, int] | None = None) -> np.ndarray:
-        """
-        Converts region to array of desired size.
-        If size is not set, rounding will be used,
-        otherwise it should be `(height, width)`.
-        """
-        if size is None:
-            if self.scale == 1.:
-                return self.image
-
-            h, w = self.image.shape[:2]
-            size = round(self.scale * h), round(self.scale * w)
-
-        return cv2.resize(self.image, size[::-1], interpolation=cv2.INTER_AREA)
-
-
 # ---------------------------- DeepZoom Image API ----------------------------
 
 
@@ -168,39 +144,57 @@ class TiledImage(_Decoder):
         return (f'{type(self).__name__}'
                 f"('{self.path}', shape={self.shape}, scales={self.scales})")
 
-    def __getitem__(self, slices: tuple[slice, slice] | slice) -> _TileScaler:
+    def __getitem__(self, slices: tuple[slice, slice] | slice) -> np.ndarray:
         """Retrieves tile"""
         if isinstance(slices, slice):
-            slices = (slices, slice(None, None, slices.step))
-        assert slices[0].step is None or slices[0].step > 0, (
-            'Step should be None or greater than 0')
-        assert slices[0].step == slices[1].step, (
-            'Unequal steps for Y and X are not supported')
+            slices = (slices, slice(None, None, None))
+        if any(s.step == 0 for s in slices):
+            raise ValueError('slice step cannot be zero')
 
-        rstep = slices[0].step or 1
-        step = max((s for s in self._spec if s <= rstep), default=1)
-        spec = self._spec[step]
+        step0, step1 = tuple(s.step or 1 for s in slices)
+        if step0 != step1:
+            raise ValueError('unequal slices steps are not supported')
+        if step0 < 0:
+            raise ValueError('slice step should be positive')
 
-        box = [((0 if s.start is None else s.start // step),
+        step, spec = max((s, spec) for s, spec in self._spec.items()
+                         if s == 1 or s <= step0)
+        box = [((s.start or 0) // step,
                 (lim if s.stop is None else s.stop // step))
                for s, lim in zip(slices, spec['shape'])]
 
         with self._directory(spec['level']):
             image = self._get_patch(box, **spec)
-        return _TileScaler(image, step / rstep)
+
+        ratio = step / step0
+        if ratio == 1.:
+            return image
+        return cv2.resize(
+            image,
+            tuple(round(ratio * s) for s in image.shape[1::-1]),
+            interpolation=cv2.INTER_AREA)
 
     def thumbnail(self, scale: int = None) -> tuple[np.ndarray, int]:
         if scale is None:
             scale = self.scales[-1]
-        return self[::scale, ::scale].view(), scale
+        return self[::scale, ::scale], scale
 
     def at(self,
            z0_yx_offset: tuple[int, ...],
-           dst_size: int,
-           scale: int = 1) -> np.ndarray:
-        y, x = z0_yx_offset
-        return self[y:y + dst_size * scale:scale,
-                    x:x + dst_size * scale:scale].view((dst_size, dst_size))
+           dsize: int,
+           scale: float = 1) -> np.ndarray:
+        """Read square region starting with offset"""
+        step = max((s for s in self._spec if s <= scale), default=1)
+        box = [(int(c) // step, int(c + dsize * scale) // step)
+               for c in z0_yx_offset]
+
+        spec = self._spec[step]
+        with self._directory(spec['level']):
+            image = self._get_patch(box, **spec)
+
+        if scale == 1:
+            return image
+        return cv2.resize(image, (dsize, dsize), interpolation=cv2.INTER_AREA)
 
     def dzi(self, tile: int = 256) -> _Dzi:
         raise NotImplementedError
@@ -338,6 +332,7 @@ class TiffTag:
     JPEG_TABLES = 347
     TILE_BYTE_COUNTS = 325
     SAMPLE = 339
+    BACKGROUND_COLOR = 434
 
 
 class _TiffImage(TiledImage, extensions='svs tif tiff'):
@@ -385,6 +380,12 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
             self._tag(ctypes.c_uint16, TiffTag.SAMPLES_PER_PIXEL)
             if color in [Color.MINISBLACK, Color.RGB] else 4)
 
+        bg_hex = b'FFFFFF'
+        bg_color_ptr = ctypes.c_char_p()
+        if _TIFF.TIFFGetField(self._ptr, TiffTag.BACKGROUND_COLOR,
+                              ctypes.byref(bg_color_ptr)):
+            bg_hex = ctypes.string_at(bg_color_ptr, 3)
+
         spec = {
             'level':
                 level,
@@ -394,6 +395,8 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
                        for tag in TiffTag.TILE), spp),
             'color':
                 color,
+            'background':
+                np.array([int(bg_hex, 16)], dtype='>u4').view('u1')[1:],
             'description':
                 desc,
             'compression':
@@ -444,7 +447,9 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         *tile, spp = spec['tile']
 
         dy, dx = (low for low, _ in box)
-        out = np.zeros([(high - low) for low, high in box] + [spp], dtype='u1')
+        out = np.ascontiguousarray(
+            np.broadcast_to(spec['background'],
+                            [(high - low) for low, high in box] + [spp]))
 
         hw = spec['shape'][:2]
         bmin, bmax = np.transpose(box).clip(0, hw)  # type: ignore
@@ -507,7 +512,7 @@ def read_tiled(anypath: Path | str) -> TiledImage:
     scales: tuple[int, ...] = slide.scales
 
     # Get numpy.ndarray
-    image = slide[:2048, :2048].view()
+    image = slide[:2048, :2048]
     ```
     """
     if (path := Path(anypath)).exists():

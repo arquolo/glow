@@ -48,7 +48,7 @@ from glow.io import read_tiled
 slide = read_tiled('test.svs')
 shape: tuple[int, ...] = slide.shape
 scales: tuple[int, ...] = slide.scales
-image: np.ndarray = slide[:2048, :2048].view()  # Get numpy.ndarray
+image: np.ndarray = slide[:2048, :2048]  # Get numpy.ndarray
 ```
 </details>
 
