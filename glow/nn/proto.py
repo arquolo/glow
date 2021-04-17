@@ -11,9 +11,12 @@ from .modules_factory import Cat, DenseBlock, conv
 from .util import param_count
 
 
-def tiramisu(cin, cout, init=48, depths=(4, 4), step=12):
-    steps = itertools.accumulate([init] + [step * depth for depth in depths])
-    steps = [*steps]
+def tiramisu(cin: int,
+             cout: int,
+             init: int = 48,
+             depths: tuple[int, ...] = (4, 4),
+             step: int = 12):
+    *steps, = itertools.accumulate([init] + [step * depth for depth in depths])
 
     core: list[nn.Module] = [
         DenseBlock(steps[-2], depth=depths[-1], step=step),
