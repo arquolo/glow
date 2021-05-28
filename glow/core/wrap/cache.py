@@ -1,6 +1,8 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['memoize']
+
+# TODO: add case capacity=None for unbound cache
 
 import argparse
 import asyncio
@@ -10,15 +12,14 @@ import functools
 from collections import Counter
 from collections.abc import Hashable, KeysView, MutableMapping, Sequence
 from contextlib import ExitStack
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 from threading import RLock
 from typing import (Any, Callable, ClassVar, Generic, Literal, NamedTuple,
                     TypeVar, cast)
 from weakref import WeakValueDictionary
 
-from .._repr import Si
+from .._repr import si_bin
 from .._sizeof import sizeof
-from .concurrency import interpreter_lock
 from .reusable import make_loop
 
 
@@ -38,10 +39,10 @@ _empty = _Empty.token
 class _Node(Generic[_T]):
     __slots__ = ('value', 'size')
     value: _T
-    size: Si
+    size: int
 
     def __repr__(self) -> str:
-        return f'({self.value} / {self.size})'
+        return repr(self.value)
 
 
 class Stats(argparse.Namespace):
@@ -66,19 +67,15 @@ class _IStore(Generic[_T]):
     def store_set(self, key: Hashable, node: _Node[_T]) -> None:
         raise NotImplementedError
 
-    def can_swap(self, size: Si) -> bool:
+    def can_swap(self, size: int) -> bool:
         raise NotImplementedError
 
 
 @dataclass(repr=False)
 class _InitializedStore:
-    capacity_int: InitVar[int]
-
-    size: Si = Si.bits(0)
+    capacity: int
+    size: int = 0
     stats: Stats = field(default_factory=Stats)
-
-    def __post_init__(self, capacity_int: int):
-        self.capacity = Si.bits(capacity_int)
 
 
 @dataclass(repr=False)
@@ -88,7 +85,7 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
     def clear(self):
         with self.lock:
             self.store_clear()
-            self.size = Si.bits()
+            self.size = 0
 
     def keys(self) -> KeysView:
         raise NotImplementedError
@@ -103,7 +100,7 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
     def __setitem__(self, key: Hashable, value: _T) -> None:
         with self.lock:
             self.stats.misses += 1
-            size = sizeof(value)
+            size = int(sizeof(value))
             if (self.size + size <= self.capacity) or self.can_swap(size):
                 self.store_set(key, _Node(value, size))
                 self.size += size
@@ -113,23 +110,22 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
 class _ReprMixin(_InitializedStore, _IStore[_T]):
     refs: ClassVar[MutableMapping[int, _ReprMixin]] = WeakValueDictionary()
 
-    def __post_init__(self, capacity_int: int) -> None:
-        super().__post_init__(capacity_int)
+    def __post_init__(self) -> None:
         self.refs[id(self)] = self
 
     def __repr__(self) -> str:
-        line = (
-            f'{type(self).__name__}'
-            f'(items={len(self)}, used={self.size}, total={self.capacity})')
+        args = [
+            f'items={len(self)}', f'used={si_bin(self.size)}',
+            f'total={si_bin(self.capacity)}'
+        ]
         if any(vars(self.stats).values()):
-            line += f'-{self.stats}'
-        return line
+            args += [f'stats={self.stats}']
+        return f'{type(self).__name__}({", ".join(args)})'
 
     @classmethod
     def status(cls) -> str:
-        with interpreter_lock():
-            return '\n'.join(f'{id_:x}: {value!r}'
-                             for id_, value in sorted(cls.refs.items()))
+        return '\n'.join(
+            f'{id_:x}: {value!r}' for id_, value in sorted(cls.refs.items()))
 
 
 @dataclass(repr=False)
@@ -153,7 +149,7 @@ class _Store(_ReprMixin[_T], _DictMixin[_T]):
 
 
 class _HeapCache(_Store[_T]):
-    def can_swap(self, size: Si) -> bool:
+    def can_swap(self, size: int) -> bool:
         return False
 
 
@@ -166,7 +162,7 @@ class _LruCache(_Store[_T]):
             return node
         return None
 
-    def can_swap(self, size: Si) -> bool:
+    def can_swap(self, size: int) -> bool:
         if size > self.capacity:
             return False
 
@@ -286,9 +282,30 @@ def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
 
 # ----------------------------- factory wrappers -----------------------------
 
+_KWD_MARK = object()
 
-def _key_fn(*args, **kwargs) -> str:
-    return f'{args}{kwargs}'
+
+class _HashedSeq(list):  # List is mutable, that's why not NamedTuple
+    __slots__ = 'hashvalue'
+
+    def __init__(self, tup: tuple):
+        self[:] = tup
+        self.hashvalue = hash(tup)  # Memorize hash
+
+    def __hash__(self):
+        return self.hashvalue
+
+
+def _make_key(*args, **kwargs) -> _HashedSeq:
+    """Copied from functools._make_key, as private function"""
+    key = args
+    if kwargs:
+        key += _KWD_MARK,
+        for item in kwargs.items():
+            key += item
+    if len(key) == 1 and type(key[0]) in (int, str):
+        return key[0]
+    return _HashedSeq(key)
 
 
 def memoize(
@@ -296,7 +313,7 @@ def memoize(
     *,
     batched: bool = False,
     policy: _Policy = 'raw',
-    key_fn: _KeyFn = _key_fn
+    key_fn: _KeyFn = _make_key
 ) -> Callable[[_F], _F] | Callable[[_Fbatch], _Fbatch]:
     """Returns dict-cache decorator.
 
