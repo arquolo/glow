@@ -1,10 +1,12 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
-__all__ = ['Si', 'countable', 'mangle', 'repr_as_obj']
+__all__ = ['countable', 'mangle', 'repr_as_obj', 'si', 'si_bin']
 
-from collections import Callable, Counter
+from collections import Counter
+from collections.abc import Callable
+from typing import TypeVar, cast
 
-import wrapt
+from wrapt import ObjectProxy
 
 
 def mangle() -> Callable[[str], str | None]:
@@ -57,56 +59,73 @@ def repr_as_obj(d: dict) -> str:
     return ', '.join(f'{key}={value!r}' for key, value in d.items())
 
 
-class Si(wrapt.ObjectProxy):
-    """Wrapper for numbers with human-readable formatting.
+# ----------------------- number type with pretty repr -----------------------
 
-    Use metric prefixes:
-    >>> s = Si(10 ** 6)
-    >>> s
-    Si(1M)
+_IntOrFloat = TypeVar('_IntOrFloat', int, float)
+_PREFIXES = 'qryzafpnum kMGTPEZYRQ'
+_PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' '):].upper()
+
+
+def _num_repr(value: float | int, si: bool = True) -> str:
+    if value == 0:
+        return '0'
+
+    base, prefixes = (1000, _PREFIXES) if si else (1024, _PREFIXES_BIN)
+    threshold = base - 0.5
+    origin = prefixes.find(' ') + 1
+
+    x = value
+    x *= base ** origin
+    for prefix in prefixes:  # noqa: B007
+        x /= base
+        if -threshold < x < threshold:
+            break
+    else:
+        prefix = prefixes[-1]
+
+    precision = '.3g' if -99.95 < x < 99.95 else '.0f'
+    prefix = prefix.strip()
+    unit = prefix if si else f'{prefix}iB' if prefix else 'B'
+    return f'{x:{precision}}{unit}'
+
+
+class _Si(ObjectProxy):
+    __slots__ = '_self_si'
+
+    def __init__(self, value: float | int = 0, si: bool = True):
+        super().__init__(value)
+        self._self_si = si
+
+    def __str__(self) -> str:
+        return _num_repr(self.__wrapped__, self._self_si)
+
+    def __repr__(self):
+        return f'{type(self).__name__}({self})'
+
+    def __reduce_ex__(self, _) -> tuple:  # Else no serialization
+        return type(self), (self.__wrapped__, self._self_si)
+
+
+def si(value: _IntOrFloat) -> _IntOrFloat:
+    """Mix value with human-readable formatting,
+    uses metric prefixes. Returns exact subtype of value.
+
+    >>> s = si(10_000)
     >>> print(s)
-    1M
+    10k
+    """
+    return cast(_IntOrFloat, _Si(value, si=True))
 
-    Use binary prefixes:
-    >>> print(Si.bits(2 ** 20))
-    1MiB
+
+def si_bin(value: _IntOrFloat) -> _IntOrFloat:
+    """Treats value as size in bytes, mixes it with binary prefix.
+    Returns exact subtype of value.
+
+    >>> s = si_bin(4096)
+    >>> print(s, s + 5)
+    4KiB 4101
 
     .. _Human readable bytes count
        https://programming.guide/java/formatting-byte-size-to-human-readable-format.html
     """
-    _prefixes = 'qryzafpnum kMGTPEZYRQ'
-    _prefixes_bin = _prefixes[_prefixes.index(' '):].upper()
-
-    def __init__(self, value: float | int = 0, _si: bool = True):
-        super().__init__(value)
-        self._self_si = _si
-
-    @classmethod
-    def bits(cls, value: float | int = 0) -> Si:
-        return cls(value, _si=False)
-
-    def __str__(self):
-        x = self.__wrapped__
-        if x == 0:
-            return '0'
-
-        unit, prefixes = ((1000, self._prefixes) if self._self_si else
-                          (1024, self._prefixes_bin))
-        unit_thres = unit - 0.5
-        origin = prefixes.find(' ') + 1
-
-        x *= unit ** origin
-        for prefix in prefixes:  # noqa: B007
-            x /= unit
-            if -unit_thres < x < unit_thres:
-                break
-        else:
-            prefix = prefixes[-1]
-
-        precision = '.0f' if x >= 99.95 else '.3g'
-        if not self._self_si:
-            prefix = f'{prefix}iB' if prefix.strip() else 'B'
-        return f'{x:{precision}}{prefix.strip()}'
-
-    def __repr__(self):
-        return f'{type(self).__name__}({self})'
+    return cast(_IntOrFloat, _Si(value, si=False))

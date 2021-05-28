@@ -7,14 +7,14 @@ from collections.abc import Sequence
 from contextlib import ExitStack
 from typing import NamedTuple
 
-from .. import Si
+from .. import si_bin
 
 
 class _GpuState(NamedTuple):
     num_devices: int
-    free: Si
-    used: Si
-    total: Si
+    free: int
+    used: int
+    total: int
 
 
 def get_gpu_state() -> _GpuState:
@@ -38,4 +38,4 @@ def get_gpu_state() -> _GpuState:
         infos = (nvmlDeviceGetMemoryInfo(h) for h in handles)
         stats = [(i.free, i.used, i.total) for i in infos]
 
-    return _GpuState(len(indices), *(Si.bits(sum(s)) for s in zip(*stats)))
+    return _GpuState(len(indices), *(si_bin(sum(s)) for s in zip(*stats)))

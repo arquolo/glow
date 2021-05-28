@@ -92,7 +92,7 @@ def bench_ipc_speed(order=25, steps=100):
                     [*runner(task, *args)]
 
             bps = to_bytes * NUM_STEPS * sizes / np.asarray(times)
-            print(f'max {glow.Si.bits(bps.max())}/s - {label}')
+            print(f'max {glow.si_bin(bps.max())}/s - {label}')
 
             ax.plot(to_bytes * sizes, bps, label=runner.__name__)
             ax.legend()

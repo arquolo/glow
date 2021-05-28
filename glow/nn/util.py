@@ -19,7 +19,7 @@ import torch.jit
 import torch.onnx
 from torch import nn
 
-from .. import Si
+from .. import si
 
 _F = TypeVar('_F', bound=Callable[..., Iterator])
 
@@ -69,9 +69,9 @@ def inference(net: nn.Module) -> Iterator[None]:
             yield
 
 
-def param_count(net: nn.Module) -> Si:
+def param_count(net: nn.Module) -> int:
     """Count of parameters in net, both training and not"""
-    return Si(sum(p.numel() for p in net.parameters()))
+    return si(sum(p.numel() for p in net.parameters()))
 
 
 def profile(fn: _F) -> _F:

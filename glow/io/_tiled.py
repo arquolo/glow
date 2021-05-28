@@ -45,7 +45,7 @@ def _setup_libs():
     (_TIFF.TIFFOpenW
      if sys.platform == 'win32' else _TIFF.TIFFOpen).restype = struct_t
 
-    _TIFF.TIFFSetErrorHandler(None)
+    # _TIFF.TIFFSetErrorHandler(None)
     _OSD.openslide_open.restype = struct_t
     _OSD.openslide_get_error.restype = ctypes.c_char_p
     _OSD.openslide_get_property_value.restype = ctypes.c_char_p
@@ -335,9 +335,11 @@ class TiffTag:
     BACKGROUND_COLOR = 434
 
 
+# class _TiffImage(TiledImage, extensions=''):
 class _TiffImage(TiledImage, extensions='svs tif tiff'):
     def __init__(self, path: Path) -> None:
         _setup_libs()
+        # TODO: use memmap instead of libtiff
         spath = path.as_posix()
         self._ptr = (
             _TIFF.TIFFOpenW(spath, b'rm') if sys.platform == 'win32' else
@@ -385,6 +387,7 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         if _TIFF.TIFFGetField(self._ptr, TiffTag.BACKGROUND_COLOR,
                               ctypes.byref(bg_color_ptr)):
             bg_hex = ctypes.string_at(bg_color_ptr, 3)
+        # print(bg_hex)
 
         spec = {
             'level':
@@ -423,8 +426,16 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         offset = _TIFF.TIFFComputeTile(self._ptr, x, y, 0, 0)
         nbytes = int(spec['tile_sizes'][offset])
 
+        # print(self.path.name, spec['level'], (y, x),
+        #       (y // spec['tile'][0], x // spec['tile'][1]), offset)
+
         if not nbytes:  # If nothing to read, don't read
-            return np.zeros(spec['tile'], dtype='u1')
+            # TODO: here should be reading from more-detailed level
+            # * If tile is empty on level N,
+            # * then all tiles on levels >N are invalid, even when not empty
+            return np.broadcast_to(spec['background'], spec['tile'])
+
+        # pview = self._get_patch(self._spec[spec['step'] - 1])
 
         if spec['compression'] not in [Codec.JPEG2000_RGB, Codec.JPEG2000_YUV]:
             image = np.empty(spec['tile'], dtype='u1')

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from typing import TypeVar, cast
 
-from ._repr import Si
+from ._repr import si, si_bin
 
 _F = TypeVar('_F', bound=Callable)
 _THIS = None
@@ -32,7 +32,7 @@ def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
         if callback is not None:
             callback(size)
         else:
-            print(f'{name} done: {"+" if size >= 0 else ""}{Si.bits(size)}')
+            print(f'{name} done: {"+" if size >= 0 else ""}{si_bin(size)}')
 
 
 @contextmanager
@@ -53,7 +53,7 @@ def timer(name: str = None, callback: Callable[[float], object] = None):
                 else:
                     name = 'Task'
 
-            print(f'{name} done in {Si(duration)}s')
+            print(f'{name} done in {si(duration)}s')
 
 
 def time_this(fn: _F) -> _F:
@@ -70,8 +70,8 @@ def time_this(fn: _F) -> _F:
 
         print(f'{fn.__module__}:{fn.__qualname__} -'
               f' calls: {num_calls},'
-              f' total: {Si(total_time)}s,'
-              f' per-call: {Si(total_time / num_calls)}s'
+              f' total: {si(total_time)}s,'
+              f' per-call: {si(total_time / num_calls)}s'
               f' ({100 * total_time / total_runtime:.2f}% of module),'
               f' threads: {len(infos)}')
 

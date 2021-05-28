@@ -11,7 +11,7 @@ import torch
 from torch import nn
 from torch.autograd import Function
 
-from .. import Si, mangle
+from .. import mangle, si
 
 
 def id_(x: Any) -> str:
@@ -31,7 +31,7 @@ def as_tuple(xs):
 def sized(var: torch.Tensor):
     if max(var.shape) == var.numel():
         return f'{tuple(var.shape)}'
-    return f'{tuple(var.shape)}\n{Si(var.numel())}'
+    return f'{tuple(var.shape)}\n{si(var.numel())}'
 
 
 class Builder:
