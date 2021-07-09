@@ -256,15 +256,16 @@ class SplitAttention(_Named, nn.Sequential):
 
 def _resblock(
         core: Sequence[nn.Module],
-        tail: Sequence[nn.Module] = ()) -> nn.Sequential:
+        tail: Sequence[nn.Module] = (),
+) -> nn.Sequential:
     return nn.Sequential(
         Sum(nn.Identity(), nn.Sequential(*core)),
         *tail,
     )
 
 
-def _resblock_core(cin: int, bottleneck: bool, groups: int,
-                   radix: int, expansion: int) -> list[nn.Module]:
+def _resblock_core(cin: int, bottleneck: bool, groups: int, radix: int,
+                   expansion: int) -> list[nn.Module]:
     if not bottleneck:  # resnet-18/34
         return [
             nn.Conv2d(cin, cin, 3, padding=1, bias=False),

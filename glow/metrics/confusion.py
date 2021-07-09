@@ -51,8 +51,10 @@ def kappa(mat):
 
 def kappa_quadratic_weighted(mat):
     y, x = map(torch.arange, mat.shape)
+
     weights = (y[:, None] - x[None, :]).double() ** 2
     weights /= weights.max()
+
     expected = mat.sum(0) @ weights @ mat.sum(1)
     observed = mat.view(-1) @ weights.view(-1)
     return 1 - observed / expected.clamp(_EPS)

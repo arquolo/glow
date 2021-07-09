@@ -1,8 +1,8 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['Svg']
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import cv2
@@ -40,7 +40,7 @@ class Svg:
     """Converts raster mask (2d numpy.ndarray of integers) to SVG-file.
 
     Parameters:
-    - classes - list of all class names (except for 0th class),
+    - labels - list of all label names (0th is unlabeled),
       i-th name will be assigned to (i+1)th index.
 
     Usage:
@@ -49,7 +49,7 @@ class Svg:
     Svg(mask, ['pos', 'neg']).save('sample.svg')
     ```
     """
-    def __init__(self, mask: np.ndarray, classes: list[str]):
+    def __init__(self, mask: np.ndarray, labels: Sequence[str]):
         e = ElementMaker()
 
         groups = []
@@ -62,7 +62,7 @@ class Svg:
             polygons = (
                 e.polygon(points=' '.join(map(str, contour.ravel())))
                 for contour in contours if len(contour) >= 3)
-            groups.append(e.g(*polygons, **{'class': classes[uniq - 1]}))
+            groups.append(e.g(*polygons, label=labels[uniq - 1]))
 
         root = e.svg(
             e.image(),
@@ -74,8 +74,8 @@ class Svg:
         indent(root, space='\t')
         self.body = tostring(root, encoding='utf-8')
 
-        maxlen = max(len(c) for c in classes)
-        self.classes = [f'{c:{maxlen}s}' for c in classes]
+        maxlen = max(len(c) for c in labels)
+        self.labels = [f'{c:{maxlen}s}' for c in labels]
 
     def save(self, path: Path) -> None:
         path = Path(path)
@@ -86,7 +86,7 @@ class Svg:
 
         style = path.parent / 'main.css'
         if not style.exists():
-            labels = zip(hsv_colors(len(self.classes)), self.classes)
+            labels = zip(hsv_colors(len(self.labels)), self.labels)
             style.write_text('\n'.join(
                 f'.{name} {{ stroke: {color} }}' for color, name in labels))
 
@@ -106,4 +106,4 @@ class Svg:
                 np.array([int(p) for p in pset], dtype='i4').reshape(-1, 2)
                 for pset in points
             ]
-            yield group.attrib['class'], contours
+            yield group.attrib['label'], contours

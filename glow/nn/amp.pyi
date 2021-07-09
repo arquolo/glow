@@ -1,8 +1,7 @@
 from typing import overload
 
 import torch
-import torch.optim
-from torch import nn
+from torch import nn, optim
 
 
 class OptContext:
@@ -30,15 +29,15 @@ class OptContext:
 
 @overload
 def get_amp_context(net: nn.Module,
-                    opt: torch.optim.Optimizer,
-                    fp16: bool = False,
-                    retry_on_inf: bool = True) -> OptContext:
+                    opt: optim.Optimizer,
+                    fp16: bool = ...,
+                    retry_on_inf: bool = ...) -> OptContext:
     ...
 
 
 @overload
 def get_amp_context(net: nn.Module,
                     *,
-                    fp16: bool = False,
-                    retry_on_inf: bool = True) -> None:
+                    fp16: bool = ...,
+                    retry_on_inf: bool = ...) -> None:
     ...

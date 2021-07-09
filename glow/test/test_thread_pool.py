@@ -79,9 +79,15 @@ def bench_ipc_speed(order=25, steps=100):
     workers = [AsInit, AsArgRepeated, AsArg, AsResult]
     for i, worker in enumerate(workers, 1):
         ax = fig.add_subplot(
-            1, len(workers), i,
-            ylabel='bytes/s', xlabel='size', xscale='log', yscale='log',
-            ylim=(1, 1e12), title=worker.__name__)
+            1,
+            len(workers),
+            i,
+            ylabel='bytes/s',
+            xlabel='size',
+            xscale='log',
+            yscale='log',
+            ylim=(1, 1e12),
+            title=worker.__name__)
         for runner in [run_glow, run_joblib, run_joblib_mp]:
             label = f'{worker.__name__}-{runner.__name__}'
             times = []

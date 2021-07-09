@@ -115,7 +115,7 @@ class Sum(nn.Sequential):  # TODO: deprecate and/or refactor
         children = [
             conv(cin, mid, padding=0),
             conv(mid, mid, **kwargs),
-            conv(mid, cin, padding=0, order='-N')
+            conv(mid, cin, padding=0, order='-N'),
         ]
         if cls.blending:
             children.append(SEBlock.new(cin))

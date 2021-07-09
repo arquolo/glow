@@ -1,6 +1,6 @@
 """Utilities to train and eval nn.Module in half-precision mode (float16)."""
 
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['get_amp_context']
 
@@ -211,9 +211,8 @@ def get_amp_context(net: nn.Module,
 
     # patch normalization
     for m in net.modules():
-        if isinstance(m, nn.modules.batchnorm._NormBase):  # type: ignore
-            if m.affine:
-                m.float()
+        if isinstance(m, nn.modules.batchnorm._NormBase) and m.affine:
+            m.float()
 
     if opt is None:
         return None

@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = [
     'device', 'dump_to_onnx', 'frozen', 'inference', 'param_count', 'profile'
@@ -64,9 +64,9 @@ def inference(net: nn.Module) -> Iterator[None]:
 
     Net is switched to eval mode, and gradient computation is turned off.
     Works as context manager"""
-    with _set_eval(net):
-        with torch.no_grad():
-            yield
+    # TODO: deprecate to use torch.inference_mode decorator
+    with _set_eval(net), torch.no_grad():
+        yield
 
 
 def param_count(net: nn.Module) -> int:
@@ -98,8 +98,9 @@ def profile(fn: _F) -> _F:
     return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
-def dump_to_onnx(net: nn.Module, *shapes: tuple[int, ...],
-                 device='cpu') -> bytes:
+def dump_to_onnx(net: nn.Module,
+                 *shapes: tuple[int, ...],
+                 device: str = 'cpu') -> bytes:
     """Converts model to ONNX graph, represented as bytes
 
     Parameters:

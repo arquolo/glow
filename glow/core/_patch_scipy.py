@@ -55,5 +55,5 @@ def apply() -> None:
     os.environ[_FORTRAN_FLAG] = '1'
     try:
         patch_handler()
-    except BaseException:  # noqa: B902
+    except BaseException:  # noqa: PIE786
         pass

@@ -10,10 +10,10 @@ def accuracy_(pred, true) -> torch.Tensor:
     return (true == pred).double().mean()
 
 
-def dice(pred, true, macro=False) -> torch.Tensor:
+def dice(pred, true, macro=True) -> torch.Tensor:
     c, pred, true = to_index(pred, true)
 
-    def _apply(pred, true) -> torch.Tensor:
+    def _dice(pred, true) -> torch.Tensor:
         true = true.view(-1)
         pred = pred.view(-1)
         tp, t, p = (
@@ -22,11 +22,11 @@ def dice(pred, true, macro=False) -> torch.Tensor:
         return 2 * tp / (t + p)
 
     if macro:
-        return _apply(pred, true)
+        return _dice(pred, true)
 
     b = pred.shape[0]
-    out = map(_apply, pred.view(b, -1).unbind(), true.view(b, -1).unbind())
-    return torch.mean(torch.stack([*out]), dim=0)
+    *scores, = map(_dice, pred.view(b, -1).unbind(), true.view(b, -1).unbind())
+    return torch.mean(torch.stack(scores), dim=0)
 
 
 def _rankdata(ten: torch.Tensor) -> torch.Tensor:

@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['Input', 'Model']
 
@@ -20,6 +20,7 @@ class ModuleWrapper(functools.partial):
     pass
 
 
+# TODO: Deprecate for torch.nn.modules.lazy.LazyModuleMixin
 @dataclass
 class Input:
     channels: int

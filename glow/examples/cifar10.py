@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 import argparse
 import pathlib
@@ -104,7 +104,6 @@ tft = tfs.Compose([
 ])
 ds = CIFAR10(args.root / 'cifar10', transform=tft, download=True)
 ds_val = CIFAR10(args.root / 'cifar10', transform=tfs.ToTensor(), train=False)
-
 
 loader = gnn.make_loader(
     ds,

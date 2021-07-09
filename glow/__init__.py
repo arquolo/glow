@@ -1,6 +1,5 @@
 # flake8: noqa
 """Collection of tools for easier prototyping with deep learning extensions"""
-
 """TODO:
 Add:
     glow.mapped
@@ -47,10 +46,7 @@ Refactor:
     - Make len() patching optional
     - Add wrapper for tqdm to use there len_hint(...) instead of total=len(...)
 
-Chore:
-    Remove wrapt as dependency (used for decorator, ObjectProxy)
 """
-
 
 from . import core
 from .core import *

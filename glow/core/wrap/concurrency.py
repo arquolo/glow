@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = [
     'stream_batched', 'call_once', 'threadlocal', 'interpreter_lock',
@@ -62,7 +62,7 @@ class _DeferredStack(ExitStack):
         def apply(future: Future[_T]) -> None:
             try:
                 result = fn(*args, **kwargs)
-            except BaseException as exc:  # noqa: B902
+            except BaseException as exc:  # noqa: PIE786
                 future.set_exception(exc)
             else:
                 future.set_result(result)
@@ -76,11 +76,10 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
     lock = threading.RLock()
 
     def wrapper():
-        with _DeferredStack() as stack:
-            with lock:
-                if fn.__future__ is None:
-                    # This way setting future is protected, but fn() is not
-                    fn.__future__ = stack.defer(fn)
+        with _DeferredStack() as stack, lock:
+            if fn.__future__ is None:
+                # This way setting future is protected, but fn() is not
+                fn.__future__ = stack.defer(fn)
 
         return fn.__future__.result()
 
@@ -96,12 +95,11 @@ def shared_call(fn: _F) -> _F:
     def wrapper(*args, **kwargs):
         key = f'{fn}{args}{kwargs}'
 
-        with _DeferredStack() as stack:
-            with lock:
-                try:
-                    future = futures[key]
-                except KeyError:
-                    futures[key] = future = stack.defer(fn, *args, **kwargs)
+        with _DeferredStack() as stack, lock:
+            try:
+                future = futures[key]
+            except KeyError:
+                futures[key] = future = stack.defer(fn, *args, **kwargs)
 
         return future.result()
 
@@ -112,7 +110,7 @@ def _batch_apply(func: Callable, args: Sequence, futures: Sequence[Future]):
     try:
         results = func(args)
         assert len(args) == len(results)
-    except BaseException as exc:  # noqa: B902
+    except BaseException as exc:  # noqa: PIE786
         for fut in futures:
             fut.set_exception(exc)
     else:

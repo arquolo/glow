@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['sizeof']
 
@@ -43,7 +43,7 @@ def true_vars(obj) -> dict[str, object] | None:
     tp = type(obj)
 
     if sys.implementation.name == 'cpython':
-        if ptr := pythonapi._PyObject_GetDictPtr(obj):
+        if (ptr := pythonapi._PyObject_GetDictPtr(obj)) and ptr.contents:
             return ptr.contents.value
         return None
 

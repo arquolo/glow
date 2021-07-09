@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = [
     'auto_ddp', 'auto_model', 'barrier', 'get_rank', 'get_world_size',
@@ -51,7 +51,7 @@ def reduce_if_needed(*tensors: torch.Tensor,
             op.wait()
         if mean:
             tensors = *(t / world for t in tensors),
-    return tensors  # noqa: R504
+    return tensors
 
 
 # --------------------------------- wrappers ---------------------------------
@@ -120,7 +120,6 @@ def auto_ddp(train_fn: _TrainFnType) -> _TrainFnType:
 
 def once_per_world(fn: _F) -> _F:
     """Call function only in rank=0 process, and share result for others"""
-
     def wrapper(*args, **kwargs):
         rank = get_rank()
         world = get_world_size()
@@ -150,6 +149,6 @@ def once_per_world(fn: _F) -> _F:
         if rank == 0 and world > 1:  # parent
             tmp.unlink()
 
-        return result  # noqa: R504
+        return result
 
     return cast(_F, update_wrapper(wrapper, fn))

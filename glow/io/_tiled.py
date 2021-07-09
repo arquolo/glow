@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['TiledImage', 'read_tiled']
 
@@ -111,7 +111,7 @@ class TiledImage(_Decoder):
         _TYPE_REGISTRY.update({f'.{ext}': cls for ext in extensions.split()})
 
     def __init__(self, path: Path, num_levels: int = 0) -> None:
-        if type(self) is TiledImage:
+        if self.__class__ is TiledImage:
             raise RuntimeError('TiledImage is not for direct construction. '
                                'Use read_tiled() factory function')
         super().__init__()
@@ -239,24 +239,22 @@ class _OpenslideImage(
             return np.broadcast_to(self.bg_color,
                                    (y_max2 - y_min2, x_max2 - x_min2, 3))
 
-        data = np.empty((y_max - y_min, x_max - x_min, 4), dtype='u1')
-        data_ptr = ctypes.c_void_p(data.ctypes.data)
-        _OSD.openslide_read_region(self._ptr, data_ptr, int(x_min * step),
+        bgra = np.empty((y_max - y_min, x_max - x_min, 4), dtype='u1')
+        bgra_ptr = ctypes.c_void_p(bgra.ctypes.data)
+        _OSD.openslide_read_region(self._ptr, bgra_ptr, int(x_min * step),
                                    int(y_min * step), level,
                                    int(x_max - x_min), int(y_max - y_min))
 
-        rgb = data[..., 2::-1]
-        opacity = data[..., 3:]
-        crop = np.where(
-            opacity, (255 * rgb.astype('u2') // opacity.clip(1)).astype('u1'),
-            self.bg_color)
+        bgra = cv2.cvtColor(bgra, cv2.COLOR_mRGBA2RGBA)  # premultiplied alpha
+        rgb = bgra[..., 2::-1].copy()
+        rgb[bgra[..., 3] == 0] = self.bg_color  # alpha blending
 
         offsets = np.abs(valid_box - box).ravel().tolist()
         if not any(offsets):
-            return crop
+            return rgb
         bg_color = self.bg_color.tolist()
         return cv2.copyMakeBorder(
-            crop, *offsets, borderType=cv2.BORDER_CONSTANT, value=bg_color)
+            rgb, *offsets, borderType=cv2.BORDER_CONSTANT, value=bg_color)
 
     @property
     def metadata(self) -> dict[str, str]:

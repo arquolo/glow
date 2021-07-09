@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = [
     'Compose', 'DualStageTransform', 'ImageTransform', 'MaskTransform',
@@ -21,7 +21,8 @@ class _SingleTransform(Transform):
     @final
     def __call__(self, rng: np.random.Generator, /, **data) -> dict:
         return {
-            **data, self._key: getattr(self, self._key)(data[self._key], rng)
+            **data,
+            self._key: getattr(self, self._key)(data[self._key], rng),
         }
 
 

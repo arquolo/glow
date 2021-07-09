@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = [
     'as_iter', 'chunked', 'eat', 'ichunked', 'roundrobin', 'sliced', 'windowed'
@@ -22,8 +22,7 @@ _T = TypeVar('_T')
 _empty = _Empty.token
 
 
-def as_iter(obj: Iterable[_T] | _T | None,
-            times: int = None) -> Iterable[_T]:
+def as_iter(obj: Iterable[_T] | _T | None, times: int = None) -> Iterable[_T]:
     """Make iterator from object"""
     if obj is None:
         return ()
@@ -90,10 +89,10 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
     """
     head = iter(it)
     while (item := next(head, _empty)) is not _empty:
-        it1 = islice(chain([item], head), size)  # Restore iterable
-        it1, it2 = tee(it1)  # Fork to keep not-yet-consumed
-        yield _SizedIterator(it1, size)
-        eat(it2)  # Advance to head[size:]
+        chunk = islice(chain([item], head), size)  # Restore iterable
+        chunk1, chunk2 = tee(chunk)  # Fork to keep not-yet-consumed
+        yield _SizedIterator(chunk1, size)
+        eat(chunk2)  # Advance to head[size:]
 
 
 def eat(iterable: Iterable, daemon: bool = False) -> None:

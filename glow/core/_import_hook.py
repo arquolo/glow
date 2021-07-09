@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['register_post_import_hook', 'when_imported']
 
@@ -39,9 +39,8 @@ class _ImportHookFinder(abc.MetaPathFinder, set):
 
             self.add(fullname)
             try:
-                if spec := util.find_spec(fullname):
-                    if loader := spec.loader:
-                        return _ImportHookChainedLoader(loader)
+                if ((spec := util.find_spec(fullname)) and spec.loader):
+                    return _ImportHookChainedLoader(spec.loader)
                 return None
             finally:
                 self.remove(fullname)

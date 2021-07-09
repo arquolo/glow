@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['serialize']
 
@@ -154,14 +154,13 @@ if False:
                 _CACHE.pop(uid)
 
         weakref.finalize(arr, finalize)
-        return args  # noqa: R504
+        return args
 
     def _np_recreate(uid, memo, fmt, shape):
         return np.asarray(memoryview(memo.buf).cast(fmt, shape))
 
     reducers[np.ndarray] = _np_reduce
     # reducers[np.ndarray] = _np_reduce_cached
-
 
 # -------------------------------- untested --------------------------------
 
@@ -173,7 +172,7 @@ def _torch_hook(torch):
         **{
             t: torch.multiprocessing.reductions.reduce_storage
             for t in torch.storage._StorageBase.__subclasses__()
-        }
+        },
     })
 
 

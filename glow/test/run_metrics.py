@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 import torch
 from matplotlib import pyplot as plt
@@ -62,5 +62,6 @@ with tqdm(range(32)) as pbar:
 with torch.no_grad():
     meter = m.compose(*metrics)
     d = meter.send((pred, true))
-    print(', '.join(
-        f'{k}: {v.item():.3f}' for k, v in d.items() if v.numel() == 1))
+    print(', '.join(f'{k}: {v:.3f}' for k, v in d.scalars.items()))
+    print(', '.join(f'{k}: {v.item():.3f}'
+                    for k, v in d.tensors.items() if v.numel() == 1))

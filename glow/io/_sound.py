@@ -14,7 +14,7 @@ def _iter_chunks(arr):
     i = 0
     chunk_size = yield
     while i < len(arr):
-        i, chunk = i + chunk_size, arr[i: i + chunk_size]
+        i, chunk = i + chunk_size, arr[i:i + chunk_size]
         chunk_size = yield chunk
 
 
@@ -35,7 +35,6 @@ class Sound(wrapt.ObjectProxy):
     sound.play()  # Plays sound through default device
     ```
     """
-
     def __init__(self, array: np.ndarray, rate: int = 44100):
         assert array.ndim == 2
         assert array.shape[-1] in (1, 2)

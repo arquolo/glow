@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['affine', 'dither', 'flip', 'grid_shuffle', 'mask_dropout']
 
@@ -106,7 +106,7 @@ def grid_shuffle(image: np.ndarray,
         for (y2, x2), (y1, x1), (ys, xs) in tiles:
             new_v[y2:y2 + ys, x2:x2 + xs] = v[y1:y1 + ys, x1:x1 + xs]
         results.append(new_v)
-    return *results,
+    return tuple(results)
 
 
 def affine(image: np.ndarray,
@@ -172,8 +172,10 @@ def gamma(arr: np.ndarray, y: float) -> np.ndarray:
     return cv2.LUT(arr.ravel(), lut).reshape(arr.shape)
 
 
-def gamma_dq(arr: np.ndarray, y: float,
-             rng: np.random.Generator, qbits: int = 7) -> np.ndarray:
+def gamma_dq(arr: np.ndarray,
+             y: float,
+             rng: np.random.Generator,
+             qbits: int = 7) -> np.ndarray:
     """Apply gamma Y to array with dequantization"""
     assert arr.dtype == 'u1'
     assert y > 0

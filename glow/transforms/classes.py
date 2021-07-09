@@ -41,7 +41,6 @@ class _LutTransform(ImageTransform):
 
 class AddNoise(ImageTransform):
     """Add uniform[-strength ... +strength] to each item"""
-
     def __init__(self, strength: float = 0.2) -> None:
         self.strength = int(strength * 255)
 
@@ -57,7 +56,6 @@ class AddNoise(ImageTransform):
 
 class MultiNoise(ImageTransform):
     """Multiply uniform[1 - strength ... 1 + strength] to each item"""
-
     def __init__(self, strength: float = 0.5) -> None:
         self.low = max(0, 1 - strength)
         self.high = 1 + strength
@@ -163,7 +161,7 @@ class HsvShift(_LutTransform):
         luts = (
             (ramp + hue) % 180,
             (ramp + sat).clip(0, 255),
-            (ramp + val).clip(0, 255)
+            (ramp + val).clip(0, 255),
         )
         return [lut.astype('u1') for lut in luts]
 

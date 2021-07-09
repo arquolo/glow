@@ -1,4 +1,6 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
+
+# TODO: drop this garbage
 
 __all__ = ['arg', 'parse_args']
 
@@ -38,9 +40,8 @@ def arg(
         metadata=metadata)
 
 
-def _parse(
-        cls: type[_T],
-        cmdline: Sequence[str]) -> tuple[ArgumentParser, _T, list[str]]:
+def _parse(cls: type[_T],
+           cmdline: Sequence[str]) -> tuple[ArgumentParser, _T, list[str]]:
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     nested: dict = {}
     hints = get_type_hints(cls)
@@ -64,12 +65,16 @@ def _parse(
             if sys.version_info >= (3, 9):
                 parser.add_argument(
                     f'--{snake}',
-                    action=BooleanOptionalAction, default=default, help=help_)
+                    action=BooleanOptionalAction,
+                    default=default,
+                    help=help_)
             else:
                 if default:
                     parser.add_argument(
                         f'--no-{snake}',
-                        action='store_false', dest=snake, help=help_)
+                        action='store_false',
+                        dest=snake,
+                        help=help_)
                 else:
                     parser.add_argument(
                         f'--{snake}', action='store_true', help=help_)
@@ -84,16 +89,17 @@ def _parse(
 
         # positional with nargs
         elif (origin := get_origin(type_)) and (args := get_args(type_)):
-            if origin is Union and len(args) == 2 and type(None) in args:
-                type_, = (a for a in args if not issubclass(a, type(None)))
-                parser.add_argument(snake, nargs='?', type=type_, help=help_)
-            elif origin is list:
-                type_, = args
-                parser.add_argument(snake, nargs='+', type=type_, help=help_)
-            else:
+            if origin not in (list, Union):
                 raise ValueError(
                     'Only List[...] and Optional[...] are supported. '
                     f'Got: {type_}')
+
+            if origin is Union and len(args) == 2 and type(None) in args:
+                type_, = (a for a in args if not issubclass(a, type(None)))
+                parser.add_argument(snake, nargs='?', type=type_, help=help_)
+            else:
+                type_, = args
+                parser.add_argument(snake, nargs='+', type=type_, help=help_)
 
         # pure positional
         else:

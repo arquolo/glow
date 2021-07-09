@@ -115,11 +115,12 @@ class _ReprMixin(_InitializedStore, _IStore[_T]):
 
     def __repr__(self) -> str:
         args = [
-            f'items={len(self)}', f'used={si_bin(self.size)}',
-            f'total={si_bin(self.capacity)}'
+            f'items={len(self)}',
+            f'used={si_bin(self.size)}',
+            f'total={si_bin(self.capacity)}',
         ]
         if any(vars(self.stats).values()):
-            args += [f'stats={self.stats}']
+            args.append(f'stats={self.stats}')
         return f'{type(self).__name__}({", ".join(args)})'
 
     @classmethod
@@ -216,7 +217,7 @@ def _dispatch(fn: Callable[[Sequence], list], cache: dict[Hashable, object],
         for job, value in zip(jobs.values(), values):
             job.future.set_result(value)
 
-    except BaseException as exc:  # noqa: B902
+    except BaseException as exc:  # noqa: PIE786
         for key, job in jobs.items():
             cache.pop(key)
             job.future.set_exception(exc)
@@ -313,7 +314,7 @@ def memoize(
     *,
     batched: bool = False,
     policy: _Policy = 'raw',
-    key_fn: _KeyFn = _make_key
+    key_fn: _KeyFn = _make_key,
 ) -> Callable[[_F], _F] | Callable[[_Fbatch], _Fbatch]:
     """Returns dict-cache decorator.
 

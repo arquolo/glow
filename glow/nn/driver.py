@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 __all__ = ['get_gpu_state']
 
@@ -19,10 +19,9 @@ class _GpuState(NamedTuple):
 
 def get_gpu_state() -> _GpuState:
     """Returns count of available GPUs and size of free memory VRAM"""
-    from py3nvml.py3nvml import (nvmlDeviceGetCount,
-                                 nvmlDeviceGetHandleByIndex,
-                                 nvmlDeviceGetMemoryInfo, nvmlInit,
-                                 nvmlShutdown)
+    from py3nvml.py3nvml import (
+        nvmlDeviceGetCount, nvmlDeviceGetHandleByIndex,
+        nvmlDeviceGetMemoryInfo, nvmlInit, nvmlShutdown)
     with ExitStack() as stack:
         nvmlInit()
         stack.callback(nvmlShutdown)
