@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from functools import partial
 from itertools import chain, islice, starmap
 from pstats import Stats
-from queue import Queue
+from queue import Queue, SimpleQueue
 from threading import Event, RLock
 from time import perf_counter
 from typing import Protocol, TypeVar, cast
@@ -300,3 +300,21 @@ def mapped(func: Callable[..., _T],
         mp=mp,
         chunksize=chunksize,
     )
+
+
+# ----------------------------------------------------------------------------
+
+
+def as_completed(fs: Iterable[Future]) -> Iterator[Future]:
+    fs = set(fs)
+    if not fs:
+        return
+
+    q: SimpleQueue[Future] = SimpleQueue()
+    for f in fs:
+        f.add_done_callback(q.put)
+
+    while fs:
+        f = q.get()
+        yield f
+        fs.remove(f)
