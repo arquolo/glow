@@ -209,6 +209,9 @@ class _OpenslideImage(
     def __init__(self, path: Path) -> None:
         _setup_libs()
         self._ptr = _OSD.openslide_open(path.as_posix().encode())
+        if not self._ptr:
+            raise ValueError(f'File {path} cannot be opened')
+
         if err := _OSD.openslide_get_error(self._ptr):
             raise ValueError(err)
         weakref.finalize(self, _OSD.openslide_close, self._ptr)
@@ -342,7 +345,9 @@ class _TiffImage(TiledImage, extensions='svs tif tiff'):
         self._ptr = (
             _TIFF.TIFFOpenW(spath, b'rm') if sys.platform == 'win32' else
             _TIFF.TIFFOpen(spath.encode(), b'rm'))
-        assert self._ptr
+        if not self._ptr:
+            raise ValueError(f'File {path} cannot be opened')
+
         weakref.finalize(self, _TIFF.TIFFClose, self._ptr)
 
         num_levels = _TIFF.TIFFNumberOfDirectories(self._ptr)
