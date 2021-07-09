@@ -9,12 +9,12 @@ import functools
 import sys
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future
 from contextlib import ExitStack, contextmanager
 from queue import Empty, SimpleQueue
 from threading import Thread
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, TypeVar, cast
 from weakref import WeakValueDictionary
 
 _T = TypeVar('_T')

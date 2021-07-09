@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
@@ -19,7 +19,7 @@ from pstats import Stats
 from queue import Queue
 from threading import Event, RLock
 from time import perf_counter
-from typing import Callable, Iterable, Protocol, Sequence, TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 import loky
 

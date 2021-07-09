@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['export', 'get_wild_imports', 'import_tree']
 
 import pkgutil

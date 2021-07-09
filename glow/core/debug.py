@@ -10,9 +10,9 @@ import random
 import threading
 import types
 from collections import Counter
-from collections.abc import Generator, Hashable
+from collections.abc import Callable, Generator, Hashable
 from contextlib import suppress
-from typing import Callable, TypeVar, cast
+from typing import TypeVar, cast
 
 import numpy as np
 import wrapt

@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import Tuple, TypeVar
+from typing import TypeVar
 
 import cv2
 import numpy as np
@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 from .. import chunked, mapped
 from ..io import TiledImage
 
-Coord = Tuple[int, int]
+Coord = tuple[int, int]
 _T = TypeVar('_T')
 
 

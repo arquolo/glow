@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Stepper']
 
 from collections.abc import Callable, Iterable
@@ -23,7 +21,7 @@ class Stepper:
     metrics: Iterable[m.Metric]
     device: torch.device
     fp16: bool = False
-    _ctx: OptContext = field(init=False)  # type: ignore
+    _ctx: OptContext = field(init=False)
 
     def __post_init__(self):
         self._ctx = get_amp_context(

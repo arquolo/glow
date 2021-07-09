@@ -1,6 +1,4 @@
 """Make builtin iterators compatible with `len`"""
-from __future__ import annotations
-
 __all__ = ['apply']
 
 import builtins

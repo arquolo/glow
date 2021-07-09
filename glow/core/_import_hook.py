@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 __all__ = ['register_post_import_hook', 'when_imported']
 
 import sys
+from collections.abc import Callable
 from importlib import abc, util
 from threading import RLock
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 _Hook = Callable[[Any], object]
 _HookVar = TypeVar('_HookVar', bound=_Hook)

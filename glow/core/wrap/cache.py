@@ -10,12 +10,12 @@ import concurrent.futures as cf
 import enum
 import functools
 from collections import Counter
-from collections.abc import Hashable, KeysView, MutableMapping, Sequence
+from collections.abc import (Callable, Hashable, KeysView, MutableMapping,
+                             Sequence)
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import (Any, Callable, ClassVar, Generic, Literal, NamedTuple,
-                    TypeVar, cast)
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar, cast
 from weakref import WeakValueDictionary
 
 from .._repr import si_bin

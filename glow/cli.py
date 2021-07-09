@@ -1,17 +1,13 @@
-from __future__ import annotations
-
 # TODO: drop this garbage
 
 __all__ = ['arg', 'parse_args']
 
 import sys
-from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from argparse import (ArgumentDefaultsHelpFormatter, ArgumentParser,
+                      BooleanOptionalAction)
 from collections.abc import Sequence
 from dataclasses import MISSING, field, is_dataclass
 from typing import TypeVar, Union, get_args, get_origin, get_type_hints
-
-if sys.version_info >= (3, 9):
-    from argparse import BooleanOptionalAction
 
 _T = TypeVar('_T')
 
@@ -62,22 +58,11 @@ def _parse(cls: type[_T],
         if type_ is bool:
             if default is MISSING:
                 raise ValueError(f'Boolean field "{name}" must have default')
-            if sys.version_info >= (3, 9):
-                parser.add_argument(
-                    f'--{snake}',
-                    action=BooleanOptionalAction,
-                    default=default,
-                    help=help_)
-            else:
-                if default:
-                    parser.add_argument(
-                        f'--no-{snake}',
-                        action='store_false',
-                        dest=snake,
-                        help=help_)
-                else:
-                    parser.add_argument(
-                        f'--{snake}', action='store_true', help=help_)
+            parser.add_argument(
+                f'--{snake}',
+                action=BooleanOptionalAction,
+                default=default,
+                help=help_)
         elif default is not MISSING:
             origin = get_origin(type_)
             args = get_args(type_)

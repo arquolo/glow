@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['affine', 'dither', 'flip', 'grid_shuffle', 'mask_dropout']
 
 from types import MappingProxyType
