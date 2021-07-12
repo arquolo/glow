@@ -9,6 +9,16 @@ from typing import Any
 import torch
 from torch.optim import optimizer
 
+# TODO:
+# Define Optimizer (as base class) with step(), state_dict(), load_state_dict()
+#   targeted to optimization of only one parameter group
+#
+# Define specific optimizers for each case (SGD, Adam, etc.).
+# Override only __init__() and step() methods,
+# the rest are `final` in base class
+#
+# Define Compose as Optimizer to pass options to each sub-optimizer
+
 
 class _Optimizer(optimizer.Optimizer):
     _step = 0
@@ -136,6 +146,8 @@ class AdamW(_Optimizer):
 
     @staticmethod
     def _do_step(p: torch.Tensor, state: dict[str, torch.Tensor], **group):
+        if p.grad is None:
+            return
         _apply_weight_decay(p, **group)
 
         if not state:
