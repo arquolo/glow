@@ -153,6 +153,7 @@ class LazilyTraced(nn.Module):
         if self.traced is None:
             with torch.cuda.amp.autocast(False):
                 self.traced = torch.jit.trace(self.impl, x[:2])
+        assert self.traced is not None
         return self.traced(x)
 
     def save(self, path: Path, **metadata):

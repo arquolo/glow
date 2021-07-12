@@ -18,7 +18,8 @@ _THIS = None
 
 
 @contextmanager
-def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
+def memprof(name: str = 'Task',
+            callback: Callable[[float], object] | None = None):
     global _THIS
     if _THIS is None:
         import psutil
@@ -36,7 +37,7 @@ def memprof(name: str = 'Task', callback: Callable[[float], object] = None):
 
 
 @contextmanager
-def timer(name: str = None, callback: Callable[[float], object] = None):
+def timer(name: str = None, callback: Callable[[float], object] | None = None):
     init = time.perf_counter()
     try:
         yield

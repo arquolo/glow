@@ -114,7 +114,7 @@ class _MapLoader(_BaseLoader):
 @dataclass(frozen=True)
 class _Worker:
     dataset: IterableDataset
-    id: int  # noqa: A003, shadowing builtin `id`, false positive
+    id: int
     num_workers: int
     seed: int | None = None
 

@@ -120,14 +120,14 @@ class Builder:
             yield from self._traverse(ch, depth + 1)
 
             tail = self._seen.get(id_(ch))
-            if tail is not None and not (head.startswith(tail) or
-                                         tail.startswith(head)):
+            if tail is not None and head is not None and not (
+                    head.startswith(tail) or tail.startswith(head)):
                 yield (depth, ch, grad)  # leafs, yield for depth-check
                 continue
 
             name = self.params.get(id(getattr(ch, 'variable', None)))
             if not self.flat and name and name.rpartition('.')[0] == head:
-                with root.subgraph() as s:
+                with root.subgraph() as s:  # type: ignore
                     s.attr(rank='same')
                     s.edge(id_(ch), id_(grad))  # same module, same rank
             else:
