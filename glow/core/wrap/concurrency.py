@@ -1,17 +1,11 @@
-from __future__ import annotations
-
-__all__ = [
-    'stream_batched', 'call_once', 'threadlocal', 'interpreter_lock',
-    'shared_call'
-]
+__all__ = ['stream_batched', 'call_once', 'threadlocal', 'shared_call']
 
 import functools
-import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack
 from queue import Empty, SimpleQueue
 from threading import Thread
 from typing import Any, TypeVar, cast
@@ -35,20 +29,6 @@ def threadlocal(fn: Callable[..., _T], *args: object,
             return local_.obj
 
     return wrapper
-
-
-@contextmanager
-def interpreter_lock(timeout=1_000):
-    """
-    Prevents thread switching in underlying scope, thus makes it completely
-    thread-safe. Although adds high performance penalty.
-
-    See tests for examples.
-    """
-    with ExitStack() as stack:
-        stack.callback(sys.setswitchinterval, sys.getswitchinterval())
-        sys.setswitchinterval(timeout)
-        yield
 
 
 class _DeferredStack(ExitStack):
