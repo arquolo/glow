@@ -1,6 +1,8 @@
+import sys
 from typing import NamedTuple
 
 import numpy as np
+import pytest
 
 import glow
 
@@ -148,11 +150,17 @@ def _test_interrupt():
     print('\rmain done')
 
 
+@pytest.mark.skipif(
+    sys.platform == 'win32' and 'torch' in sys.modules,
+    reason='PyTorch on Windows overcommits')
 def test_interrupt():
     rs = _test_interrupt()
     assert [*rs] == [*range(SIZE)]
 
 
+@pytest.mark.skipif(
+    sys.platform == 'win32' and 'torch' in sys.modules,
+    reason='PyTorch on Windows overcommits')
 def test_interrupt_with_buffer():
     rs = glow.buffered(_test_interrupt())
     assert [*rs] == [*range(SIZE)]
