@@ -6,7 +6,7 @@ Collection of tools for easier prototyping with deep learning extensions (PyTorc
 
 ## Installation
 
-If you don't need neural network or I/O features use common installation:
+For basic installation use:
 
 ```bash
 pip install glow
@@ -15,9 +15,9 @@ pip install glow
 <summary>Specific versions with additional requirements</summary>
 
 ```bash
-pip install glow[nn]  # If you need cv/neural network features
-pip install glow[io]  # If you need io features
-pip install glow[io,nn]  # If you need all
+pip install glow[nn]  # For cv/neural network extras
+pip install glow[io]  # For I/O extras
+pip install glow[io,nn]  # For all
 ```
 </details>
 Glow is compatible with: Python 3.9+, PyTorch 1.9+.

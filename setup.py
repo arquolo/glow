@@ -6,6 +6,7 @@ Usage:
 """
 
 import io
+import shutil
 import sys
 from pathlib import Path
 from urllib.request import urlopen
@@ -20,29 +21,28 @@ _URL = ('https://github.com/openslide/openslide-winbuild/releases/download'
         '/v20171122/openslide-win64-20171122.zip')
 
 
-def _download_deps(cmd, path: Path) -> None:
-    if cmd.dry_run or (sys.platform != 'win32') or path.exists():
+def _url_to_io(url: str) -> io.BytesIO:
+    from tqdm import tqdm
+    r = urlopen(url)
+
+    total = int(value) if (value := r.headers['content-length']) else None
+    buf = io.BytesIO()
+    with tqdm.wrapattr(r, 'read', total, desc='retrieve libraries') as fp:
+        shutil.copyfileobj(fp, buf)
+    return buf
+
+
+def _download_deps(cmd: setuptools.Command, path: Path) -> None:
+    if sys.platform != 'win32' or cmd.dry_run or path.exists():
         return
 
-    from tqdm import tqdm
     cmd.mkpath(path.as_posix())
     try:
-        reply = urlopen(_URL)
-        buf = io.BytesIO()
-        with tqdm(
-                desc='Retrieve shared libraries',
-                total=int(reply.info().get('Content-Length')),
-                unit='B',
-                unit_scale=True) as pbar:
-            while chunk := reply.read(1024):
-                pbar.update(buf.write(chunk))
-        with ZipFile(buf) as zf:
+        with ZipFile(_url_to_io(_URL)) as zf:
             for name in zf.namelist():
-                if not name.endswith('.dll'):
-                    continue
-                with zf.open(name) as f:
-                    (path / Path(name).name).write_bytes(f.read())
-    except BaseException:  # noqa: B902
+                if name.endswith('.dll'):
+                    (path / Path(name).name).write_bytes(zf.read(name))
+    except BaseException:
         for p in path.glob('*.dll'):
             p.unlink()
         path.unlink()
