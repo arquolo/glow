@@ -56,6 +56,8 @@ image: np.ndarray = slide[:2048, :2048]  # Get numpy.ndarray
 <details>
 
 ```python
+from datetime import timedelta
+
 import numpy as np
 from glow.io import Sound
 
@@ -63,9 +65,12 @@ array: np.ndarray
 sound = Sound(array, rate=44100)  # Wrap np.ndarray
 sound = Sound.load('test.flac')  # Load sound into memory from file
 
+# Get properties
 rate: int = sound.rate
-shape: Tuple[int, int] = sound.shape
+duration: timedelta = sound.duration
 dtype: np.dtype = sound.dtype
-sound.play()  # Plays sound through default device
+
+ # Plays sound through default device, supports Ctrl-C for interruption
+sound.play()
 ```
 </details>

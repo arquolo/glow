@@ -1,24 +1,58 @@
+from __future__ import annotations
+
 __all__ = ['Sound']
 
-import time
 from contextlib import ExitStack
+from dataclasses import dataclass, field
+from datetime import timedelta
+from pathlib import Path
+from queue import Queue
+from threading import Event
 
 import numpy as np
-import wrapt
+from tqdm.auto import tqdm
 
-from .. import coroutine
-
-
-@coroutine
-def _iter_chunks(arr):
-    i = 0
-    chunk_size = yield
-    while i < len(arr):
-        i, chunk = i + chunk_size, arr[i:i + chunk_size]
-        chunk_size = yield chunk
+from .. import sliced
 
 
-class Sound(wrapt.ObjectProxy):
+def _play(arr: np.ndarray,
+          rate: int,
+          blocksize: int = 1024,
+          bufsize: int = 20):
+    """Plays audio from array. Supports interruption via Crtl-C."""
+    import sounddevice as sd
+
+    q: Queue[np.ndarray | None] = Queue(bufsize)
+    ev = Event()
+
+    def callback(out: np.ndarray, *_) -> None:
+        if (data := q.get()) is None:
+            raise sd.CallbackAbort
+
+        size = len(data)
+        out[:size] = data
+        if size < len(out):
+            out[size:] = 0
+            raise sd.CallbackStop
+
+    stream = sd.OutputStream(
+        rate, blocksize, callback=callback, finished_callback=ev.set)
+
+    fmt = '{percentage:3.0f}% |{bar}| [{elapsed}<{remaining}]'
+    blocks = sliced(arr, blocksize)
+
+    with ExitStack() as stack:
+        stack.enter_context(stream)  # Close stream
+        stack.callback(ev.wait)  # Wait for completion
+        stack.callback(q.put, None)  # Close queue
+
+        for data in stack.enter_context(
+                tqdm(blocks, leave=False, smoothing=0, bar_format=fmt)):
+            q.put(data)
+
+
+@dataclass(repr=False)
+class Sound:
     """Wraps numpy.array to be playable as sound
 
     Parameters:
@@ -26,69 +60,59 @@ class Sound(wrapt.ObjectProxy):
 
     Usage:
     ```
+    import numpy as np
     from glow.io import Sound
 
-    sound = Sound.load('test.flac')  # Array-like wrapper
+    sound = Sound.load('test.flac')
+
+    # Get properties
     rate: int = sound.rate
-    shape: Tuple[int, int] = sound.shape
-    dtype: numpy.dtype = sound.dtype
-    sound.play()  # Plays sound through default device
+    dtype: np.dtype = sound.dtype
+
+    # Could be played like:
+    import sounddevice as sd
+    sd.play(sound, sound.rate)
+
+    # Or like this, if you need Ctrl-C support
+    sound.play()
+
+    # Extract underlying array
+    raw = sound.raw
+
+    # Same result
+    raw = np.array(sound)
     ```
     """
-    def __init__(self, array: np.ndarray, rate: int = 44100):
-        assert array.ndim == 2
-        assert array.shape[-1] in (1, 2)
-        assert array.dtype in ('int8', 'int16', 'int32', 'float32')
+    raw: np.ndarray
+    rate: int = 44_100
+    duration: timedelta = field(init=False)
+    channels: int = field(init=False)
 
-        super().__init__(array)
-        self._self_rate = rate
-
-    @property
-    def rate(self):
-        return self._self_rate
+    def __post_init__(self):
+        assert self.raw.ndim == 2
+        assert self.raw.shape[-1] in (1, 2)
+        assert self.raw.dtype in ('int8', 'int16', 'int32', 'float32')
+        num_samples, self.channels = self.raw.shape
+        self.duration = timedelta(seconds=num_samples / self.rate)
 
     def __repr__(self) -> str:
-        prefix = f'{type(self).__name__}('
-        pad = ' ' * len(prefix)
-        body = '\n'.join(
-            f'{pad if i else prefix}{line}'
-            for i, line in enumerate(f'{self.__wrapped__}'.splitlines()))
-        return f'{body}, dtype={self.dtype}, rate={self.rate})'
+        duration = self.duration
+        channels = self.channels
+        dtype = self.raw.dtype
+        return f'{type(self).__name__}({duration=!s}, {channels=}, {dtype=!s})'
 
-    def play(self, chunk_size=1024) -> None:
-        """Play array as sound"""
-        import pyaudio
-        pyaudio_type = f'pa{str(self.dtype).title()}'
-        it = _iter_chunks(self)
+    def __array__(self) -> np.ndarray:
+        return self.raw
 
-        def callback(_, num_frames, _1, _2):
-            try:
-                return it.send(num_frames), pyaudio.paContinue
-            except StopIteration:
-                return None, pyaudio.paComplete
-
-        with ExitStack() as stack:
-            audio = pyaudio.PyAudio()
-            stack.callback(audio.terminate)
-
-            stream = audio.open(
-                rate=self.rate,
-                channels=self.shape[1],
-                format=getattr(pyaudio, pyaudio_type),
-                output=True,
-                frames_per_buffer=chunk_size,
-                stream_callback=callback)
-
-            stack.callback(stream.close)
-            stack.callback(stream.stop_stream)
-
-            while stream.is_active():
-                time.sleep(0.1)
+    def play(self, blocksize=1024) -> None:
+        """Plays audio from array. Supports interruption via Crtl-C."""
+        _play(self.raw, self.rate, blocksize=blocksize)
 
     @classmethod
-    def load(cls, path: str) -> 'Sound':
-        assert str(path).endswith('.flac')
+    def load(cls, path: Path | str) -> 'Sound':
+        spath = str(path)
+        assert spath.endswith('.flac')
         import soundfile
 
-        array, samplerate = soundfile.read(str(path))
-        return cls(array.astype('float32'), samplerate)
+        data, rate = soundfile.read(spath)
+        return cls(data.astype('float32'), rate)
