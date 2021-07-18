@@ -8,7 +8,6 @@ yapf~=0.30
 
 # Lint
 flake8
-flake8-blind-except
 flake8-bugbear
 flake8-builtins
 flake8-comprehensions
