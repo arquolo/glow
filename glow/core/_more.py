@@ -9,7 +9,9 @@ import threading
 from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from itertools import chain, cycle, islice, repeat, tee
-from typing import TypeVar
+from typing import Any, TypeVar, overload
+
+import numpy as np
 
 from ._len_helpers import _SizedIterator, as_sized
 
@@ -19,19 +21,19 @@ class _Empty(enum.Enum):
 
 
 _T = TypeVar('_T')
+_Seq = TypeVar('_Seq', bound=Sequence)
+_Dtype = TypeVar('_Dtype', bound=np.dtype)
 _empty = _Empty.token
 
 
-def as_iter(obj: Iterable[_T] | _T | None, times: int = None) -> Iterable[_T]:
-    """Make iterator from object"""
-    if obj is None:
-        return ()
+def as_iter(obj: Iterable[_T] | _T, limit: int = None) -> Iterator[_T]:
+    """Make iterator with at most `limit` items"""
     if isinstance(obj, Iterable):
-        return islice(obj, times)
-    return repeat(obj) if times is None else repeat(obj, times)
+        return islice(obj, limit)
+    return repeat(obj) if limit is None else repeat(obj, limit)
 
 
-def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
+def windowed(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
     """Retrieve overlapped windows from iterable.
 
     >>> [*windowed(range(5), 3)]
@@ -41,7 +43,19 @@ def windowed(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
                  for start, it_ in enumerate(tee(it, size))))
 
 
-def sliced(seq: Sequence[_T], size: int) -> Iterator[Sequence[_T]]:
+# ---------------------------------------------------------------------------
+@overload
+def sliced(seq: _Seq, size: int) -> Iterator[_Seq]:
+    ...
+
+
+@overload
+def sliced(seq: np.ndarray[Any, _Dtype],
+           size: int) -> Iterator[np.ndarray[Any, _Dtype]]:
+    ...
+
+
+def sliced(seq, size):
     """Split sequence to slices of at most size items each.
 
     >>> s = sliced(range(10), 3)
@@ -55,12 +69,13 @@ def sliced(seq: Sequence[_T], size: int) -> Iterator[Sequence[_T]]:
     return map(seq.__getitem__, slices)
 
 
+# ---------------------------------------------------------------------------
 def chunk_hint(it, size):
     return len(range(0, len(it), size))
 
 
 @as_sized(hint=chunk_hint)
-def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
+def chunked(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
     """Split iterable to chunks of at most size items each.
     Each next() on result will advance passed iterable to size items.
 
@@ -70,7 +85,7 @@ def chunked(it: Iterable[_T], size: int) -> Iterator[Sequence[_T]]:
     >>> [*s]
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
-    chunks = map(islice, repeat(iter(it)), repeat(size))
+    chunks = map(islice, repeat(iter(it)), repeat(size))  # type: ignore
     return iter(map(tuple, chunks).__next__, ())  # type: ignore
 
 
@@ -106,6 +121,8 @@ def eat(iterable: Iterable, daemon: bool = False) -> None:
 @as_sized(hint=lambda *it: sum(map(len, it)))
 def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
     """roundrobin('ABC', 'D', 'EF') --> A D E B F C"""
+    # FIXME: remove size hint
+    # size hint fails when iterables are repeated, it gives only top bound
     iters = cycle(map(iter, iterables))
     for pending in range(len(iterables))[::-1]:
         yield from map(next, iters)
