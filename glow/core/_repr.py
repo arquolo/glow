@@ -102,6 +102,9 @@ class _Si(ObjectProxy):
     def __repr__(self):
         return f'{type(self).__name__}({self})'
 
+    def __format__(self, format_spec: str) -> str:
+        return str(self).__format__(format_spec)
+
     def __reduce_ex__(self, _) -> tuple:  # Else no serialization
         return type(self), (self.__wrapped__, self._self_si)
 
