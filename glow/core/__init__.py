@@ -6,7 +6,7 @@ from ._parallel import buffered, mapped
 from ._profile import memprof, time_this, timer
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._sizeof import sizeof
-from .debug import coroutine, lock_seed, summary, trace, trace_module
+from .debug import coroutine, lock_seed, summary, trace, trace_module, whereami
 from .wrap import (Reusable, call_once, memoize, shared_call, stream_batched,
                    threadlocal)
 
@@ -15,7 +15,7 @@ __all__ = [
     'countable', 'eat', 'ichunked', 'lock_seed', 'mangle', 'mapped', 'memoize',
     'memprof', 'repr_as_obj', 'Reusable', 'roundrobin', 'shared_call', 'si',
     'si_bin', 'sizeof', 'sliced', 'stream_batched', 'summary', 'threadlocal',
-    'time_this', 'timer', 'trace_module', 'trace', 'windowed'
+    'time_this', 'timer', 'trace_module', 'trace', 'whereami', 'windowed'
 ]
 
 _patch_print.apply()

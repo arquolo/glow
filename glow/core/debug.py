@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-__all__ = ['coroutine', 'lock_seed', 'summary', 'trace', 'trace_module']
+__all__ = [
+    'coroutine', 'lock_seed', 'summary', 'trace', 'trace_module', 'whereami'
+]
 
 import functools
 import gc
@@ -10,8 +12,10 @@ import random
 import threading
 import types
 from collections import Counter
-from collections.abc import Callable, Generator, Hashable
+from collections.abc import Callable, Generator, Hashable, Iterator
 from contextlib import suppress
+from itertools import islice
+from types import FrameType
 from typing import TypeVar, cast
 
 import numpy as np
@@ -22,21 +26,42 @@ from ._import_hook import register_post_import_hook
 _F = TypeVar('_F', bound=Callable[..., Generator])
 
 
-def _break_on_globe(frame_infos):
-    for info in frame_infos:
-        yield info
-        if info.function == '<module>':
+def _get_module(frame: FrameType) -> str:
+    if (module := inspect.getmodule(frame)) and module.__spec__:
+        return module.__spec__.name
+    return '__main__'
+
+
+def _get_function(frame: FrameType) -> str:
+    function = frame.f_code.co_name
+    function = next(
+        (f.__qualname__
+         for f in gc.get_referrers(frame.f_code) if inspect.isfunction(f)),
+        function)
+    return '' if function == '<module>' else function
+
+
+def _stack(frame: FrameType | None) -> Iterator[str]:
+    while frame:
+        yield f'{_get_module(frame)}:{_get_function(frame)}:{frame.f_lineno}'
+        if frame.f_code.co_name == '<module>':  # Stop on module-level scope
             return
+        frame = frame.f_back
 
 
-def whereami(skip: int = 2) -> str:
-    frame_infos = _break_on_globe(inspect.stack()[skip:])
-    return ' -> '.join(':'.join((
-        getattr(inspect.getmodule(frame), '__name__', '[root]'),
-        next((f.__qualname__ for f in gc.get_referrers(frame.f_code)
-              if inspect.isfunction(f)), function),
-        str(lineno),
-    )) for frame, _, lineno, function, *_ in [*frame_infos][::-1])
+def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
+    """Returns iterator of FrameInfos, stopping on module-level scope"""
+    frame = inspect.currentframe()
+    calls = _stack(frame)
+    calls = islice(calls, skip + 1, None)  # Skip 'skip' outerless frames
+    if not limit:
+        return calls
+    return islice(calls, limit)  # Keep at most `limit` outer frames
+
+
+def whereami(skip: int = 0, limit: int | None = None) -> str:
+    calls = stack(skip + 1, limit)
+    return ' -> '.join(reversed([*calls]))
 
 
 @wrapt.decorator
