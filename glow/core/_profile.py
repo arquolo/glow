@@ -3,23 +3,28 @@ from __future__ import annotations
 __all__ = ['memprof', 'time_this', 'timer']
 
 import functools
-import inspect
 import threading
 import time
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from ._repr import si, si_bin
+from .debug import whereami
 
 _F = TypeVar('_F', bound=Callable)
+
+if TYPE_CHECKING:
+    import psutil
+    _THIS: psutil.Process | None
+
 _THIS = None
 
 
 @contextmanager
-def memprof(name: str = 'Task',
-            callback: Callable[[float], object] | None = None):
+def memprof(name_or_callback: str | Callable[[float], object] | None = None,
+            /) -> Iterator[None]:
     global _THIS
     if _THIS is None:
         import psutil
@@ -30,30 +35,30 @@ def memprof(name: str = 'Task',
         yield
     finally:
         size = _THIS.memory_info().rss - init
-        if callback is not None:
-            callback(size)
+        if callable(name_or_callback):
+            name_or_callback(size)
         else:
-            print(f'{name} done: {"+" if size >= 0 else ""}{si_bin(size)}')
+            name = name_or_callback
+            if name is None:
+                name = f'{whereami(2, 1)} line'
+            sign = '+' if size >= 0 else ''
+            print(f'{name} done: {sign}{si_bin(size)}')
 
 
 @contextmanager
-def timer(name: str = None, callback: Callable[[float], object] | None = None):
+def timer(name_or_callback: str | Callable[[float], object] | None = None,
+          /) -> Iterator[None]:
     init = time.perf_counter()
     try:
         yield
     finally:
         duration = time.perf_counter() - init
-        if callback is not None:
-            callback(duration)
+        if callable(name_or_callback):
+            name_or_callback(duration)
         else:
+            name = name_or_callback
             if name is None:
-                if ((frame := inspect.currentframe()) and frame.f_back and
-                        frame.f_back.f_back):
-                    tb = inspect.getframeinfo(frame.f_back.f_back)
-                    name = f'{tb.filename}:{tb.lineno} block'
-                else:
-                    name = 'Task'
-
+                name = f'{whereami(2, 1)} line'
             print(f'{name} done in {si(duration)}s')
 
 
@@ -81,7 +86,7 @@ def time_this(fn: _F) -> _F:
         info[0] += 1
         info[1] += (duration - info[1]) / info[0]
 
-    @timer(callback=callback)
+    @timer(callback)
     def wrapper(*args, **kwargs):
         return fn(*args, **kwargs)
 

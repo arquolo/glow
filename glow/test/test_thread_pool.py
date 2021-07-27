@@ -96,7 +96,7 @@ def bench_ipc_speed(order=25, steps=100):
             for size in sizes:
                 task = worker(size)
                 args = zip(*task.args())
-                with glow.timer(callback=times.append):
+                with glow.timer(times.append):
                     [*runner(task, *args)]
 
             bps = to_bytes * NUM_STEPS * sizes / np.asarray(times)
