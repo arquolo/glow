@@ -336,8 +336,8 @@ class TiffTag:
     BACKGROUND_COLOR = 434
 
 
-# class _TiffImage(TiledImage, extensions=''):
-class _TiffImage(TiledImage, extensions='svs tif tiff'):
+# FIXME: Get around slides from choked SVS encoder
+class _TiffImage(TiledImage, extensions='tif tiff'):
     def __init__(self, path: Path) -> None:
         _setup_libs()
         # TODO: use memmap instead of libtiff
