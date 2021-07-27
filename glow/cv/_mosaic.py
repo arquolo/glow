@@ -162,7 +162,7 @@ class _Tiler(_Sized):
 
     def _offset(self) -> Sequence[Coord]:
         offsets = np.argwhere(self.cells) * self.step - self.overlap
-        return offsets * self.scale
+        return (offsets * self.scale).tolist()
 
     def __iter__(self) -> Iterator[tuple[Coord, np.ndarray]]:
         """
