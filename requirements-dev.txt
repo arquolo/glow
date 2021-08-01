@@ -1,7 +1,7 @@
 # Use with `pip install -r requirements-dev.txt`
 
 # Package itself with all extras
--e .[core,io,nn,tfs,viz]
+-e .[all]
 
 # Formatting
 yapf~=0.30

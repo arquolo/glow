@@ -17,7 +17,7 @@ pip install glow
 ```bash
 pip install glow[nn]  # For cv/neural network extras
 pip install glow[io]  # For I/O extras
-pip install glow[io,nn]  # For all
+pip install glow[all]  # For all
 ```
 </details>
 Glow is compatible with: Python 3.9+, PyTorch 1.9+.
