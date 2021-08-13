@@ -87,8 +87,8 @@ def _get_executor(num_workers: int, mp: bool) -> Iterator[Executor]:
         try:
             yield executor
         finally:  # Don't wait workers if failure occurs
-            # TODO: with py3.9 use `cancel_futures=True`
-            executor.shutdown(wait=sys.exc_info()[0] is None)
+            exc, *_ = sys.exc_info()
+            executor.shutdown(wait=exc is None, cancel_futures=True)
         return
 
     executor: Executor = loky.get_reusable_executor(  # type: ignore
