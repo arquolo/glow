@@ -64,10 +64,6 @@ Improve function signature to show/hide in-site call frames.
 - Make `len()` patching optional
 - Add wrapper for `tqdm` to use there `len_hint(...)` instead of `total=len(...)`
 
-### `glow.core._shortuuid`
-
-Add fork of [shortuuid](https://github.com/skorokithakis/shortuuid) with tests.
-
 ### `glow.core._repr._Si`
 
 Add proper string formatting using `format_spec`
