@@ -2,14 +2,18 @@ __all__ = ['export', 'get_wild_imports', 'import_tree']
 
 import pkgutil
 import sys
+from collections.abc import Callable
 from types import ModuleType
+from typing import TypeVar
+
+_T = TypeVar('_T', bound=Callable)
 
 
 class ExportError(Exception):
     pass
 
 
-def export(obj):
+def export(obj: _T) -> _T:
     """Exposes obj to __all__ in module parent to where it was defined,
     although breaking intellisense.
 
@@ -34,7 +38,11 @@ def export(obj):
     func()
     ```
     """
-    parent: str = sys.modules[obj.__module__].__spec__.parent  # type: ignore
+    spec = sys.modules[obj.__module__].__spec__
+    if not spec or not spec.parent:
+        return obj
+
+    parent: str = spec.parent
     if obj.__module__ == parent:
         return obj
 
