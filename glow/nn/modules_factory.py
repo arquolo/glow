@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 __all__ = ['linear', 'conv', 'Cat', 'Sum', 'DenseBlock', 'SEBlock']
 
 import random
@@ -5,7 +7,6 @@ import random
 import torch
 from torch import nn
 
-from ..api import Default
 from .modules import Activation
 
 
@@ -84,8 +85,8 @@ class Cat(nn.Sequential):  # TODO: deprecate and/or refactor
 class Sum(nn.Sequential):  # TODO: deprecate and/or refactor
     """Helper for ResNet-like modules"""
     kind = 'resnet'
-    expansion = Default()
-    groups = Default()
+    expansion: float | None = None
+    groups: int | None = None
     blending = False
 
     def __init__(self,
@@ -134,18 +135,18 @@ class Sum(nn.Sequential):  # TODO: deprecate and/or refactor
 
     @classmethod
     def _resnet(cls, cin):
-        expansion = cls.expansion.get_or(1 / 4)
+        expansion = cls.expansion or (1 / 4)
         return cls._base_3_way(cin, expansion=expansion)
 
     @classmethod
     def _resnext(cls, cin):
-        expansion = cls.expansion.get_or(1 / 2)
-        groups = cls.groups.get_or(32)
+        expansion = cls.expansion or (1 / 2)
+        groups = cls.groups or 32
         return cls._base_3_way(cin, expansion=expansion, groups=groups)
 
     @classmethod
     def _mobile(cls, cin):
-        expansion = cls.expansion.get_or(6)
+        expansion = cls.expansion or 6
         return cls._base_3_way(
             cin, expansion=expansion, groups=cin * expansion)
 

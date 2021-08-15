@@ -6,17 +6,6 @@ Add docs for all exported functions
 
 Add explicit imports from glow.core.*
 
-### `glow.{api -> env}`
-
-Change API to:
-
-- `env.get(name, default)` - get value from current env
-- `env.register(name, **aliases: object)` - add aliases for name
-- `env.set(name, value)` - set value to env
-- `env.fork() -> ContextManager` - temporarily fork env
-
-Use `collections.ChainMap` for implementation.
-
 ### `glow.cli`
 
 This module was designed to allow generation of CLI from schema (implemented via dataclass).

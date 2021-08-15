@@ -1,4 +1,4 @@
-from .config import Default, patch
+from .config import env
 from .exporting import export, get_wild_imports, import_tree
 
-__all__ = ['Default', 'export', 'get_wild_imports', 'import_tree', 'patch']
+__all__ = ['env', 'export', 'get_wild_imports', 'import_tree']

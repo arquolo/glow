@@ -1,31 +1,43 @@
-__all__ = ['patch', 'Default']
+__all__ = ['env']
 
-from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from collections import ChainMap
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
-from unittest import mock
 
-_DEFAULT = object()
-# TODO: just use collections.ChainMap
+from ..core import repr_as_obj
 
 
-@dataclass
-class Default:
-    value: Any = _DEFAULT
+class _Env(ChainMap):
+    """Environment with scopes.
+    The outermost scope takes highest priority.
 
-    def get_or(self, value):
-        if self.value is _DEFAULT:
-            return value
-        return self.value
+    As example:
+
+        >>> print(env)  # Empty in global scope
+        _Env()
+        >>> with env(a=1):  # Overrides `a` from inner scope
+        ...     print(env)
+        ...     with env(a=2, b=3):  # Set defaults for `a` and `b`
+        ...         print(env)
+        ...     print(env)
+        _Env(a=1)
+        _Env(a=1, b=3)
+        _Env(a=1)
+        >>> print(env)  # Reset to initial state
+        _Env()
+
+    """
+    @contextmanager
+    def __call__(self, **items: Any) -> Iterator[None]:
+        self.maps.append(items)
+        try:
+            yield
+        finally:
+            self.maps.pop()
+
+    def __repr__(self) -> str:
+        return f'{type(self).__name__}({repr_as_obj({**self})})'
 
 
-@contextmanager
-def patch(obj, **kwargs):
-    with ExitStack() as stack:
-        for key, value in kwargs.items():
-            proxy = getattr(obj, key)
-            if isinstance(proxy, Default):
-                stack.enter_context(mock.patch.object(proxy, 'value', value))
-            else:
-                stack.enter_context(mock.patch.object(obj, key, value))
-        yield
+env = _Env()
