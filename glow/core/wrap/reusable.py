@@ -3,61 +3,56 @@ from __future__ import annotations
 __all__ = ['Reusable']
 
 import asyncio
-import threading
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import ClassVar, Generic, Protocol, TypeVar
+from functools import partial
+from threading import Thread
+from typing import Any, Generic, TypeVar
+
+from .concurrency import call_once
 
 _T = TypeVar('_T')
-_T_co = TypeVar('_T_co', covariant=True)
+_Make = Callable[[], _T]
+_Callback = Callable[[_T], Any]
 
 
+@call_once
 def make_loop() -> asyncio.AbstractEventLoop:
-    def start_loop(loop):
-        asyncio.set_event_loop(loop)
-        loop.run_forever()
-
     loop = asyncio.new_event_loop()
-    threading.Thread(target=start_loop, args=(loop, ), daemon=True).start()
+    Thread(target=loop.run_forever, daemon=True).start()
     return loop
 
 
-def _call_in_loop(fn: Callable[..., _T],
-                  loop: asyncio.AbstractEventLoop) -> _T:
-    async def callee():
-        return fn()
-
-    return asyncio.run_coroutine_threadsafe(callee(), loop=loop).result()
+async def _await(fn: _Make[_T]) -> _T:
+    return fn()
 
 
-class _Factory(Protocol[_T_co]):
-    def __call__(self) -> _T_co:
-        ...
+def _trampoline(callback: _Callback[_T], ref: weakref.ref[_T]) -> None:
+    if (obj := ref()) is not None:
+        callback(obj)
 
 
 @dataclass
 class Reusable(Generic[_T]):
-    _loop: ClassVar[asyncio.AbstractEventLoop] = make_loop()
-    _lock: asyncio.Lock = field(init=False)
-    factory: _Factory[_T]
+    make: _Make[_T]
     delay: float
-    finalize: Callable[[_T], None] | None = None
+    finalize: _Callback[_T] | None = None
+
+    _loop: asyncio.AbstractEventLoop = field(default_factory=make_loop)
+    _lock: asyncio.Lock = field(init=False)
     _deleter: asyncio.TimerHandle | None = None
     _box: list[_T] = field(default_factory=list)
 
     def __post_init__(self):
-        self._lock = _call_in_loop(asyncio.Lock, self._loop)
+        coro = _await(asyncio.Lock)
+        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        self._lock = fut.result()
 
     def get(self) -> _T:
         """Returns inner object, or recreates it"""
-        fut = asyncio.run_coroutine_threadsafe(self._get(), loop=self._loop)
+        fut = asyncio.run_coroutine_threadsafe(self._get(), self._loop)
         return fut.result()
-
-    def _finalize(self, ref):
-        obj: _T | None = ref()
-        if obj is not None and self.finalize is not None:
-            self.finalize(obj)
 
     async def _get(self) -> _T:
         async with self._lock:
@@ -68,8 +63,9 @@ class Reusable(Generic[_T]):
 
             # recreate object, if nessessary
             if not self._box:
-                obj = self.factory()
-                weakref.finalize(obj, self._finalize, weakref.ref(obj))
+                obj = await asyncio.to_thread(self.make)
+                if self.finalize is not None:
+                    weakref.ref(obj, partial(_trampoline, self.finalize))
                 self._box.append(obj)
 
             return self._box[0]
