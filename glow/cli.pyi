@@ -1,4 +1,4 @@
-from __future__ import annotations  # until 3.10
+from __future__ import annotations
 
 from argparse import ArgumentParser
 from collections.abc import Callable, Mapping
@@ -9,8 +9,9 @@ _T = TypeVar('_T')
 
 @overload
 def arg(
-        *,
         default: _T,
+        /,
+        *,
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
         hash: bool | None = ...,  # noqa: A002
@@ -23,7 +24,7 @@ def arg(
 @overload
 def arg(
         *,
-        default_factory: Callable[[], _T],
+        factory: Callable[[], _T],
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
         hash: bool | None = ...,  # noqa: A002
@@ -45,5 +46,5 @@ def arg(
     ...
 
 
-def parse_args(cls: type[_T]) -> tuple[ArgumentParser, _T]:
+def parse_args(cls: type[_T]) -> tuple[_T, ArgumentParser]:
     ...
