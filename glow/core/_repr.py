@@ -68,7 +68,7 @@ _PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' '):].upper()
 
 def _num_repr(value: float | int, si: bool = True) -> str:
     if value == 0:
-        return '0'
+        return '0' + 'B' * (not si)
 
     base, prefixes = (1000, _PREFIXES) if si else (1024, _PREFIXES_BIN)
     threshold = base - 0.5
