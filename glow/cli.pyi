@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar, overload
 
 _T = TypeVar('_T')
@@ -46,5 +46,12 @@ def arg(
     ...
 
 
-def parse_args(cls: type[_T]) -> tuple[_T, ArgumentParser]:
+@overload
+def parse_args(fn: Callable[..., _T]) -> tuple[_T, ArgumentParser]:
+    ...
+
+
+@overload
+def parse_args(fn: Callable[..., _T],
+               args: Sequence[str]) -> tuple[_T, ArgumentParser]:
     ...

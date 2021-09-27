@@ -6,10 +6,6 @@
 
 - Add explicit imports from glow.core.*
 
-### `glow.cli.{parse_args -> run_cli}`
-
-- Add support for arbitrary callable as first argument (with type hinted `__call__` method) to allow usage as decorator.
-
 ### `glow.mapped` (from `glow.core._parallel`)
 
 Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Windows, and tmpfs mmap on Linux.

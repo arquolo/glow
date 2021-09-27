@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Optional
-from unittest.mock import patch
+from typing import Any, Optional, TypeVar
 
 import pytest
 
 from glow.cli import parse_args
+
+T = TypeVar('T')
 
 
 @dataclass
@@ -72,7 +74,7 @@ class NestedAliased:  # Forbidden as all field names must be unique
     nested: Aliased
 
 
-@pytest.mark.parametrize(('argv', 'result'), [
+@pytest.mark.parametrize(('argv', 'expected'), [
     (['value'], Arg('value')),
     ([], List_([])),
     (['a'], List_(['a'])),
@@ -87,12 +89,11 @@ class NestedAliased:  # Forbidden as all field names must be unique
     (['value'], Nested('value', Optional_())),
     (['value', '--param', 'pvalue'], Nested('value', Optional_('pvalue'))),
 ])
-def test_cli_ok(argv: list[str], result: Any):
-    cls = type(result)
-    with patch('sys.argv', [''] + argv):
-        obj, _ = parse_args(cls)
-        assert isinstance(obj, cls)
-        assert obj == result
+def test_good_class(argv: list[str], expected: Any):
+    cls = type(expected)
+    result, _ = parse_args(cls, argv)
+    assert isinstance(result, cls)
+    assert result == expected
 
 
 @pytest.mark.parametrize(('cls', 'exc_type'), [
@@ -104,6 +105,42 @@ def test_cli_ok(argv: list[str], result: Any):
     (NestedArg, ValueError),
     (NestedAliased, ValueError),
 ])
-def test_cli_fail(cls: type[Any], exc_type: type[BaseException]):
-    with patch('sys.argv', ['']), pytest.raises(exc_type):
-        parse_args(cls)
+def test_bad_class(cls: type[Any], exc_type: type[BaseException]):
+    with pytest.raises(exc_type):
+        parse_args(cls, [])
+
+
+def _no_op():
+    return ()
+
+
+def _arg(a: int):
+    return a
+
+
+def _kwarg(a: int = 4):
+    return a
+
+
+def _kwarg_bool(a: bool = False):
+    return a
+
+
+def _arg_kwarg(a: int, b: str = 'hello'):
+    return a, b
+
+
+@pytest.mark.parametrize(('argv', 'func', 'expected'), [
+    ([], _no_op, ()),
+    (['42'], _arg, 42),
+    ([], _kwarg, 4),
+    (['--a', '58'], _kwarg, 58),
+    ([], _kwarg_bool, False),
+    (['--no-a'], _kwarg_bool, False),
+    (['--a'], _kwarg_bool, True),
+    (['53'], _arg_kwarg, (53, 'hello')),
+    (['87', '--b', 'bye'], _arg_kwarg, (87, 'bye')),
+])
+def test_good_func(argv: list[str], func: Callable[..., T], expected: T):
+    result, _ = parse_args(func, argv)
+    assert result == expected

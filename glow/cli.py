@@ -3,8 +3,9 @@ from __future__ import annotations
 __all__ = ['arg', 'parse_args']
 
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
-from collections.abc import Iterable, Sequence
-from dataclasses import MISSING, Field, field, is_dataclass
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from dataclasses import MISSING, Field, field, fields, is_dataclass
+from inspect import signature
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 _T = TypeVar('_T')
@@ -57,18 +58,38 @@ def _unwrap_type(tp: type) -> tuple[type, str | None]:
                      f'as generic types. Got: {tp}')
 
 
-def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, cls: type,
-                    seen: dict[str, list[type]]) -> list[_Node]:
-    # TODO: Allow callable or class (instead of just class) for `cls` argument
-    hints = get_type_hints(cls)
-    fields: dict[str, Field] = cls.__dataclass_fields__  # type: ignore
+def _get_fields(fn: Callable) -> Iterator[Field]:
+    if not callable(fn):
+        raise TypeError(f'Unsupported value type {type(fn)}')
 
-    nodes = [
-        _prepare_field(parser, hints[name], name, fd, seen)
-        for name, fd in fields.items() if fd.init
-    ]
-    for name in fields:
-        seen.setdefault(name, []).append(cls)
+    if is_dataclass(fn):
+        yield from fields(fn)
+        return
+
+    for p in signature(fn).parameters.values():
+        if p.kind is p.KEYWORD_ONLY and p.default is p.empty:
+            raise ValueError(f'Keyword "{p.name}" must have default')
+        if p.kind in (p.POSITIONAL_ONLY, p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            raise ValueError(f'Unsupported parameter type: {p.kind}')
+
+        if isinstance(p.default, Field):
+            fd = p.default
+        else:
+            fd = arg(MISSING if p.default is p.empty else p.default)
+        fd.name = p.name
+        yield fd
+
+
+def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
+                    seen: dict[str, list]) -> list[_Node]:
+    hints = get_type_hints(fn)
+
+    nodes: list[_Node] = []
+    for fd in _get_fields(fn):
+        if fd.init:
+            seen.setdefault(fd.name, []).append(fn)
+            nodes.append(_prepare_field(parser, hints[fd.name], fd, seen))
+
     for name, usages in seen.items():
         if len(usages) > 1:
             raise ValueError(f'Field name "{name}" occured multiple times: ' +
@@ -79,23 +100,23 @@ def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, cls: type,
 
 
 def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
-                   name: str, field_: Field, seen: dict[str, list]) -> _Node:
+                   fd: Field, seen: dict[str, list]) -> _Node:
     cls, nargs = _unwrap_type(cls)
 
-    help_ = field_.metadata.get('help') or ''
-    default = field_.default
+    help_ = fd.metadata.get('help') or ''
+    default = fd.default
     if cls is not bool and default is not MISSING:
         help_ += f' (default: {default})'
 
     if is_dataclass(cls):  # Nested dataclass
-        arg_group = parser.add_argument_group(name)
-        return name, cls, _prepare_nested(arg_group, cls, seen)
+        arg_group = parser.add_argument_group(fd.name)
+        return fd.name, cls, _prepare_nested(arg_group, cls, seen)
 
-    snake = name.replace('_', '-')
+    snake = fd.name.replace('_', '-')
 
     if cls is bool:  # Optional
         if default is MISSING:
-            raise ValueError(f'Boolean field "{name}" must have default')
+            raise ValueError(f'Boolean field "{fd.name}" must have default')
         parser.add_argument(
             f'--{snake}',
             action=BooleanOptionalAction,
@@ -116,10 +137,10 @@ def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
     else:
         raise ValueError('Positionals are not allowed for nested classes')
 
-    return name
+    return fd.name
 
 
-def _construct(src: dict[str, Any], cls: type[_T],
+def _construct(src: dict[str, Any], fn: Callable[..., _T],
                args: Iterable[_Node]) -> _T:
     kwargs = {}
     for a in args:
@@ -127,18 +148,16 @@ def _construct(src: dict[str, Any], cls: type[_T],
             kwargs[a] = src.pop(a)
         else:
             kwargs[a[0]] = _construct(src, a[1], a[2])
-    return cls(**kwargs)  # type: ignore
+    return fn(**kwargs)
 
 
-def parse_args(cls: type[_T],
+def parse_args(fn: Callable[..., _T],
                args: Sequence[str] | None = None) -> tuple[_T, ArgumentParser]:
-    """Use dataclass as source for parser"""
+    """Create parser from type hints of callable, parse args and do call"""
     # TODO: Rename to `exec_cli`
-    assert is_dataclass(cls)
-
     parser = ArgumentParser()
-    nodes = _prepare_nested(parser, cls, {})
+    nodes = _prepare_nested(parser, fn, {})
 
     namespace = parser.parse_args(args)
-    obj = _construct(vars(namespace), cls, nodes)
+    obj = _construct(vars(namespace), fn, nodes)
     return obj, parser
