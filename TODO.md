@@ -1,20 +1,14 @@
 # General
 
-Add docs for all exported functions
+- Add docs for all exported functions
 
 ### `glow.__init__`
 
-Add explicit imports from glow.core.*
+- Add explicit imports from glow.core.*
 
-### `glow.cli`
+### `glow.cli.{parse_args -> run_cli}`
 
-This module was designed to allow generation of CLI from schema (implemented via dataclass).
-However, with postponed annotations feature from PEP-563, it's pretty hard to make it work, as evaluating of stringified annotations is not always possible.
-
-Also it's still open question how to add support of nested schemas to automatize parameter groups.
-
-Deprecate and remove this module.
-Find better alternative to merge of dataclasses and argparse (maybe `typer` or `click`, or some derivative of `pydantic`).
+- Add support for arbitrary callable as first argument (with type hinted `__call__` method) to allow usage as decorator.
 
 ### `glow.mapped` (from `glow.core._parallel`)
 
@@ -27,6 +21,8 @@ Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Win
 ### `glow.{core.wrap -> core.cache}`
 
 Add case `capacity=None` for unbound cache like in `functools`.
+
+Use `evict: _Eviction` instead of `polycy` argument.
 
 Combine all underlying modules to single module one, or find a better split.
 
@@ -44,7 +40,8 @@ Improve test coverage.
 
 ### `glow.whereami`
 
-Improve function signature to show/hide in-site call frames.
+- Improve function signature to show/hide stack frames from `site` modules.
+  If 100% detection of foreign functions is not possible, skip only stdlib ones.
 
 ### `glow.core._len_helpers.{as_sized, partial_iter}`
 
@@ -57,16 +54,14 @@ Improve function signature to show/hide in-site call frames.
 
 Add proper string formatting using `format_spec`
 
-### `glow.io.TiledImage`
+### `glow.io._TiffImage`
 
-Refactor TiffImage:
-
-- enable fallthrough for bad tiles
-- use mmap and tile offsets from libtiff to parallelize tile decoding
+- Enable fallthrough for bad tiles
+- Use mmap and tile offsets from `libtiff` to decompose I/O from decoding to allow concurrent decoding.
 
 ### `glow.{nn.make_loader -?> utils.make_loader}`
 
-Seed as argument to toggle patching of dataset and iterable to provide batchsize- and workers-invariant data generation
+- Seed as argument to toggle patching of dataset and iterable to provide batchsize- and workers-invariant data generation
 
 ### `glow.nn.auto`
 
