@@ -14,10 +14,10 @@ def arg(
         *,
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
-        hash: bool | None = ...,  # noqa: A002
-        help: str | None = ...,  # noqa: A002
+        hash: bool = ...,  # noqa: A002
+        help: str = ...,  # noqa: A002
         compare: bool = ...,
-        metadata: Mapping[str, Any] | None = ...) -> _T:
+        metadata: Mapping[str, Any] = ...) -> _T:
     ...
 
 
@@ -27,10 +27,10 @@ def arg(
         factory: Callable[[], _T],
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
-        hash: bool | None = ...,  # noqa: A002
-        help: str | None = ...,  # noqa: A002
+        hash: bool = ...,  # noqa: A002
+        help: str = ...,  # noqa: A002
         compare: bool = ...,
-        metadata: Mapping[str, Any] | None = ...) -> _T:
+        metadata: Mapping[str, Any] = ...) -> _T:
     ...
 
 
@@ -39,19 +39,14 @@ def arg(
         *,
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
-        hash: bool | None = ...,  # noqa: A002
-        help: str | None = ...,  # noqa: A002
+        hash: bool = ...,  # noqa: A002
+        help: str = ...,  # noqa: A002
         compare: bool = ...,
-        metadata: Mapping[str, Any] | None = ...) -> Any:
+        metadata: Mapping[str, Any] = ...) -> Any:
     ...
 
 
-@overload
-def parse_args(fn: Callable[..., _T]) -> tuple[_T, ArgumentParser]:
-    ...
-
-
-@overload
 def parse_args(fn: Callable[..., _T],
-               args: Sequence[str]) -> tuple[_T, ArgumentParser]:
+               args: Sequence[str] = ...,
+               prog: str = ...) -> tuple[_T, ArgumentParser]:
     ...

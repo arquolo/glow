@@ -3,7 +3,7 @@ from __future__ import annotations
 __all__ = ['arg', 'parse_args']
 
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import MISSING, Field, field, fields, is_dataclass
 from inspect import signature
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -59,10 +59,7 @@ def _unwrap_type(tp: type) -> tuple[type, str | None]:
 
 
 def _get_fields(fn: Callable) -> Iterator[Field]:
-    if not callable(fn):
-        raise TypeError(f'Unsupported value type {type(fn)}')
-
-    if is_dataclass(fn):
+    if is_dataclass(fn):  # Shortcut
         yield from fields(fn)
         return
 
@@ -104,9 +101,8 @@ def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
     cls, nargs = _unwrap_type(cls)
 
     help_ = fd.metadata.get('help') or ''
-    default = fd.default
-    if cls is not bool and default is not MISSING:
-        help_ += f' (default: {default})'
+    if cls is not bool and fd.default is not MISSING:
+        help_ += f' (default: {fd.default})'
 
     if is_dataclass(cls):  # Nested dataclass
         arg_group = parser.add_argument_group(fd.name)
@@ -115,17 +111,17 @@ def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
     snake = fd.name.replace('_', '-')
 
     if cls is bool:  # Optional
-        if default is MISSING:
+        if fd.default is MISSING:
             raise ValueError(f'Boolean field "{fd.name}" must have default')
         parser.add_argument(
             f'--{snake}',
             action=BooleanOptionalAction,
-            default=default,
+            default=fd.default,
             help=help_)
 
-    elif default is not MISSING:  # Generic optional
+    elif fd.default is not MISSING:  # Generic optional
         parser.add_argument(
-            f'--{snake}', default=default, type=cls, help=help_)
+            f'--{snake}', default=fd.default, type=cls, help=help_)
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
         if nargs is not None:  # N positionals
@@ -135,13 +131,13 @@ def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
             parser.add_argument(snake, type=cls, help=help_)
 
     else:
-        raise ValueError('Positionals are not allowed for nested classes')
+        raise ValueError('Positionals are not allowed for nested types')
 
     return fd.name
 
 
 def _construct(src: dict[str, Any], fn: Callable[..., _T],
-               args: Iterable[_Node]) -> _T:
+               args: Collection[_Node]) -> _T:
     kwargs = {}
     for a in args:
         if isinstance(a, str):
@@ -152,11 +148,15 @@ def _construct(src: dict[str, Any], fn: Callable[..., _T],
 
 
 def parse_args(fn: Callable[..., _T],
-               args: Sequence[str] | None = None) -> tuple[_T, ArgumentParser]:
+               args: Sequence[str] | None = None,
+               prog: str | None = None) -> tuple[_T, ArgumentParser]:
     """Create parser from type hints of callable, parse args and do call"""
     # TODO: Rename to `exec_cli`
-    parser = ArgumentParser()
+    parser = ArgumentParser(prog)
     nodes = _prepare_nested(parser, fn, {})
+
+    if args is not None:  # fool's protection
+        args = line.split(' ') if (line := ' '.join(args).strip()) else []
 
     namespace = parser.parse_args(args)
     obj = _construct(vars(namespace), fn, nodes)
