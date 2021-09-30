@@ -119,8 +119,8 @@ class TiledImage(_Decoder):
         self._num_levels = num_levels
         self._spec = dict(self._init_spec(num_levels))
 
-    def __reduce__(self) -> str | tuple:
-        return TiledImage, (self.path, )  # self._slices)
+    def __reduce__(self) -> tuple:
+        return type(self), (self.path, )  # self._slices)
 
     def _init_spec(self, num_levels: int):
         assert num_levels > 0
