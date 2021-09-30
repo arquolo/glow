@@ -64,8 +64,7 @@ def inference(net: nn.Module) -> Iterator[None]:
 
     Net is switched to eval mode, and gradient computation is turned off.
     Works as context manager"""
-    # TODO: deprecate to use torch.inference_mode decorator
-    with _set_eval(net), torch.no_grad():
+    with _set_eval(net), torch.inference_mode():
         yield
 
 
