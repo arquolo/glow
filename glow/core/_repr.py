@@ -66,31 +66,35 @@ _PREFIXES = 'qryzafpnum kMGTPEZYRQ'
 _PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' '):].upper()
 
 
-def _num_repr(value: float | int, si: bool = True) -> str:
-    if value == 0:
-        return '0' + 'B' * (not si)
-
-    base, prefixes = (1000, _PREFIXES) if si else (1024, _PREFIXES_BIN)
+def _find_prefix(value: float | int, base: int,
+                 prefixes: str) -> tuple[float, str]:
     threshold = base - 0.5
     origin = prefixes.find(' ') + 1
+    value *= base ** origin
 
-    x = value
-    x *= base ** origin
     for prefix in prefixes:  # noqa: B007
-        x /= base
-        if -threshold < x < threshold:
-            break
-    else:
-        prefix = prefixes[-1]
+        value /= base
+        if -threshold < value < threshold:
+            return value, prefix
 
-    precision = '.3g' if -99.95 < x < 99.95 else '.0f'
+    return value, prefixes[-1]
+
+
+def _num_repr(value: float | int, si: bool = True) -> str:
+    if value == 0:
+        return '0' if si else '0B'
+
+    base, prefixes = (1000, _PREFIXES) if si else (1024, _PREFIXES_BIN)
+    value, prefix = _find_prefix(value, base, prefixes)
+
+    precision = '.3g' if -99.95 < value < 99.95 else '.0f'
     prefix = prefix.strip()
     unit = prefix if si else f'{prefix}iB' if prefix else 'B'
-    return f'{x:{precision}}{unit}'
+    return f'{value:{precision}}{unit}'
 
 
 class _Si(ObjectProxy):
-    __slots__ = '_self_si'
+    __slots__ = '_self_si',
 
     def __init__(self, value: float | int = 0, si: bool = True):
         super().__init__(value)
