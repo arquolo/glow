@@ -15,7 +15,8 @@ from collections.abc import (Callable, Hashable, KeysView, MutableMapping,
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar, cast
+from typing import (Any, ClassVar, Generic, Literal, NamedTuple, SupportsInt,
+                    TypeVar, cast)
 from weakref import WeakValueDictionary
 
 from .._repr import si_bin
@@ -287,7 +288,7 @@ _KWD_MARK = object()
 
 
 class _HashedSeq(list):  # List is mutable, that's why not NamedTuple
-    __slots__ = 'hashvalue'
+    __slots__ = 'hashvalue',
 
     def __init__(self, tup: tuple):
         self[:] = tup
@@ -297,20 +298,17 @@ class _HashedSeq(list):  # List is mutable, that's why not NamedTuple
         return self.hashvalue
 
 
-def _make_key(*args, **kwargs) -> _HashedSeq:
+def _make_key(*args, **kwargs) -> Hashable:
     """Copied from functools._make_key, as private function"""
-    key = args
+    if len(args) == 1 and isinstance(args[0], (int, str)):
+        return args[0]
     if kwargs:
-        key += _KWD_MARK,
-        for item in kwargs.items():
-            key += item
-    if len(key) == 1 and type(key[0]) in (int, str):
-        return key[0]
-    return _HashedSeq(key)
+        args = sum(kwargs.items(), (*args, _KWD_MARK))
+    return _HashedSeq(args)
 
 
 def memoize(
-    capacity: int,
+    capacity: SupportsInt,
     *,
     batched: bool = False,
     policy: _Policy = 'raw',
@@ -323,6 +321,7 @@ def memoize(
     - policy - eviction policy, either "raw" (no eviction), or "lru"
       (evict oldest), or "mru" (evict most recent).
     """
+    capacity = int(capacity)
     if not capacity:
         return lambda fn: fn
 

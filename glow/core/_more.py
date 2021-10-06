@@ -112,10 +112,10 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
 
 def eat(iterable: Iterable, daemon: bool = False) -> None:
     """Consume iterable, daemonize if needed (move to background thread)"""
-    if not daemon:
-        deque(iterable, 0)
-    else:
+    if daemon:
         threading.Thread(target=deque, args=(iterable, 0), daemon=True).start()
+    else:
+        deque(iterable, 0)
 
 
 @as_sized(hint=lambda *it: sum(map(len, it)))

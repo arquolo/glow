@@ -9,6 +9,7 @@ import pickle
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from io import BytesIO
+from itertools import islice
 from pathlib import Path
 from typing import Callable, TypeVar, cast
 
@@ -90,7 +91,7 @@ def profile(fn: _F) -> _F:
     def wrapper(*args, **kwargs):
         results = fn(*args, **kwargs)
         with torch.cuda.profiler.profile():
-            yield next(results)
+            yield from islice(results, 1)
             with torch.autograd.profiler.emit_nvtx():
                 yield from results
 

@@ -140,7 +140,7 @@ def once_per_world(fn: _F) -> _F:
 
         barrier()
 
-        if rank > 0:  # slave
+        if rank > 0:  # slave, here must be IPC with PickleBuffers, i.e. reduce
             with tmp.open('rb') as fp:
                 result = pickle.load(fp)
 

@@ -38,7 +38,7 @@ class _ImportHookFinder(abc.MetaPathFinder, set):
 
             self.add(fullname)
             try:
-                if ((spec := util.find_spec(fullname)) and spec.loader):
+                if (spec := util.find_spec(fullname)) and spec.loader:
                     return _ImportHookChainedLoader(spec.loader)
                 return None
             finally:

@@ -136,8 +136,8 @@ with tqdm(total=epoch_len * args.epochs, desc='train') as pbar:
 
         for tag, values in scores.items():
             history[tag].append(values)
-        scalars_fmt = ', '.join(f'{tag}: {{:.3f}}/{{:.3f}}'.format(*values)
-                                for tag, values in scores.items())
+        scalars_fmt = ', '.join(
+            f'{t}: {{:.3f}}/{{:.3f}}'.format(*vs) for t, vs in scores.items())
         print(f'[{i:03d}] {scalars_fmt}')
 
 if args.plot:

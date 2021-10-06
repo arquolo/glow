@@ -57,13 +57,13 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
 
     def wrapper():
         with _DeferredStack() as stack, lock:
-            if fn.__future__ is None:
+            if fn._future is None:
                 # This way setting future is protected, but fn() is not
-                fn.__future__ = stack.defer(fn)
+                fn._future = stack.defer(fn)
 
-        return fn.__future__.result()
+        return fn._future.result()
 
-    fn.__future__ = None  # type: ignore
+    fn._future = None  # type: ignore
     return cast(_ZeroArgsF, functools.update_wrapper(wrapper, fn))
 
 
@@ -136,7 +136,7 @@ def stream_batched(func=None, *, batch_size, latency=0.1, timeout=20.):
         futures = [Future() for _ in batch]
         for item, fut in zip(batch, futures):
             buf.put((item, fut))
-        return [fut.result(timeout=timeout) for fut in futures]
+        return [f.result(timeout=timeout) for f in futures]
 
     Thread(target=_serve_forever, daemon=True).start()
     return functools.update_wrapper(wrapper, func)

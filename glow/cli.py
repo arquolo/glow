@@ -10,6 +10,7 @@ from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 _T = TypeVar('_T')
 _Node = Union[str, tuple[str, type[Any], list['_Node']]]  # type: ignore
+_NoneType = type(None)
 
 
 def arg(
@@ -50,7 +51,7 @@ def _unwrap_type(tp: type) -> tuple[type, str | None]:
         return args[0], '*'
 
     if origin is Union:
-        args.remove(type(None))
+        args.remove(_NoneType)
         if len(args) == 1:
             return args[0], '?'
 
@@ -66,7 +67,7 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
     for p in signature(fn).parameters.values():
         if p.kind is p.KEYWORD_ONLY and p.default is p.empty:
             raise ValueError(f'Keyword "{p.name}" must have default')
-        if p.kind in (p.POSITIONAL_ONLY, p.VAR_POSITIONAL, p.VAR_KEYWORD):
+        if p.kind in {p.POSITIONAL_ONLY, p.VAR_POSITIONAL, p.VAR_KEYWORD}:
             raise ValueError(f'Unsupported parameter type: {p.kind}')
 
         if isinstance(p.default, Field):

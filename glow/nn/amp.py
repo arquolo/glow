@@ -56,7 +56,7 @@ class OptContext:
 
     def state_dict(self) -> dict:
         return {
-            k: (v if k != 'optim' else v.state_dict())
+            k: (v.state_dict() if k == 'optim' else v)
             for k, v in self.__dict__.items()
         }
 
@@ -126,10 +126,10 @@ class _AmpContext(OptContext):
 
         for p, grad in self._grads.items():  # update buffer grads
             if p.grad is not None:
-                if not self._pending_steps:
-                    grad.copy_(p.grad)
-                else:
+                if self._pending_steps:
                     grad.add_(p.grad)
+                else:
+                    grad.copy_(p.grad)
         return True
 
     def step(self) -> None:
@@ -216,7 +216,7 @@ def get_amp_context(net: nn.Module,
 
     if opt is None:
         return None
-    return OptContext(opt) if not fp16 else _AmpContext(opt, retry_on_inf)
+    return _AmpContext(opt, retry_on_inf) if fp16 else OptContext(opt)
 
 
 def _warning_on_one_line(message,

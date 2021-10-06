@@ -1,6 +1,7 @@
 __all__ = ['AdamW', 'RAdam', 'SGDW']
 
 from typing import Any, Tuple
+
 import torch
 from torch.optim import optimizer
 
@@ -37,7 +38,7 @@ class _OptimizerBase(optimizer.Optimizer):
 
 
 class SGDW(_OptimizerBase):
-    r"""Implements stochastic gradient descent (optionally with momentum).
+    """Implements stochastic gradient descent (optionally with momentum).
 
     Nesterov momentum is based on the formula from
     `On the importance of initialization and momentum in deep learning`__.
@@ -78,11 +79,11 @@ class SGDW(_OptimizerBase):
         grad = p.grad
         if momentum != 0:
             state = self.state[p]
-            if not state:
-                grad = state['exp_avg'] = p.grad.clone().detach_()
-            else:
+            if state:
                 grad = state['exp_avg']
                 grad.mul_(momentum).add_(p.grad, alpha=1 - group['dampening'])
+            else:
+                grad = state['exp_avg'] = p.grad.clone().detach_()
 
             if group['nesterov']:
                 grad = p.grad.add(grad, alpha=momentum)

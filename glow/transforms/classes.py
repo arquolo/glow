@@ -252,8 +252,8 @@ class FlipAxis(DualStageTransform):
 @dataclass
 class WarpAffine(DualStageTransform):
     angle: float = 180
-    skew: float = .5
-    scale: tuple[float, float] = (1., 1.)
+    skew: float = 0.5
+    scale: tuple[float, float] = (1.0, 1.0)
     inter: InitVar[str] = 'LINEAR'
     _inter: int = field(init=False)
 
@@ -264,7 +264,7 @@ class WarpAffine(DualStageTransform):
         return {
             'skew': rng.uniform(-self.skew, self.skew),
             'angle': rng.uniform(-self.angle, self.angle),
-            'scale': rng.uniform(*self.scale)
+            'scale': rng.uniform(*self.scale),
         }
 
     def image(self, image: np.ndarray, **params) -> np.ndarray:
@@ -294,7 +294,7 @@ class Elastic(DualStageTransform):
     def prepare(self, rng: np.random.Generator, /, image: np.ndarray,
                 **_) -> dict[str, Any]:
         offsets = rng.random((2, *image.shape[:2]), dtype='f4')
-        offsets *= (2 * self.scale)
+        offsets *= self.scale * 2
         offsets -= self.scale
 
         for dim, (off, size) in enumerate(zip(offsets, image.shape[:2])):

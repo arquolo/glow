@@ -1,10 +1,10 @@
 import pytest
 
+import glow
+
 
 @pytest.fixture()
 def make_squares():
-    import glow
-
     @glow.as_sized(hint=len)
     def _make_squares(it):
         return (x ** 2 for x in it)
@@ -37,7 +37,6 @@ def test_fail(make_squares):
 
 
 def test_windowed():
-    import glow
     it = glow.windowed(range(5), 3)
 
     assert len(it) == 3
@@ -46,7 +45,6 @@ def test_windowed():
 
 
 def test_sliced():
-    import glow
     it = glow.sliced(range(5), 3)
 
     assert len(it) == 2
@@ -55,7 +53,6 @@ def test_sliced():
 
 
 def test_chunked():
-    import glow
     it = glow.chunked(range(5), 3)
 
     assert len(it) == 2

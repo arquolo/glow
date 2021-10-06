@@ -11,7 +11,6 @@ __all__ = ['apply']
 import ctypes
 import os
 import sys
-from contextlib import ExitStack
 from pathlib import Path
 
 _FORTRAN_FLAG = 'FOR_DISABLE_CONSOLE_CTRL_HANDLER'
@@ -29,23 +28,23 @@ def patch_handler() -> None:
             ctypes.CDLL(dllpath.as_posix())
 
     # Picked from (stackoverflow)[https://stackoverflow.com/a/39021051/9868257]
-    handler = ctypes.cast(ctypes.windll.kernel32.SetConsoleCtrlHandler,
-                          ctypes.c_void_p)
 
-    code: bytearray = ctypes.windll.kernel32.VirtualProtect(  # type: ignore
-        handler,
-        ctypes.c_size_t(1),
-        0x40,
-        ctypes.byref(ctypes.c_uint32(0)),
-    ) and (ctypes.c_char * 3).from_address(handler.value)  # type: ignore
+    ptr = ctypes.c_void_p()
+    ok = ctypes.windll.kernel32.VirtualProtect(
+        ptr, ctypes.c_size_t(1), 0x40, ctypes.byref(ctypes.c_uint32(0)))
+    if not ok or (addr := ptr.value) is None:
+        return
+    code: bytearray = (ctypes.c_char * 3).from_address(addr)  # type: ignore
 
     patch = b'\xC2\x08\x00' if ctypes.sizeof(ctypes.c_void_p) == 4 else b'\xC3'
-    with ExitStack() as stack:
-        if code:
-            old_code = code[0:len(patch)]
-            code[0:len(patch)] = patch
-            stack.callback(code.__setitem__, slice(0, len(patch)), old_code)
-        import scipy.stats  # noqa: F401
+    # Meaningless if scipy.stats is loaded
+    if code and 'scipy.stats' not in sys.modules:
+        patch_size = len(patch)
+        old_code, code[:patch_size] = code[:patch_size], patch
+        try:
+            import scipy.stats  # noqa: F401
+        finally:
+            code[:patch_size] = old_code
 
 
 def apply() -> None:

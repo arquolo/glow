@@ -29,7 +29,6 @@ class Stepper:
 
     def _step(self, data: torch.Tensor, target: torch.Tensor,
               is_train: bool) -> tuple[torch.Tensor, ...]:
-        target = target
         with torch.cuda.amp.autocast(self.fp16):
             out = self.net(data.to(self.device))
         if is_train:

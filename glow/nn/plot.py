@@ -69,7 +69,7 @@ class Builder:
         if not hasattr(grad, 'variable'):
             label = type(grad).__name__.replace('Backward', '')
             if grad in self._shapes:
-                label += f'\n=> {tuple(self._shapes[grad])}'
+                label = f'{label}\n=> {tuple(self._shapes[grad])}'
             root.node(id_(grad), label)
             return False
 
@@ -80,7 +80,7 @@ class Builder:
             label = (name.partition if self.flat else name.rpartition)('.')[-1]
         except KeyError:
             root = self.stack[0]  # unnamed, that's why external
-        label += f'{var.storage().data_ptr():x}\n'
+        label = f'{label}{var.storage().data_ptr():x}\n'
 
         color = 'yellow' if id(var) in self.inputs else 'lightblue'
         root.node(id_(grad), label + sized(var), fillcolor=color)

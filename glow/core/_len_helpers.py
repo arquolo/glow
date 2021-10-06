@@ -134,11 +134,11 @@ class _PartialIter(Iterable[_T]):
         return self.hint(*self.gen.args, **self.gen.keywords)
 
     def __repr__(self) -> str:
-        line = repr(self.gen.func)
-        if args := ', '.join(f'{v!r}' for v in self.gen.args):
+        pt = self.gen
+        line = repr(pt.func)
+        if args := ', '.join(f'{v!r}' for v in pt.args):
             line += f', {args}'
-        if kwargs := ','.join(
-                f'{k}={v!r}' for k, v in self.gen.keywords.items()):
+        if kwargs := ','.join(f'{k}={v!r}' for k, v in pt.keywords.items()):
             line += f', {kwargs}'
         return f'<{type(self).__qualname__}({line})>'
 
@@ -159,20 +159,20 @@ def partial_iter(gen_fn=None, *, hint=None):
     """Helper for generator functions. Adds re-iterability.
 
     Simplifies such code:
-    ```python
-    class A:
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-        def __iter__(self):
-            <iter block using args, kwargs>
-    ```
+
+    >>> class A:
+    ...     def __init__(self, *args, **kwargs):
+    ...         self.args = args
+    ...         self.kwargs = kwargs
+    ...     def __iter__(self):
+    ...         <iter block using self.args, self.kwargs>
+
     To this:
-    ```python
-    @partial_iter()
-    def func(*args, **kwargs):
-        <iter block using args, kwargs>
-    ```
+
+    >>> @partial_iter
+    ... def func(*args, **kwargs):
+    ...     <iter block using args, kwargs>
+
     """
     if gen_fn is None:
         return functools.partial(partial_iter, hint=hint)

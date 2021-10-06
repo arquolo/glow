@@ -61,7 +61,6 @@ class Sound:
     Usage:
     ```
     import numpy as np
-    from glow.io import Sound
 
     sound = Sound.load('test.flac')
 
@@ -90,8 +89,8 @@ class Sound:
 
     def __post_init__(self):
         assert self.raw.ndim == 2
-        assert self.raw.shape[-1] in (1, 2)
-        assert self.raw.dtype in ('int8', 'int16', 'int32', 'float32')
+        assert 0 < self.raw.shape[-1] <= 2
+        assert self.raw.dtype in {'int8', 'int16', 'int32', 'float32'}
         num_samples, self.channels = self.raw.shape
         self.duration = timedelta(seconds=num_samples / self.rate)
 

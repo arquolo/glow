@@ -122,12 +122,11 @@ def trace_module(name):
 def threadsafe_coroutine(fn, _, args, kwargs):
     coro = fn(*args, **kwargs)
     coro.send(None)
+    lock = threading.RLock()
 
     class Synchronized(wrapt.ObjectProxy):
-        lock = threading.RLock()
-
         def send(self, item):
-            with self.lock:
+            with lock:
                 return self.__wrapped__.send(item)
 
         def __next__(self):

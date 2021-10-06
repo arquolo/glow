@@ -10,7 +10,7 @@ from contextlib import contextmanager, nullcontext
 from enum import Enum
 from pathlib import Path
 from threading import RLock
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeVar
 
 import cv2
 import numpy as np
@@ -22,6 +22,7 @@ from .. import call_once, memoize
 _TIFF: Any = None
 _OSD: Any = None
 _TYPE_REGISTRY: dict[str, type[TiledImage]] = {}
+_T = TypeVar('_T')
 
 
 def _patch_path(prefix):
@@ -321,18 +322,16 @@ class Codec(Enum):
 
 
 class TiffTag:
-    SIZE = (257, 256)
-    BITDEPTH = 258
-    COMPRESSION = 259
-    COLORSPACE = 262
-    DESCRIPTION = 270
-    SAMPLES_PER_PIXEL = 277
-    PLANAR = 284
-    TILE = (323, 322)
-    RESOLUTION = (283, 282)
+    SIZE = (ctypes.c_uint32, 257, 256)
+    COMPRESSION = (ctypes.c_uint16, 259)
+    COLORSPACE = (ctypes.c_uint16, 262)
+    DESCRIPTION = (ctypes.c_char_p, 270)
+    SAMPLES_PER_PIXEL = (ctypes.c_uint16, 277)
+    PLANAR = (ctypes.c_uint16, 284)
+    TILE = (ctypes.c_uint32, 323, 322)
+    RESOLUTION = (ctypes.c_float, 283, 282)
     JPEG_TABLES = 347
     TILE_BYTE_COUNTS = 325
-    SAMPLE = 339
     BACKGROUND_COLOR = 434
 
 
@@ -353,11 +352,14 @@ class _TiffImage(TiledImage, extensions='tif tiff'):
         num_levels = _TIFF.TIFFNumberOfDirectories(self._ptr)
         super().__init__(path, num_levels)
 
-    def _tag(self, type_, tag: int):
-        value = type_()
-        _TIFF.TIFFGetField(self._ptr, ctypes.c_uint32(tag),
-                           ctypes.byref(value))
-        return value.value
+    def _tag(self, tp: type[ctypes._SimpleCData[_T]], *tags: int) -> list[_T]:
+        values = []
+        for tag in tags:
+            cv = tp()
+            _TIFF.TIFFGetField(self._ptr, ctypes.c_uint32(tag),
+                               ctypes.byref(cv))
+            values.append(cv.value)
+        return values
 
     @contextmanager
     def _directory(self, level: int):
@@ -374,31 +376,29 @@ class _TiffImage(TiledImage, extensions='tif tiff'):
         if not _TIFF.TIFFIsTiled(self._ptr):
             return {}
 
-        if self._tag(ctypes.c_uint16, TiffTag.PLANAR) != 1:
+        is_planar, = self._tag(*TiffTag.PLANAR)
+        if is_planar != 1:
             raise TypeError(f'Level {level} is not contiguous!')
 
-        desc = self._tag(ctypes.c_char_p, TiffTag.DESCRIPTION)
-        desc = (desc or b'').decode().replace('\r\n', '|').split('|')
+        desc_raw = self._tag(*TiffTag.DESCRIPTION).pop()
+        desc = (desc_raw or b'').decode().replace('\r\n', '|').split('|')
 
-        color = Color(self._tag(ctypes.c_uint16, TiffTag.COLORSPACE))
+        color = Color(self._tag(*TiffTag.COLORSPACE).pop())
         spp = (
-            self._tag(ctypes.c_uint16, TiffTag.SAMPLES_PER_PIXEL)
-            if color in [Color.MINISBLACK, Color.RGB] else 4)
+            self._tag(*TiffTag.SAMPLES_PER_PIXEL).pop()
+            if color in {Color.MINISBLACK, Color.RGB} else 4)
 
         bg_hex = b'FFFFFF'
         bg_color_ptr = ctypes.c_char_p()
         if _TIFF.TIFFGetField(self._ptr, TiffTag.BACKGROUND_COLOR,
                               ctypes.byref(bg_color_ptr)):
             bg_hex = ctypes.string_at(bg_color_ptr, 3)
-        # print(bg_hex)
 
         spec = {
             'level':
                 level,
-            'shape': (*(self._tag(ctypes.c_uint32, tag)
-                        for tag in TiffTag.SIZE), spp),
-            'tile': (*(self._tag(ctypes.c_uint32, tag)
-                       for tag in TiffTag.TILE), spp),
+            'shape': (*self._tag(*TiffTag.SIZE), spp),
+            'tile': (*self._tag(*TiffTag.TILE), spp),
             'color':
                 color,
             'background':
@@ -406,7 +406,7 @@ class _TiffImage(TiledImage, extensions='tif tiff'):
             'description':
                 desc,
             'compression':
-                Codec(self._tag(ctypes.c_uint16, TiffTag.COMPRESSION)),
+                Codec(self._tag(*TiffTag.COMPRESSION)),
         }
         if spec['compression'] is Codec.JPEG:
             count = ctypes.c_int()
@@ -440,7 +440,7 @@ class _TiffImage(TiledImage, extensions='tif tiff'):
 
         # pview = self._get_patch(self._spec[spec['step'] - 1])
 
-        if spec['compression'] not in [Codec.JPEG2000_RGB, Codec.JPEG2000_YUV]:
+        if spec['compression'] not in {Codec.JPEG2000_RGB, Codec.JPEG2000_YUV}:
             image = np.empty(spec['tile'], dtype='u1')
             isok = _TIFF.TIFFReadTile(self._ptr,
                                       ctypes.c_void_p(image.ctypes.data), x, y,
@@ -494,8 +494,7 @@ class _TiffImage(TiledImage, extensions='tif tiff'):
 
     @property
     def spacing(self) -> float | None:
-        s = [(10_000 / m) for t in TiffTag.RESOLUTION
-             if (m := self._tag(ctypes.c_float, t))]
+        s = [(10_000 / m) for m in self._tag(*TiffTag.RESOLUTION) if m]
         if s:
             return float(np.mean(s))
         for token in self._spec[1]['description']:
