@@ -8,16 +8,15 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 import cv2
 import numpy as np
 from tqdm.auto import tqdm
 
 from .. import chunked, mapped
-from ..io import TiledImage
 
-Coord = tuple[int, int]
+Vec = tuple[int, int]
 _T = TypeVar('_T')
 
 
@@ -38,16 +37,17 @@ def _get_weight(step: int, overlap: int) -> np.ndarray:
     return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
 
 
+class NumpyLike(Protocol):
+    @property
+    def shape(self) -> tuple[int, ...]:
+        ...
+
+    def __getitem__(self, index: slice | tuple[slice, ...]) -> np.ndarray:
+        ...
+
+
 @dataclass
-class Mosaic:
-    """
-    Helper to split image to tiles and process them.
-
-    Parameters:
-    - step - Step between consecutive tiles
-    - overlap - Count of pixels that will be shared among overlapping tiles
-    """
-
+class _Base:
     step: int
     overlap: int
 
@@ -55,8 +55,20 @@ class Mosaic:
         assert 0 <= self.overlap <= self.step
         assert self.overlap % 2 == 0  # That may be optional
 
+    def get_weight(self) -> np.ndarray:
+        return _get_weight(self.step, self.overlap)
+
+
+class Mosaic(_Base):
+    """
+    Helper to split image to tiles and process them.
+
+    Parameters:
+    - step - Step between consecutive tiles
+    - overlap - Count of pixels that will be shared among overlapping tiles
+    """
     def as_tiles(self,
-                 data: np.ndarray | TiledImage,
+                 data: NumpyLike,
                  scale: int = 1,
                  num_workers: int = 1) -> _Tiler:
         """Read tiles from data using scale as stride"""
@@ -68,12 +80,9 @@ class Mosaic:
         return _Tiler(self.step, self.overlap, shape, cells, data, scale,
                       num_workers)
 
-    def get_weight(self) -> np.ndarray:
-        return _get_weight(self.step, self.overlap)
-
 
 @dataclass
-class _Sized(Mosaic):
+class _Sized(_Base):
     shape: tuple[int, ...]
     cells: np.ndarray
 
@@ -81,16 +90,22 @@ class _Sized(Mosaic):
     def ishape(self) -> tuple[int, ...]:
         return self.cells.shape
 
-    def _enumerate(self, it: Iterable[_T]) -> Iterable[tuple[Coord, _T]]:
+    def enumerate(self, it: Iterable[_T]) -> Iterable[tuple[Vec, _T]]:
         return zip(np.argwhere(self.cells).tolist(), it)
 
     def __len__(self) -> int:
         return int(self.cells.sum())
 
+    def stats(self) -> tuple[float, float]:
+        """Cells and area usage"""
+        cells = self.cells.mean()
+        coverage = cells * (1 + self.overlap / self.step) ** 2
+        return cells, coverage
+
 
 @dataclass
 class _Tiler(_Sized):
-    data: np.ndarray | TiledImage
+    data: NumpyLike
     scale: int
     num_workers: int
 
@@ -137,7 +152,7 @@ class _Tiler(_Sized):
         cells = np.pad(self.cells, [(0, 1), (0, 1)])
         row: defaultdict[int, np.ndarray] = defaultdict()
 
-        for (iy, ix), part in self._enumerate(image_parts):
+        for (iy, ix), part in self.enumerate(image_parts):
             # Lazy init, first part is always whole
             if row.default_factory is None:
                 row.default_factory = partial(np.zeros, part.shape, part.dtype)
@@ -160,11 +175,11 @@ class _Tiler(_Sized):
             self._get_tile, ys, xs, num_workers=self.num_workers, latency=0)
         return self._rejoin_tiles(parts) if self.overlap else iter(parts)
 
-    def _offset(self) -> Sequence[Coord]:
+    def _offset(self) -> Sequence[Vec]:
         offsets = np.argwhere(self.cells) * self.step - self.overlap
         return (offsets * self.scale).tolist()
 
-    def __iter__(self) -> Iterator[tuple[Coord, np.ndarray]]:
+    def __iter__(self) -> Iterator[tuple[Vec, np.ndarray]]:
         """
         Yield complete tiles built from source image.
         Each tile will have size `(step + overlap)`
@@ -210,19 +225,19 @@ class _Tiler(_Sized):
 @dataclass
 class _Merger(_Sized):
     scale: int
-    source: Iterable[tuple[Coord, np.ndarray]]
+    source: Iterable[tuple[Vec, np.ndarray]]
     weight: np.ndarray | None
 
-    _cells: np.ndarray = field(init=False)
-    _row: dict[int, np.ndarray] = field(default_factory=dict)
-    _joint: list[np.ndarray] = field(default_factory=list)
+    _cells: np.ndarray = field(init=False, repr=False)
+    _row: dict[int, np.ndarray] = field(default_factory=dict, repr=False)
+    _joint: list[np.ndarray] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
         super().__post_init__()
         self._cells = np.pad(self.cells, [(0, 1), (0, 1)])
 
     def _update(self, iy: int, ix: int, y: int, x: int,
-                tile: np.ndarray) -> tuple[Coord, np.ndarray]:
+                tile: np.ndarray) -> tuple[Vec, np.ndarray]:
         """Blends edges of overlapping tiles and returns non-overlapping
         parts of it"""
         if self.weight is not None:
@@ -266,23 +281,24 @@ class _Merger(_Sized):
         return (y, x), tile
 
     def _crop(
-        self, source: Iterable[tuple[Coord, np.ndarray]]
-    ) -> Iterator[tuple[Coord, np.ndarray]]:
+        self, source: Iterable[tuple[Vec, np.ndarray]]
+    ) -> Iterator[tuple[Vec, np.ndarray]]:
         shape = self.shape
         scale = self.scale
         for (y, x), out in source:
             yield (y, x), out[:shape[0] - y // scale, :shape[1] - x // scale]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[tuple[Vec, np.ndarray]]:
         isource = self.source
         if self.overlap:
             isource = (self._update(*iyx, *yx, out)
-                       for iyx, (yx, out) in self._enumerate(isource))
+                       for iyx, (yx, out) in self.enumerate(isource))
         return self._crop(isource)
 
-    def with_view(
+    def zip_with_view(
             self, view: np.ndarray,
-            v_scale: int) -> Iterator[tuple[Coord, np.ndarray, np.ndarray]]:
+            v_scale: int) -> Iterator[tuple[Vec, np.ndarray, np.ndarray]]:
+        """Extracts tiles from `view` simultaneously with tiles from self"""
         assert v_scale >= self.scale
         ratio = v_scale // self.scale
 
