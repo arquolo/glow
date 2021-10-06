@@ -6,14 +6,16 @@ import functools
 import threading
 import time
 import weakref
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, TypeVar, cast
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from wrapt import ObjectProxy
 
 from ._repr import si, si_bin
 from .debug import whereami
-
-_F = TypeVar('_F', bound=Callable)
 
 if TYPE_CHECKING:
     import psutil
@@ -62,34 +64,97 @@ def timer(name_or_callback: str | Callable[[float], object] | None = None,
             print(f'{name} done in {si(duration)}s')
 
 
-def time_this(fn: _F) -> _F:
-    """Log function timings at program exit"""
-    infos: dict[int, list] = {}
+def _to_fname(obj) -> str:
+    if not hasattr(obj, '__module__') or not hasattr(obj, '__qualname__'):
+        obj = type(obj)
+    if obj.__module__ == 'builtins':
+        return obj.__qualname__
+    return f'{obj.__module__}.{obj.__qualname__}'
 
-    def finalize(start):
-        if not infos:
+
+@dataclass
+class _Stat:
+    calls: dict[int, int] = field(default_factory=lambda: defaultdict(int))
+    times: dict[int, float] = field(default_factory=lambda: defaultdict(float))
+
+    def update_call(self, duration: float):
+        idx = threading.get_ident()
+        self.calls[idx] += 1
+        self.times[idx] += duration
+
+    def update_next(self, duration: float):
+        idx = threading.get_ident()
+        self.times[idx] += duration
+
+    def stat(self) -> tuple[str, float] | None:
+        if not self.calls:
+            return None
+
+        w = len(self.calls | self.times)
+        n = sum(self.calls.values())
+        t = sum(self.times.values())
+        tail = (f' ({n} x {si(t / n)}s)' if w == 1 else
+                f' ({n} x {si(t / n)}s @ {w}T)') if n > 1 else ''
+        return f'{si(t)}s{tail}', t
+
+
+_start = time.perf_counter()
+_stats: dict[str, _Stat] = defaultdict(_Stat)
+_lock = threading.RLock()
+
+
+class _TimedIter(ObjectProxy):
+    def __init__(self, wrapped, callback):
+        super().__init__(wrapped)
+        self._self_callback = callback
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        with timer(self._self_callback):
+            return next(self.__wrapped__)
+
+    def close(self):
+        with timer(self._self_callback):
+            return self.__wrapped__.close()
+
+    def send(self, value):
+        with timer(self._self_callback):
+            return self.__wrapped__.send(value)
+
+    def throw(self, typ, val=None, tb=None):
+        with timer(self._self_callback):
+            return self.__wrapped__.throw(typ, val, tb)
+
+
+def _print_stats(name: str):
+    with _lock:
+        if not (stat := _stats.pop(name)):
             return
+    if not (lines := stat.stat()):
+        return
 
-        num_calls = sum(num for num, _ in infos.values())
-        total_time = sum(num * duration for num, duration in infos.values())
-        total_runtime = time.perf_counter() - start + 1e-7
+    text, runtime = lines
+    total = time.perf_counter() - _start + 1e-7
+    print(f'{name} - {text} - {runtime / total:.2%} of all')
 
-        print(f'{fn.__module__}:{fn.__qualname__} -'
-              f' calls: {num_calls},'
-              f' total: {si(total_time)}s,'
-              f' per-call: {si(total_time / num_calls)}s'
-              f' ({100 * total_time / total_runtime:.2f}% of module),'
-              f' threads: {len(infos)}')
 
-    def callback(duration: float):
-        info = infos.setdefault(threading.get_ident(), [0, 0.])
-        info[0] += 1
-        info[1] += (duration - info[1]) / info[0]
+def time_this(fn=None, /, *, name: str | None = None):
+    """Log function and/or generator timings at program exit"""
+    if fn is None:
+        return functools.partial(time_this, name=name)
 
-    @timer(callback)
+    if name is None:
+        name = _to_fname(fn)
+
+    stat = _stats[name]
+    call_cbk, next_cbk = stat.update_call, stat.update_next
+
     def wrapper(*args, **kwargs):
-        return fn(*args, **kwargs)
+        with timer(call_cbk):
+            res = fn(*args, **kwargs)
+        return _TimedIter(res, next_cbk) if isinstance(res, Iterator) else res
 
-    finalizer = weakref.finalize(fn, finalize, time.perf_counter())
-    wrapper.finalize = finalizer  # type: ignore
-    return cast(_F, functools.update_wrapper(wrapper, fn))
+    wrapper.finalize = weakref.finalize(fn, _print_stats, name)  # type: ignore
+    return functools.update_wrapper(wrapper, fn)
