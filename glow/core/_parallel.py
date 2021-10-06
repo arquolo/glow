@@ -19,7 +19,7 @@ from pstats import Stats
 from queue import Queue, SimpleQueue
 from threading import Event, RLock
 from time import perf_counter
-from typing import Protocol, TypeVar, cast
+from typing import ContextManager, Protocol, TypeVar, cast
 
 import loky
 
@@ -83,15 +83,15 @@ def _initializer():
 def _get_executor(num_workers: int, mp: bool) -> Iterator[Executor]:
     """Safe wrapper for ThreadPoolExecutor or ProcessPoolExecutor"""
     if not mp:
-        executor = ThreadPoolExecutor(num_workers)
+        tp_exec = ThreadPoolExecutor(num_workers)
         try:
-            yield executor
+            yield tp_exec
         finally:  # Don't wait workers if failure occurs
             exc, *_ = sys.exc_info()
-            executor.shutdown(wait=exc is None, cancel_futures=True)
+            tp_exec.shutdown(wait=exc is None, cancel_futures=True)
         return
 
-    executor: Executor = loky.get_reusable_executor(  # type: ignore
+    mp_exec = loky.get_reusable_executor(  # type: ignore
         num_workers,
         os.environ.get('MP_CTX', 'loky_init_main'),
         timeout=_IDLE_WORKER_TIMEOUT,
@@ -100,8 +100,8 @@ def _get_executor(num_workers: int, mp: bool) -> Iterator[Executor]:
         initializer=_initializer,
     )
     # Kill workers if failure occurs
-    terminator = atexit.register(executor.shutdown, kill_workers=True)
-    yield executor
+    terminator = atexit.register(mp_exec.shutdown, kill_workers=True)
+    yield cast(Executor, mp_exec)
     atexit.unregister(terminator)  # Cancel killing workers if all ok
 
 
@@ -206,6 +206,43 @@ class _AutoSize:
 # ---------------------- map iterable through function ----------------------
 
 
+def _map_submit(submit: Callable[..., Future], iterator: Iterator[tuple],
+                chunksize: int) -> Iterator[Future]:
+    return starmap(submit, chunked(iterator, chunksize))
+
+
+def _map_submit_auto(submit: Callable[..., Future], iterator: Iterator[tuple],
+                     njobs: int) -> Iterator[Future]:
+    asize = _AutoSize()
+    while items := [*islice(iterator, asize.suggest() * njobs)]:
+        for chunk in sliced(items, max(1, len(items) // njobs)):
+            fut = submit(*chunk)
+            fut.add_done_callback(
+                partial(asize.update, len(chunk), perf_counter()))
+            yield fut
+
+
+def _map_unwrap(guard: ContextManager, jobs: Iterator[Future],
+                prefetch: int) -> Iterator:
+    with guard:
+        ring = deque(islice(jobs, prefetch))
+        while ring:
+            yield ring.popleft().result()
+            ring.extend(islice(jobs, 1))
+
+
+def as_completed(fs: Iterable[Future]) -> Iterator[Future]:
+    fs = set(fs)
+    q: SimpleQueue[Future] = SimpleQueue()
+    for pending in fs:
+        pending.add_done_callback(q.put)
+
+    while fs:
+        done = q.get()
+        yield done
+        fs.remove(done)
+
+
 @dataclass
 class _Mapped(Iterable[_T]):
     proxy: Callable[..., Sequence[_T]]
@@ -214,32 +251,6 @@ class _Mapped(Iterable[_T]):
     latency: int
     mp: bool
     chunksize: int | None
-
-    @staticmethod
-    def _submit(submit: Callable[..., Future], iterator: Iterator[tuple],
-                chunksize: int) -> Iterator[Future]:
-        return starmap(submit, chunked(iterator, chunksize))
-
-    @staticmethod
-    def _submit_auto(submit: Callable[..., Future], iterator: Iterator[tuple],
-                     njobs: int) -> Iterator[Future]:
-        asize = _AutoSize()
-        while items := [*islice(iterator, asize.suggest() * njobs)]:
-            for chunk in sliced(items, max(1, len(items) // njobs)):
-                fut = submit(*chunk)
-                fut.add_done_callback(
-                    partial(asize.update, len(chunk), perf_counter()))
-                yield fut
-
-    def _iter_chunks(self, guard: ExitStack,
-                     jobs: Iterator[Future]) -> Iterator[Sequence[_T]]:
-        ring: deque[Future] = deque()
-        guard.callback(lambda: {fut.cancel() for fut in reversed(ring)})
-        with guard:  # Use only when we've approached to jobs
-            ring.extend(islice(jobs, self.latency + self.num_workers))
-            while ring:
-                yield ring.popleft().result()
-                ring.extend(islice(jobs, 1))
 
     def __iter__(self) -> Iterator[_T]:
         iterable = zip(*self.iterables)
@@ -250,11 +261,12 @@ class _Mapped(Iterable[_T]):
 
         submit = partial(executor.submit, self.proxy)
         if self.mp and self.chunksize is None:
-            chunks = self._submit_auto(submit, iterable, self.num_workers)
+            chunks = _map_submit_auto(submit, iterable, self.num_workers)
         else:
-            chunks = self._submit(submit, iterable, self.chunksize or 1)
+            chunks = _map_submit(submit, iterable, self.chunksize or 1)
 
-        return chain.from_iterable(self._iter_chunks(guard, chunks))
+        prefetch = self.num_workers + self.latency
+        return chain.from_iterable(_map_unwrap(guard, chunks, prefetch))
 
     def __len__(self) -> int:
         return min(map(len, self.iterables), default=0)  # type: ignore
@@ -300,21 +312,3 @@ def mapped(func: Callable[..., _T],
         mp=mp,
         chunksize=chunksize,
     )
-
-
-# ----------------------------------------------------------------------------
-
-
-def as_completed(fs: Iterable[Future]) -> Iterator[Future]:
-    fs = set(fs)
-    if not fs:
-        return
-
-    q: SimpleQueue[Future] = SimpleQueue()
-    for f in fs:
-        f.add_done_callback(q.put)
-
-    while fs:
-        f = q.get()
-        yield f
-        fs.remove(f)
