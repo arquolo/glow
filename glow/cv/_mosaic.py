@@ -320,6 +320,7 @@ class _Merger(_Sized):
         for (y, x), tile in (tqdm(self, leave=False) if progress else self):
             h, w = (s // pool for s in tile.shape[:2])
             im = tile[::pool, ::pool][:h, :w]
-            result[y // scale:, x // scale:][:h, :w] = _probs_to_hsv(im)
+            if im.size:
+                result[y // scale:, x // scale:][:h, :w] = _probs_to_hsv(im)
 
         return result
