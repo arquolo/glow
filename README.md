@@ -37,15 +37,13 @@ Tested on ArchLinux, Ubuntu 18.04/20.04, Windows 10.
 
 ## IO features
 
-### `glow.io.TiledImage` - ndarray-like reader for multiscale images (svs, tiff, etc...)
+### `glow.io.Slide` - ndarray-like reader for multiscale images (svs, tiff, etc...)
 <details>
 
-CTypes-based replacement of [`torchslide`](https://github.com/arquolo/torchslide) (deprecated).
-
 ```python
-from glow.io import read_tiled
+from glow.io import Slide
 
-slide = read_tiled('test.svs')
+slide = Slide.open('test.svs')
 shape: tuple[int, ...] = slide.shape
 scales: tuple[int, ...] = slide.scales
 image: np.ndarray = slide[:2048, :2048]  # Get numpy.ndarray

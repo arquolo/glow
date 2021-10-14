@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['TiledImage', 'read_tiled']
+__all__ = ['Slide']
 
 import ctypes
 import os
@@ -21,7 +21,7 @@ from .. import call_once, memoize
 
 _TIFF: Any = None
 _OSD: Any = None
-_TYPE_REGISTRY: dict[str, type[TiledImage]] = {}
+_TYPE_REGISTRY: dict[str, type[Slide]] = {}
 _T = TypeVar('_T')
 
 
@@ -57,7 +57,7 @@ def _setup_libs():
 
 
 class _Dzi(NamedTuple):
-    slide: TiledImage
+    slide: Slide
     offset: tuple[int, ...]
     size: tuple[int, ...]
     tile: int = 256
@@ -107,14 +107,24 @@ class _Decoder:
             yield
 
 
-class TiledImage(_Decoder):
-    def __init_subclass__(cls: type[TiledImage], extensions: str) -> None:
+class Slide(_Decoder):
+    """Usage:
+    ```
+    slide = Slide.open('test.svs')
+    shape: tuple[int, ...] = slide.shape
+    scales: tuple[int, ...] = slide.scales
+
+    # Get numpy.ndarray
+    image: np.ndarray = slide[:2048, :2048]
+    ```
+    """
+    def __init_subclass__(cls: type[Slide], extensions: str) -> None:
         _TYPE_REGISTRY.update({f'.{ext}': cls for ext in extensions.split()})
 
     def __init__(self, path: Path, num_levels: int = 0) -> None:
-        if self.__class__ is TiledImage:
-            raise RuntimeError('TiledImage is not for direct construction. '
-                               'Use read_tiled() factory function')
+        if self.__class__ is Slide:
+            raise RuntimeError('Slide is not for direct construction. '
+                               'Use Slide.open() factory function')
         super().__init__()
         self.path = path
         self._num_levels = num_levels
@@ -200,13 +210,27 @@ class TiledImage(_Decoder):
     def dzi(self, tile: int = 256) -> _Dzi:
         raise NotImplementedError
 
+    @staticmethod
+    @memoize(10_485_760, policy='lru')
+    def _from_path(path: Path) -> Slide:
+        if path.exists():
+            if tp := _TYPE_REGISTRY.get(path.suffix):
+                return tp(path)
+            raise ValueError(f'Unknown file format {path}')
+        raise FileNotFoundError(path)
+
+    @classmethod
+    def open(cls, anypath: Path | str) -> Slide:
+        """Open multi-scale image."""
+        path = Path(anypath).resolve().absolute()
+        return cls._from_path(path)
+
 
 # ----------------------------- OpenSlide decoder -----------------------------
 
 
 class _OpenslideImage(
-        TiledImage,
-        extensions='bif mrxs ndpi scn svs svsslide tif tiff vms vmu'):
+        Slide, extensions='bif mrxs ndpi scn svs svsslide tif tiff vms vmu'):
     def __init__(self, path: Path) -> None:
         _setup_libs()
         self._ptr = _OSD.openslide_open(path.as_posix().encode())
@@ -336,7 +360,7 @@ class TiffTag:
 
 
 # FIXME: Get around slides from choked SVS encoder
-class _TiffImage(TiledImage, extensions='tif tiff'):
+class _TiffImage(Slide, extensions='tif tiff'):
     def __init__(self, path: Path) -> None:
         _setup_libs()
         # TODO: use memmap instead of libtiff
@@ -504,33 +528,3 @@ class _TiffImage(TiledImage, extensions='tif tiff'):
 
     def dzi(self, tile: int = 256) -> _Dzi:
         return _Dzi(self, (0, 0), self.shape[:2], tile=tile)
-
-
-# ----------------------------- generic factory -----------------------------
-
-
-@memoize(
-    10_485_760,
-    policy='lru',
-    key_fn=lambda name: Path(name).resolve().as_posix())
-def read_tiled(anypath: Path | str) -> TiledImage:
-    """Reads multi-scale images.
-
-    Usage:
-    ```
-    from glow.io import read_tiled
-
-    slide = read_tiled('test.svs')
-    shape: tuple[int, ...] = slide.shape
-    scales: tuple[int, ...] = slide.scales
-
-    # Get numpy.ndarray
-    image = slide[:2048, :2048]
-    ```
-    """
-    if (path := Path(anypath)).exists():
-        try:
-            return _TYPE_REGISTRY[path.suffix](path)
-        except KeyError:
-            raise ValueError(f'Unknown file format {path}') from None
-    raise FileNotFoundError(path)
