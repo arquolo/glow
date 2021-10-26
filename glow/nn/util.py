@@ -151,7 +151,7 @@ class LazilyTraced(nn.Module):
             return self.impl(x)
 
         if self.traced is None:
-            with torch.cuda.amp.autocast(False):
+            with torch.autocast('cuda', False):
                 self.traced = torch.jit.trace(self.impl, x[:2])
         assert self.traced is not None
         return self.traced(x)

@@ -188,7 +188,7 @@ def get_amp_context(net: nn.Module,
     ctx = gnn.get_amp_context(model, optimizer, fp16=True)
 
     for input, target in data:
-        with torch.cuda.amp.autocast():
+        with torch.autocast(device.type):
             output = model(input)
         with ctx:  # Enter resets grads, exit updates parameters
             loss = loss_fn(output, target)
