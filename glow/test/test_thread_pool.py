@@ -1,8 +1,8 @@
+import os
 import sys
 from typing import NamedTuple
 
 import numpy as np
-import pytest
 
 import glow
 
@@ -10,6 +10,10 @@ DEATH_RATE = 0
 SIZE = 100
 NUM_STEPS = 10
 DTYPE = np.dtype(np.float32)
+
+NUM_CPUS = os.cpu_count() or 1
+if sys.platform == 'win32':
+    NUM_CPUS = min(NUM_CPUS, 8)
 
 
 def _make_array(n):
@@ -136,7 +140,7 @@ def _test_interrupt():
         np.random.randint(2 ** 10, size=SIZE),
     )
     # sources = map(glow.buffered, sources)
-    res = glow.map_n(do_work, *sources, mp=True)
+    res = glow.map_n(do_work, *sources, max_workers=NUM_CPUS, mp=True)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')
@@ -150,17 +154,11 @@ def _test_interrupt():
     print('\rmain done')
 
 
-@pytest.mark.skipif(
-    sys.platform == 'win32' and 'torch' in sys.modules,
-    reason='PyTorch on Windows overcommits')
 def test_interrupt():
     rs = _test_interrupt()
     assert [*rs] == [*range(SIZE)]
 
 
-@pytest.mark.skipif(
-    sys.platform == 'win32' and 'torch' in sys.modules,
-    reason='PyTorch on Windows overcommits')
 def test_interrupt_with_buffer():
     rs = glow.buffered(_test_interrupt())
     assert [*rs] == [*range(SIZE)]
