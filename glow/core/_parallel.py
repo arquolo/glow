@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-__all__ = ['buffered', 'mapped']
+__all__ = ['buffered', 'map_n', 'starmap_n']
 
 import atexit
 import enum
 import os
 import signal
 import sys
-from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from dataclasses import dataclass
 from functools import partial
-from itertools import chain, islice, starmap
+from itertools import chain, islice, starmap, tee
+from operator import methodcaller
 from pstats import Stats
 from queue import Queue, SimpleQueue
 from threading import Event, RLock
@@ -22,11 +22,13 @@ from time import perf_counter
 from typing import ContextManager, Protocol, TypeVar, cast
 
 import loky
+from loky.process_executor import ProcessPoolExecutor
 
 from ._more import chunked, sliced
-from ._reduction import reducers, serialize
+from ._reduction import move_to_shmem, reducers
 
 _T = TypeVar('_T')
+_F = TypeVar('_F', bound=Future)
 _NUM_CPUS = os.cpu_count() or 0
 _IDLE_WORKER_TIMEOUT = 10
 
@@ -80,36 +82,38 @@ def _initializer():
 
 
 @contextmanager
-def _get_executor(num_workers: int, mp: bool) -> Iterator[Executor]:
-    """Safe wrapper for ThreadPoolExecutor or ProcessPoolExecutor"""
-    if not mp:
-        tp_exec = ThreadPoolExecutor(num_workers)
+def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
+    if mp:
+        processes: ProcessPoolExecutor = loky.get_reusable_executor(
+            max_workers,
+            'loky_init_main',
+            _IDLE_WORKER_TIMEOUT,
+            job_reducers=reducers,
+            result_reducers=reducers,
+            initializer=_initializer,
+        )
+        # In generator 'finally' is not reliable enough, use atexit
+        hook = atexit.register(processes.shutdown, kill_workers=True)
+        yield processes
+        atexit.unregister(hook)
+    else:
+        threads = ThreadPoolExecutor(max_workers)
         try:
-            yield tp_exec
-        finally:  # Don't wait workers if failure occurs
-            exc, *_ = sys.exc_info()
-            tp_exec.shutdown(wait=exc is None, cancel_futures=True)
-        return
-
-    mp_exec = loky.get_reusable_executor(  # type: ignore
-        num_workers,
-        os.environ.get('MP_CTX', 'loky_init_main'),
-        timeout=_IDLE_WORKER_TIMEOUT,
-        job_reducers=reducers,
-        result_reducers=reducers,
-        initializer=_initializer,
-    )
-    # Kill workers if failure occurs
-    terminator = atexit.register(mp_exec.shutdown, kill_workers=True)
-    yield cast(Executor, mp_exec)
-    atexit.unregister(terminator)  # Cancel killing workers if all ok
+            yield threads
+        finally:
+            # TODO: On pool death, set flag in proxy.
+            # TODO: In each worker, check this flag before call,
+            # TODO:  if it's set, then kill all worker-owned pools.
+            # TODO: To use this, somethere should be dict[ident, list[pool]]
+            is_success = sys.exc_info() is None
+            threads.shutdown(wait=is_success, cancel_futures=True)
 
 
-def _setup_queues(stack: ExitStack, latency: int,
-                  mp: bool | Executor) -> tuple[Executor, _IQueue, _IEvent]:
-    executor = (
-        mp if isinstance(mp, Executor) else stack.enter_context(
-            _get_executor(1, mp)))
+def _setup_queues(
+        stack: ExitStack, latency: int,
+        executor: bool | Executor) -> tuple[Executor, _IQueue, _IEvent]:
+    if not isinstance(executor, Executor):
+        executor = stack.enter_context(_get_executor(1, executor))
 
     if isinstance(executor, ThreadPoolExecutor):
         return executor, Queue(latency), Event()
@@ -123,30 +127,34 @@ def _setup_queues(stack: ExitStack, latency: int,
 
 
 @dataclass
-class _Buffered(Iterable[_T]):
+class buffered(Iterable[_T]):  # noqa: N801
+    """
+    Iterates over `iterable` in background thread with at most `latency`
+    items ahead from caller
+    """
     iterable: Iterable[_T]
-    latency: int
-    mp: bool | Executor
+    latency: int = 2
+    mp: bool | Executor = False
 
     def _consume(self, q: _IQueue[_T | _Empty], stop: _IEvent):
-        with ExitStack() as stack:
-            stack.callback(q.put, _empty)  # Match last q.get
-            stack.callback(q.put, _empty)  # Signal to stop iteration
+        with ExitStack() as s:
+            s.callback(q.put, _empty)  # Match last q.get
+            s.callback(q.put, _empty)  # Signal to stop iteration
 
             for item, _ in zip(self.iterable, iter(stop.is_set, True)):
                 q.put(item)
 
             # if stop.is_set():
-            #     stack.pop_all()
+            #     s.pop_all()
             # q.put(_empty)  # Will happen if all ok to notify main to stop
 
     def __iter__(self) -> Iterator[_T]:
-        with ExitStack() as stack:
+        with ExitStack() as s:
             q: _IQueue[_T | _Empty]
-            executor, q, stop = _setup_queues(stack, self.latency, self.mp)
+            executor, q, stop = _setup_queues(s, self.latency, self.mp)
 
-            stack.callback(q.get)  # Wakes q.put when main fails
-            stack.callback(stop.set)
+            s.callback(q.get)  # Wakes q.put when main fails
+            s.callback(stop.set)
 
             task = executor.submit(self._consume, q, stop)
             while (item := q.get()) is not _empty:
@@ -155,16 +163,6 @@ class _Buffered(Iterable[_T]):
 
     def __len__(self) -> int:
         return len(self.iterable)  # type: ignore
-
-
-def buffered(iterable: Iterable[_T],
-             latency: int = 2,
-             mp: bool | Executor = False) -> _Buffered[_T]:
-    """
-    Iterates over `iterable` in background thread with at most `latency`
-    items ahead from caller
-    """
-    return _Buffered(iterable, latency, mp)
 
 
 # ---------------------------- automatic batching ----------------------------
@@ -194,11 +192,15 @@ class _AutoSize:
 
             return self.size
 
-    def update(self, size, init, _):
+    def update(self, start_time: float, fut: Future[list]):
+        if fut.cancelled() or fut.exception():
+            return
+
+        size = len(fut.result())
         with self.lock:
             if size != self.size:
                 return
-            duration = perf_counter() - init
+            duration = perf_counter() - start_time
             self.duration = ((0.8 * self.duration + 0.2 * duration)
                              if self.duration > 0 else duration)
 
@@ -206,109 +208,134 @@ class _AutoSize:
 # ---------------------- map iterable through function ----------------------
 
 
-def _map_submit(submit: Callable[..., Future], iterator: Iterator[tuple],
-                chunksize: int) -> Iterator[Future]:
-    return starmap(submit, chunked(iterator, chunksize))
+def _schedule(make_future: Callable[..., _F], args_zip: Iterable[tuple],
+              chunksize: int) -> Iterator[_F]:
+    return starmap(make_future, chunked(args_zip, chunksize))
 
 
-def _map_submit_auto(submit: Callable[..., Future], iterator: Iterator[tuple],
-                     njobs: int) -> Iterator[Future]:
-    asize = _AutoSize()
-    while items := [*islice(iterator, asize.suggest() * njobs)]:
-        for chunk in sliced(items, max(1, len(items) // njobs)):
-            fut = submit(*chunk)
-            fut.add_done_callback(
-                partial(asize.update, len(chunk), perf_counter()))
-            yield fut
+def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterable[tuple],
+                   max_workers: int) -> Iterator[_F]:
+    it = iter(args_zip)
+    size = _AutoSize()
+    while items := [*islice(it, size.suggest() * max_workers)]:
+        chunksize = len(items) // max_workers or 1
+        for f in starmap(make_future, sliced(items, chunksize)):
+            f.add_done_callback(partial(size.update, perf_counter()))
+            yield f
 
 
-def _map_unwrap(guard: ContextManager, jobs: Iterator[Future],
-                prefetch: int) -> Iterator:
-    with guard:
-        ring = deque(islice(jobs, prefetch))
-        while ring:
-            yield ring.popleft().result()
-            ring.extend(islice(jobs, 1))
-
-
-def as_completed(fs: Iterable[Future]) -> Iterator[Future]:
-    fs = set(fs)
+def _unwrap(cm: ContextManager, fs: Iterable[Future[_T]], qsize: int | None,
+            order: bool) -> Iterator[_T]:
     q: SimpleQueue[Future] = SimpleQueue()
-    for pending in fs:
-        pending.add_done_callback(q.put)
+    q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
-    while fs:
-        done = q.get()
-        yield done
-        fs.remove(done)
-
-
-@dataclass
-class _Mapped(Iterable[_T]):
-    proxy: Callable[..., Sequence[_T]]
-    iterables: tuple[Iterable, ...]
-    num_workers: int
-    latency: int
-    mp: bool
-    chunksize: int | None
-
-    def __iter__(self) -> Iterator[_T]:
-        iterable = zip(*self.iterables)
-
-        guard = ExitStack()
-        executor = guard.enter_context(
-            _get_executor(self.num_workers, self.mp))
-
-        submit = partial(executor.submit, self.proxy)
-        if self.mp and self.chunksize is None:
-            chunks = _map_submit_auto(submit, iterable, self.num_workers)
-        else:
-            chunks = _map_submit(submit, iterable, self.chunksize or 1)
-
-        prefetch = self.num_workers + self.latency
-        return chain.from_iterable(_map_unwrap(guard, chunks, prefetch))
-
-    def __len__(self) -> int:
-        return min(map(len, self.iterables), default=0)  # type: ignore
+    it1, it2 = tee(fs)
+    f_to_none = zip(it1, map(q_put, it2))  # type: ignore
+    with cm:
+        todo = dict(islice(f_to_none, qsize))
+        while todo:
+            f = q.get()
+            yield f.result()
+            todo.pop(f)
+            todo.update(islice(f_to_none, 1))
 
 
-def mapped(func: Callable[..., _T],
-           *iterables: Iterable,
-           num_workers: int = _NUM_CPUS,
-           latency: int = 2,
-           mp: bool = False,
-           chunksize: int | None = None) -> _Mapped[_T]:
-    """Returns an iterator equivalent to map(fn, *iterables).
-
-    Differences:
-    - Uses multiple threads or processes, whether chunksize is zero or not.
-    - Unlike multiprocessing.Pool or concurrent.futures.Executor
-      *almost* never deadlocks on any exception or Ctrl-C interruption.
-
-    Parameters:
-    - fn - A callable that will take as many arguments as there are passed
-      iterables.
-    - workers - Count of workers, by default all hardware threads are occupied.
-    - latency - Count of extra tasks each worker can grab.
-      Queue size is latency + workers.
-    - mp - Whether use multiple processes or threads.
-    - chunksize - The size of the chunks the iterable will be broken into
-      before being passed to a worker. By default is estimated automatically.
-
-    Calls may be evaluated out-of-order.
+def starmap_n(func: Callable[..., _T],
+              iterable: Iterable[tuple],
+              /,
+              *,
+              max_workers: int = _NUM_CPUS,
+              prefetch: int | None = None,
+              mp: bool = False,
+              chunksize: int | None = None,
+              order: bool = True) -> Iterator[_T]:
     """
-    if not num_workers:
-        raise ValueError('num_workers should be greater than 0')
-        # return cast(_Mapped[_T], map(func, *iterables))
+    Equivalent to itertools.starmap(fn, iterable).
 
-    if not mp and chunksize is not None:
-        raise ValueError('In threaded mode chunksize is not supported')
+    Return an iterator whose values are returned from the function evaluated
+    with an argument tuple taken from the given sequence.
 
-    return _Mapped(
-        cast(Callable[..., Sequence[_T]], serialize(func, mp)),
-        iterables,
-        num_workers=num_workers,
-        latency=latency,
+    Options:
+
+    - workers - Count of workers, by default all hardware threads are occupied.
+    - prefetch - Extra count of scheduled jobs, if not set equals to infinity.
+    - mp - Whether use processes or threads.
+    - chunksize - The size of the chunks the iterable will be broken into
+      before being passed to a processes. Estimated automatically.
+      Ignored when threads are used.
+    - order - Whether keep results order, or ignore it to increase performance.
+
+    Unlike multiprocessing.Pool or concurrent.futures.Executor this one:
+
+    - never deadlocks on any exception or Ctrl-C interruption.
+    - accepts infinite iterables due to lazy task creation (option prefetch).
+    - has single interface for both threads and processes.
+    - TODO: serializes array-like data using out-of-band Pickle 5 buffers
+
+    Notes:
+
+    - To reduce latency set order to False, order of results will be arbitrary.
+    - To increase CPU usage increase prefetch or set it to None.
+    - In terms of CPU usage there's no difference between
+      prefetch=None and order=False, so choose wisely.
+    - Setting order to False makes no use of prefetch more than 0.
+
+    """
+    if not max_workers:
+        raise ValueError('max_workers should be greater than 0')
+
+    if mp and chunksize is None and prefetch is None:
+        raise ValueError('With multiprocessing either chunksize or prefetch '
+                         'must be not None')
+
+    if prefetch is not None:
+        prefetch += max_workers
+
+    it = iter(iterable)
+    cm = ExitStack()
+    submit = cm.enter_context(_get_executor(max_workers, mp)).submit
+
+    if mp:
+        submit_many = cast(
+            Callable[..., Future[list[_T]]],
+            partial(submit, move_to_shmem(func)),
+        )
+        if chunksize is None:
+            fs = _schedule_auto(submit_many, it, max_workers)
+        else:
+            fs = _schedule(submit_many, it, chunksize or 1)
+
+        chunks = _unwrap(cm, fs, prefetch, order)
+        return chain.from_iterable(chunks)
+    else:
+        submit_one = cast(
+            Callable[..., Future[_T]],
+            partial(submit, func),
+        )
+        return _unwrap(cm, starmap(submit_one, it), prefetch, order)
+
+
+def map_n(func: Callable[..., _T],
+          /,
+          *iterables: Iterable,
+          max_workers: int = _NUM_CPUS,
+          prefetch: int | None = 2,
+          mp: bool = False,
+          chunksize: int | None = None,
+          order: bool = True) -> Iterator[_T]:
+    """
+    Returns iterator equivalent to map(func, *iterables).
+
+    Make an iterator that computes the function using arguments from
+    each of the iterables. Stops when the shortest iterable is exhausted.
+
+    For extra options, see starmap_n, which is used under hood.
+    """
+    return starmap_n(
+        func,
+        zip(*iterables),
+        max_workers=max_workers,
+        prefetch=prefetch,
         mp=mp,
         chunksize=chunksize,
-    )
+        order=order)

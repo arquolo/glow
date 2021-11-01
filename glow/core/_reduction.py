@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['serialize']
+__all__ = ['move_to_shmem']
 
 import copyreg
 import io
@@ -10,24 +10,26 @@ import os
 import pickle
 import sys
 import tempfile
-import threading
 import weakref
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from itertools import starmap
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple
+from typing import ClassVar, Generic, TypeVar
 
 import loky
 
 from ._import_hook import when_imported
+
+_T = TypeVar('_T')
+_F = TypeVar('_F', bound=Callable)
 
 _SYSTEM_SHM_MIN_SIZE = int(2e9)
 _SYSTEM_SHM = Path('/dev/shm')
 _SYSTEM_TEMP = Path(tempfile.gettempdir())
 
 reducers: dict[type, Callable] = {}
-loky.set_loky_pickler(pickle.__name__)
+loky.set_loky_pickler('pickle')
 
 logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
@@ -35,48 +37,49 @@ logger = logging.getLogger(__name__)
 
 
 def _get_shm_dir() -> Path:
-    if sys.platform == 'win32':
-        return _SYSTEM_TEMP
-    try:
-        if not _SYSTEM_SHM.exists():
-            raise OSError
-        shm_stats = os.statvfs(_SYSTEM_SHM)
-        if shm_stats.f_bsize * shm_stats.f_bavail > _SYSTEM_SHM_MIN_SIZE:
-            return _SYSTEM_SHM
-    except OSError:
-        return _SYSTEM_TEMP
+    if sys.platform != 'win32':
+        try:
+            stats = os.statvfs(_SYSTEM_SHM)
+            if stats.f_bsize * stats.f_bavail > _SYSTEM_SHM_MIN_SIZE:
+                return _SYSTEM_SHM
+        except OSError:
+            pass
+    return _SYSTEM_TEMP
 
 
-class _Item:
-    __slots__ = ('item', 'uid')
+class _Proxy(Generic[_F]):
+    uid: int
 
-    def __init__(self, item):
-        self.item = item
-        self.uid = id(item)
+    def get(self) -> _F:
+        raise NotImplementedError
 
-
-class _Proxy:
-    __slots__ = ('_item', 'uid')
-
-    def __init__(self, item: _Item):
-        self._item = item
-        self.uid = id(item)
-
-    def get(self) -> _Item:
-        return self._item
+    def __call__(self, *chunk) -> list:
+        return list(starmap(self.get(), chunk))
 
 
-class _Cached(_Proxy):
-    __slots__ = ('_proxy', 'uid')
-    _saved: ClassVar[_Item | None] = None
+class _NullProxy(_Proxy[_F]):
+    __slots__ = ('obj', 'uid')
 
-    def __init__(self, proxy: _Proxy):
-        self._proxy = proxy
-        self.uid = proxy.uid
+    def __init__(self, obj: _F):
+        self.obj = obj
+        self.uid = id(obj)
 
-    def get(self) -> _Item:
-        if self._saved is None or self._saved.uid != self.uid:
-            self.__class__._saved = self._proxy.get()
+    def get(self) -> _F:
+        return self.obj
+
+
+class _Cached(_Proxy[_F]):
+    __slots__ = ('obj', 'uid')
+    _saved: ClassVar[_F | None] = None
+    _saved_id: ClassVar[int]
+
+    def __init__(self, obj: _Proxy[_F]):
+        self.obj = obj
+        self.uid = obj.uid
+
+    def get(self) -> _F:
+        if self._saved is None or self._saved_id != self.uid:
+            self.__class__._saved = self.obj.get()
 
         assert self._saved is not None
         return self._saved
@@ -88,7 +91,7 @@ class _Mmap:
 
     @classmethod
     def from_bytes(cls, data: memoryview, tag: str) -> '_Mmap':
-        mv = cls(data.nbytes, f'shm-{tag}', create=True)
+        mv = cls(data.nbytes, f'shm-{os.getpid()}-{tag}', create=True)
         mv.buf[:] = data
         return mv
 
@@ -124,47 +127,6 @@ class _Mmap:
         return self.size
 
 
-# -------------------------------- untested --------------------------------
-if False:
-    _CACHE: dict[int, Any] = {}
-    _LOCK = threading.RLock()
-
-    import numpy as np
-
-    from ..wrap.cache import memoize
-
-    @memoize(100_000_000, policy='lru', key_fn=id)
-    def _np_reduce(arr):
-        uid = id(arr)
-        with memoryview(arr) as m:
-            memo = _Mmap.from_bytes(m, tag=f'{os.getpid()}-{uid:x}')
-            return _np_recreate, (uid, memo, m.format, m.shape)
-
-    def _np_reduce_cached(arr):
-        uid = id(arr)
-
-        with _LOCK:
-            args = _CACHE.get(uid)
-            if args is not None:
-                return args
-            args = _CACHE[uid] = _np_reduce(arr)
-
-        def finalize():
-            with _LOCK:
-                _CACHE.pop(uid)
-
-        weakref.finalize(arr, finalize)
-        return args
-
-    def _np_recreate(uid, memo, fmt, shape):
-        return np.asarray(memoryview(memo.buf).cast(fmt, shape))
-
-    reducers[np.ndarray] = _np_reduce
-    # reducers[np.ndarray] = _np_reduce_cached
-
-# -------------------------------- untested --------------------------------
-
-
 @when_imported('torch')
 def _torch_hook(torch):
     reducers.update({
@@ -185,40 +147,43 @@ def _dumps(obj: object,
     return fp.getvalue()
 
 
-class _ShmemProxy(_Proxy):
-    def __init__(self, item: _Item) -> None:
+class _MmapProxy(_Proxy[_F]):
+    __slots__ = ('uid', 'root', 'memos')
+
+    def __init__(self, obj: _Proxy[_F]) -> None:
         buffers: list[pickle.PickleBuffer] = []
-        self.uid = item.uid
-        self._root = _dumps(item, callback=buffers.append)
-        self._memos = []
+        self.uid = obj.uid
+        self.root = _dumps(obj, callback=buffers.append)
+        self.memos = []
         for i, buf in enumerate(buffers):
             with buf.raw() as m:
-                if SharedMemory is not None:
-                    memo = SharedMemory(create=True, size=m.nbytes)
-                    memo.buf[:] = m
-                    self._memos.append((memo, memo.size))
-                else:
-                    tag = f'{os.getpid()}-{item.uid:x}-{i}'
-                    self._memos.append(_Mmap.from_bytes(m, tag))
+                self.memos += [_Mmap.from_bytes(m, f'{obj.uid:x}-{i}')]
 
-    def get(self) -> _Item:
-        if SharedMemory is not None:
-            buffers = [m.buf[:size] for m, size in self._memos]
-        else:
-            buffers = [m.buf for m in self._memos]
-        return pickle.loads(self._root, buffers=buffers)
+    def get(self) -> _F:
+        buffers = [m.buf for m in self.memos]
+        return pickle.loads(self.root, buffers=buffers)
 
 
-class _Task(NamedTuple):
-    proxy: _Proxy
+class _ShmemProxy(_Proxy[_F]):
+    __slots__ = ('uid', 'root', 'memos')
 
-    def __call__(self, *chunk) -> Sequence:
-        return tuple(starmap(self.proxy.get().item, chunk))
+    def __init__(self, obj: _Proxy[_F]) -> None:
+        buffers: list[pickle.PickleBuffer] = []
+        self.uid = obj.uid
+        self.root = _dumps(obj, callback=buffers.append)
+        self.memos = []
+        for buf in buffers:
+            with buf.raw() as m:
+                sm = SharedMemory(create=True, size=m.nbytes)
+                sm.buf[:] = m
+                self.memos.append((sm, sm.size))
+
+    def get(self) -> _F:
+        buffers = [sm.buf[:size] for sm, size in self.memos]
+        return pickle.loads(self.root, buffers=buffers)
 
 
-def serialize(fn, mp=True) -> _Task:
-    item = _Item(fn)
-    # proxy = _Proxy(item) if not mp else _ShmemProxy(item)
-    proxy = _Proxy(item)
-    proxy = _Cached(proxy)
-    return _Task(proxy)
+def move_to_shmem(fn: Callable[..., _T]) -> Callable[..., list[_T]]:
+    proxy = _NullProxy(fn)
+    # proxy = _ShmemProxy(fn)
+    return _Cached(proxy)

@@ -56,7 +56,7 @@ class AsResult(NamedTuple):
 
 
 def run_glow(task, *args):
-    return glow.mapped(task, *args, num_workers=2, mp=True)
+    return glow.map_n(task, *args, max_workers=2, mp=True)
 
 
 def run_joblib(task, *args):
@@ -136,7 +136,7 @@ def _test_interrupt():
         np.random.randint(2 ** 10, size=SIZE),
     )
     # sources = map(glow.buffered, sources)
-    res = glow.mapped(do_work, *sources, mp=True)
+    res = glow.map_n(do_work, *sources, mp=True)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')

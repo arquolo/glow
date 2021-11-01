@@ -12,7 +12,7 @@ import torch
 from torch.utils.data import Dataset, IterableDataset, Sampler
 from torch.utils.data._utils import worker as torch_worker
 
-from .. import buffered, chunked, mapped, roundrobin
+from .. import buffered, chunked, map_n, roundrobin
 from ..core._parallel import _get_executor
 from ..distributed import get_rank, get_world_size
 
@@ -55,7 +55,7 @@ def pin_memory(data):
 @dataclass(frozen=True)
 class _BaseLoader:
     batch_size: int
-    num_workers: int
+    max_workers: int
     collate_fn: _CollateFn
     pin_memory: bool
     dataset: Dataset
@@ -68,7 +68,7 @@ class _BaseLoader:
         batches = map(self.collate_fn, batches)
         if not self.pin_memory:
             return batches
-        return iter(mapped(pin_memory, batches, num_workers=1))
+        return map_n(pin_memory, batches, max_workers=1)
 
     def __len__(self) -> int:
         raise NotImplementedError
@@ -84,20 +84,19 @@ class _MapLoader(_BaseLoader):
     chunksize: int | None
 
     def _iter_samples(self) -> Iterator:
-        num_workers = self.num_workers
+        max_workers = self.max_workers
         if (world := get_world_size()) > 1:
-            num_workers //= world
+            max_workers //= world
 
-        if not num_workers:
+        if not max_workers:
             return map(self.dataset.__getitem__, self.sampler)
 
-        samples = mapped(
+        return map_n(
             self.dataset.__getitem__,
             self.sampler,
-            mp=self.mp,
+            max_workers=max_workers,
             chunksize=self.chunksize,
-            num_workers=num_workers)
-        return iter(samples)
+            mp=self.mp)
 
     def __len__(self) -> int:
         indices = range(0, len(self.sampler), self.batch_size)  # type: ignore
@@ -131,16 +130,16 @@ class _IterableLoader(_BaseLoader):
     dataset: IterableDataset
 
     def _iter_samples(self) -> Iterator:
-        if not self.num_workers:
+        if not self.max_workers:
             yield from buffered(self.dataset)
             return
 
         seed = torch.empty((), dtype=torch.int64).random_().item()
         workers = [
-            _Worker(self.dataset, idx, self.num_workers, int(seed))
-            for idx in range(self.num_workers)
+            _Worker(self.dataset, idx, self.max_workers, int(seed))
+            for idx in range(self.max_workers)
         ]
-        with _get_executor(self.num_workers, True) as executor:
+        with _get_executor(self.max_workers, True) as executor:
             yield from roundrobin(*(buffered(w, mp=executor) for w in workers))
 
     def __len__(self) -> int:
@@ -214,7 +213,7 @@ def make_loader(dataset: Dataset,
                 batch_size: int,
                 shuffle: bool = False,
                 sampler: Sampler = None,
-                num_workers: int = _NUM_CPUS,
+                max_workers: int = _NUM_CPUS,
                 collate_fn: _CollateFn = default_collate,
                 pin_memory: bool = False,
                 multiprocessing: bool = True,
@@ -251,18 +250,18 @@ def make_loader(dataset: Dataset,
                 'Loader with IterableDataset: sampler/shuffle options are '
                 'not supported')
 
-        if not multiprocessing and num_workers != 0:
+        if not multiprocessing and max_workers != 0:
             warnings.warn(
                 'Loader with IterableDataset: ThreadPool is not supported. '
-                'Setting num_workers to 0')
-            num_workers = 0
+                'Setting max_workers to 0')
+            max_workers = 0
 
         if get_world_size() > 1:
             raise ValueError(
                 'Loader with IterableDataset: distributed context is not '
                 'supported')
 
-        return _IterableLoader(batch_size, num_workers, collate_fn, pin_memory,
+        return _IterableLoader(batch_size, max_workers, collate_fn, pin_memory,
                                dataset)
 
     else:
@@ -279,5 +278,5 @@ def make_loader(dataset: Dataset,
         chunksize = None
         if multiprocessing and chunk_from_batch:
             chunksize = batch_size
-        return _MapLoader(batch_size, num_workers, collate_fn, pin_memory,
+        return _MapLoader(batch_size, max_workers, collate_fn, pin_memory,
                           dataset, sampler, multiprocessing, chunksize)

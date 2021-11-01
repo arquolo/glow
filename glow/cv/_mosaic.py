@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 from tqdm.auto import tqdm
 
-from .. import chunked, mapped
+from .. import chunked, map_n
 from ..io import TiledImage
 
 Coord = tuple[int, int]
@@ -58,7 +58,7 @@ class Mosaic:
     def as_tiles(self,
                  data: np.ndarray | TiledImage,
                  scale: int = 1,
-                 num_workers: int = 1) -> _Tiler:
+                 max_workers: int = 1) -> _Tiler:
         """Read tiles from data using scale as stride"""
         shape = tuple(s // scale for s in data.shape[:2])
         ishape = tuple(
@@ -66,7 +66,7 @@ class Mosaic:
         cells = np.ones(ishape, dtype=np.bool_)
 
         return _Tiler(self.step, self.overlap, shape, cells, data, scale,
-                      num_workers)
+                      max_workers)
 
     def get_weight(self) -> np.ndarray:
         return _get_weight(self.step, self.overlap)
@@ -92,7 +92,7 @@ class _Sized(Mosaic):
 class _Tiler(_Sized):
     data: np.ndarray | TiledImage
     scale: int
-    num_workers: int
+    max_workers: int
 
     def select(self, mask: np.ndarray, scale: int) -> _Tiler:
         """Drop tiles where `mask` is 0"""
@@ -156,8 +156,7 @@ class _Tiler(_Sized):
 
     def _raw_iter(self) -> Iterator[np.ndarray]:
         ys, xs = np.where(self.cells)
-        parts = mapped(
-            self._get_tile, ys, xs, num_workers=self.num_workers, latency=0)
+        parts = map_n(self._get_tile, ys, xs, max_workers=self.max_workers)
         return self._rejoin_tiles(parts) if self.overlap else iter(parts)
 
     def _offset(self) -> Sequence[Coord]:
@@ -175,7 +174,7 @@ class _Tiler(_Sized):
               func: Callable[[Iterable[np.ndarray]], list[np.ndarray]],
               scale: int,
               batch_size: int = 1,
-              num_workers: int = 1,
+              max_workers: int = 1,
               weighting: bool = True) -> _Merger:
         """
         Applies `func` to tiles in batched way.
@@ -200,7 +199,7 @@ class _Tiler(_Sized):
 
         image_parts = self._raw_iter()
         chunks = chunked(image_parts, batch_size)
-        batches = mapped(func, chunks, num_workers=num_workers, latency=0)
+        batches = map_n(func, chunks, max_workers=max_workers)
         results = chain.from_iterable(batches)
 
         return _Merger(step, overlap, tuple(shape), self.cells, scale,
