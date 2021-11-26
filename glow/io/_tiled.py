@@ -432,7 +432,7 @@ class _TiffImage(Slide, extensions='tif tiff'):
             'description':
                 desc,
             'compression':
-                Codec(self._tag(*TiffTag.COMPRESSION)),
+                Codec(*self._tag(*TiffTag.COMPRESSION)),
         }
         if spec['compression'] is Codec.JPEG:
             count = ctypes.c_int()
