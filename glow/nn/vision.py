@@ -7,8 +7,10 @@ import numpy as np
 import torch
 from torch import nn
 
-
 # TODO: rewrite like `def traced(nn.Module) -> nn.Module`
+# TODO: use pyqt/matplotlib to create window
+
+
 class Show(nn.Module):
     """Shows contents of tensors during forward pass"""
     sigmas = 2
