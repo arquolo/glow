@@ -44,6 +44,9 @@ class AddNoise(ImageTransform):
     def __init__(self, strength: float = 0.2) -> None:
         self.strength = int(strength * 255)
 
+    def __repr__(self) -> str:
+        return f'{type(self).__name__}(strength={self.strength})'
+
     def image(self, image: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         assert image.dtype == np.uint8
 
@@ -59,6 +62,9 @@ class MultiNoise(ImageTransform):
     def __init__(self, strength: float = 0.5) -> None:
         self.low = max(0, 1 - strength)
         self.high = 1 + strength
+
+    def __repr__(self) -> str:
+        return f'{type(self).__name__}(low={self.low}, high={self.high})'
 
     def image(self, image: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         assert image.dtype == np.uint8
@@ -94,6 +100,9 @@ class BitFlipNoise(ImageTransform):
 
 
 class ChannelShuffle(ImageTransform):
+    def __repr__(self) -> str:
+        return f'{type(self).__name__}()'
+
     def image(self, image: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         assert image.ndim == 3
         return rng.permutation(image, axis=-1)
