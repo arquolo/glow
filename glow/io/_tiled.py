@@ -24,6 +24,8 @@ _OSD: Any = None
 _TYPE_REGISTRY: dict[str, type[Slide]] = {}
 _T = TypeVar('_T')
 
+_MAX_BYTES = int(os.environ.get('GLOW_IO_MAX_SLIDE_BYTES') or 102_400)
+
 
 def _patch_path(prefix):
     if sys.platform != 'win32':
@@ -211,7 +213,7 @@ class Slide(_Decoder):
         raise NotImplementedError
 
     @staticmethod
-    @memoize(10_485_760, policy='lru')
+    @memoize(capacity=_MAX_BYTES, policy='lru')
     def _from_path(path: Path) -> Slide:
         if path.exists():
             if tp := _TYPE_REGISTRY.get(path.suffix):
