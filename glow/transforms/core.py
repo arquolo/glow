@@ -1,29 +1,54 @@
 from __future__ import annotations
 
 __all__ = [
-    'Compose', 'DualStageTransform', 'ImageTransform', 'MaskTransform',
+    'Chain', 'DualStageTransform', 'ImageTransform', 'MaskTransform',
     'Transform'
 ]
 
-from typing import Any, Protocol, final
+from collections.abc import Iterable
+from typing import Any, Protocol, final, runtime_checkable
 
 import numpy as np
 
 
+@runtime_checkable
 class Transform(Protocol):
-    def __call__(self, rng: np.random.Generator, /, **data) -> dict:
+    def __call__(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
         raise NotImplementedError
+
+    def __mul__(self, prob: float) -> Transform:
+        if not isinstance(prob, (int, float)):
+            return NotImplemented
+        if not (0 <= prob <= 1):
+            raise ValueError('Probability should be in [0.0 .. 1.0] range')
+
+        if prob == 1:
+            return self
+
+        if isinstance(self, _Maybe):
+            prob *= self.prob
+            self = self.func
+        return _Maybe(self, prob)
+
+    def __rmul__(self, prob: float) -> Transform:
+        return self * prob
+
+    def __or__(self, rhs: Transform) -> _OneOf:
+        if not isinstance(rhs, Transform):
+            return NotImplemented
+        ts = (
+            t_ for t in (self, rhs)
+            for t_ in (t.transforms if isinstance(t, _OneOf) else [t]))
+        return _OneOf(*ts)
 
 
 class _SingleTransform(Transform):
     _key: str
 
     @final
-    def __call__(self, rng: np.random.Generator, /, **data) -> dict:
-        return {
-            **data,
-            self._key: getattr(self, self._key)(data[self._key], rng),
-        }
+    def __call__(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
+        func = getattr(self, self._key)
+        return {**data, self._key: func(data[self._key], rng)}
 
 
 class ImageTransform(_SingleTransform):
@@ -53,9 +78,10 @@ class DualStageTransform(Transform):
         return mask
 
     @final
-    def __call__(self, rng: np.random.Generator, /, **data) -> dict:
+    def __call__(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
         if unknown_keys := {*data} - self._keys:
             raise ValueError(f'Got unknown keys in data: {unknown_keys}')
+
         params = self.prepare(rng, **data)
         return {
             key: getattr(self, key)(value, **params)
@@ -64,18 +90,61 @@ class DualStageTransform(Transform):
 
 
 @final
-class Compose(Transform):
-    probs: tuple[float, ...]
-    funcs: tuple[Transform, ...]
+class _Maybe(Transform):
+    def __init__(self, func: Transform, prob: float = 1.0):
+        self.func = func
+        self.prob = prob
 
-    def __init__(self, *transforms: tuple[float, Transform] | Transform):
-        # If probability is not set, it's 1
-        self.probs, self.funcs = zip(
-            *(item if isinstance(item, tuple) else (1, item)
-              for item in transforms))
+    def __repr__(self):
+        return f'{self.prob:.2f} * {self.func!r}'
 
-    def __call__(self, rng: np.random.Generator, /, **data) -> dict:
-        choices = rng.binomial(1, self.probs).astype(bool)
-        for func in np.array(self.funcs)[choices].tolist():
-            data = func(rng, **data)
+    def __call__(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
+        return self.func(rng, **data) if rng.random() <= self.prob else data
+
+
+class _Compose(Transform):
+    transforms: tuple[Transform, ...]
+
+    def _repr(self, words: Iterable[str]) -> str:
+        if parts := ',\n'.join(words):
+            parts = '\n'.join((f'    {p}' if p.strip() else p)
+                              for p in parts.splitlines(True))
+            parts = f'\n{parts}\n'
+        return f'{type(self).__name__}({parts})'
+
+
+@final
+class Chain(_Compose):
+    def __init__(self, *transforms: Transform):
+        self.transforms = *(t for t in transforms
+                            if not isinstance(t, _Maybe) or t.prob > 0),
+
+    def __repr__(self) -> str:
+        return self._repr(f'{t!r}' for t in self.transforms)
+
+    def __call__(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
+        for call in self.transforms:
+            data = call(rng, **data)
         return data
+
+
+@final
+class _OneOf(_Compose):
+    transforms: tuple[_Maybe, ...]
+    probs: np.ndarray
+
+    def __init__(self, *transforms: Transform):
+        probs, self.transforms = zip(
+            *((t.prob, t) if isinstance(t, _Maybe) else (1.0, _Maybe(t))
+              for t in transforms))
+        self.probs = np.array(probs)
+        self.probs /= self.probs.sum()
+
+    def __repr__(self) -> str:
+        words = (f'{p:.2f} * {t.func}'
+                 for p, t in zip(self.probs, self.transforms))
+        return self._repr(words)
+
+    def __call__(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
+        func = rng.choice(self.transforms, p=self.probs)  # type: ignore
+        return func.func(rng, **data)
