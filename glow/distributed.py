@@ -14,7 +14,7 @@ from typing import Any, Protocol, TypeVar, cast
 import torch
 import torch.cuda
 import torch.distributed as dist
-import torch.multiprocessing as mp
+import torch.multiprocessing as tmp
 from torch import nn
 
 # -------------------------------- primitives --------------------------------
@@ -94,12 +94,12 @@ class _AutoDdp:
 
         # ! Not tested
         # * Actually, here we can use loky.ProcessPoolExecutor, like this:
-        # from . import mapped
-        # jobs = mapped(
-        #     self._worker, range(self.ngpus), num_workers=self.ngpus, mp=True)
+        # from . import map_n
+        # ngpus = self.ngpus
+        # jobs = map_n(self._worker, range(ngpus), max_workers=ngpus, mp=True)
         # list(jobs)
         # * Left as safe measure
-        mp.spawn(self._worker, nprocs=self.ngpus)
+        tmp.spawn(self._worker, nprocs=self.ngpus)
 
     def _worker(self, rank: int | None) -> None:
         if rank is None:
