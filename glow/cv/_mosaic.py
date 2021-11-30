@@ -19,6 +19,9 @@ from .. import chunked, map_n
 Vec = tuple[int, int]
 _T = TypeVar('_T')
 
+# TODO: yield namedtuples everywhere
+# TODO: use offsets scaled to current level in each __iter__()
+
 
 def _probs_to_hsv(prob: np.ndarray) -> np.ndarray:
     h, w, c = prob.shape
@@ -229,7 +232,7 @@ class _Merger(_Sized):
 
     _cells: np.ndarray = field(init=False, repr=False)
     _row: dict[int, np.ndarray] = field(default_factory=dict, repr=False)
-    _joint: list[np.ndarray] = field(default_factory=list, repr=False)
+    _carry: list[np.ndarray] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
         super().__post_init__()
@@ -244,38 +247,38 @@ class _Merger(_Sized):
             tile *= self.weight[:, None, None]
             tile *= self.weight[None, :, None]
 
-        if iy and self._cells[iy - 1, ix]:  # have North
-            north = self._row.pop(ix)
-            tile[:self.overlap, self.step - north.shape[1]:self.step] += north
+        if iy and self._cells[iy - 1, ix]:  # TOP exists
+            top = self._row.pop(ix)
+            tile[:self.overlap, self.step - top.shape[1]:self.step] += top
         else:
-            tile = tile[self.overlap:]  # strip North
+            tile = tile[self.overlap:]  # cut TOP
             y += self.overlap * self.scale
 
-        if ix and self._cells[iy, ix - 1]:  # have West
-            west = self._joint.pop()
+        if ix and self._cells[iy, ix - 1]:  # LEFT exists
+            left = self._carry.pop()
             if self._cells[iy + 1, [ix - 1, ix]].all():
-                tile[-west.shape[0]:, :self.overlap] += west
-            else:  # strip South-West
-                tile[-west.shape[0] -
-                     self.overlap:-self.overlap, :self.overlap] += west
+                tile[-left.shape[0]:, :self.overlap] += left
+            else:  # cut BOTTOM-LEFT
+                tile[-left.shape[0] -
+                     self.overlap:-self.overlap, :self.overlap] += left
         else:
-            tile = tile[:, self.overlap:]  # strip West
+            tile = tile[:, self.overlap:]  # cut LEFT
             x += self.overlap * self.scale
 
-        tile, east = np.split(tile, [-self.overlap], axis=1)
-        if self._cells[iy, ix + 1]:  # have East
+        tile, right = np.split(tile, [-self.overlap], axis=1)
+        if self._cells[iy, ix + 1]:  # RIGHT exists
             if not (iy and self._cells[iy - 1, [ix, ix + 1]].all()):
-                east = east[-self.step:]  # strip North-East
+                right = right[-self.step:]  # cut TOP-RIGHT
             if not self._cells[iy + 1, [ix, ix + 1]].all():
-                east = east[:-self.overlap]  # strip South-East
-            self._joint.append(east)
+                right = right[:-self.overlap]  # cut BOTTOM-RIGHT
+            self._carry.append(right)
 
-        tile, south = np.split(tile, [-self.overlap])
-        if self._cells[iy + 1, ix]:  # have South
+        tile, bottom = np.split(tile, [-self.overlap])
+        if self._cells[iy + 1, ix]:  # BOTTOM exists
             if not (ix and self._cells[[iy, iy + 1], ix - 1].all()):
-                # strip South-West
-                south = south[:, -(self.step - self.overlap):]
-            self._row[ix] = south
+                # cut BOTTOM-LEFT
+                bottom = bottom[:, -(self.step - self.overlap):]
+            self._row[ix] = bottom
 
         return (y, x), tile
 
