@@ -157,10 +157,12 @@ class Slide(_Decoder):
         return (f'{type(self).__name__}'
                 f"('{self.path}', shape={self.shape}, scales={self.scales})")
 
-    def __getitem__(self, slices: tuple[slice, slice] | slice) -> np.ndarray:
+    def __getitem__(self, slices: tuple[slice, ...] | slice) -> np.ndarray:
         """Retrieves tile"""
         if isinstance(slices, slice):
             slices = (slices, slice(None, None, None))
+
+        assert len(slices) == 2
         if any(s.step == 0 for s in slices):
             raise ValueError('slice step cannot be zero')
 
