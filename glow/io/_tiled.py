@@ -21,7 +21,7 @@ from .. import call_once, memoize
 
 _TIFF: Any = None
 _OSD: Any = None
-_TYPE_REGISTRY: dict[str, type[Slide]] = {}
+_TYPE_REGISTRY: dict[str, list[type[Slide]]] = {}
 _T = TypeVar('_T')
 
 _MAX_BYTES = int(os.environ.get('GLOW_IO_MAX_SLIDE_BYTES') or 102_400)
@@ -121,7 +121,8 @@ class Slide(_Decoder):
     ```
     """
     def __init_subclass__(cls: type[Slide], extensions: str) -> None:
-        _TYPE_REGISTRY.update({f'.{ext}': cls for ext in extensions.split()})
+        for ext in extensions.split():
+            _TYPE_REGISTRY.setdefault(f'.{ext}', []).append(cls)
 
     def __init__(self, path: Path, num_levels: int = 0) -> None:
         if self.__class__ is Slide:
@@ -218,8 +219,15 @@ class Slide(_Decoder):
     @memoize(capacity=_MAX_BYTES, policy='lru')
     def _from_path(path: Path) -> Slide:
         if path.exists():
-            if tp := _TYPE_REGISTRY.get(path.suffix):
-                return tp(path)
+            if tps := _TYPE_REGISTRY.get(path.suffix):
+                last_exc = BaseException()
+                for tp in reversed(tps):  # Loop over types to find non-failing
+                    try:
+                        return tp(path)
+                    except ValueError as exc:
+                        last_exc = exc
+                else:
+                    raise last_exc from None
             raise ValueError(f'Unknown file format {path}')
         raise FileNotFoundError(path)
 
@@ -411,11 +419,12 @@ class _TiffImage(Slide, extensions='tif tiff'):
         desc_raw = self._tag(*TiffTag.DESCRIPTION).pop()
         desc = (desc_raw or b'').decode().replace('\r\n', '|').split('|')
 
-        color = Color(self._tag(*TiffTag.COLORSPACE).pop())
-        spp = (
-            self._tag(*TiffTag.SAMPLES_PER_PIXEL).pop()
-            if color in {Color.MINISBLACK, Color.RGB} else 4)
+        color = Color(*self._tag(*TiffTag.COLORSPACE))
+        if color not in {Color.MINISBLACK, Color.RGB}:
+            # spp = 4
+            raise ValueError(f'Unsupported color space {color}')
 
+        spp, = self._tag(*TiffTag.SAMPLES_PER_PIXEL)
         bg_hex = b'FFFFFF'
         bg_color_ptr = ctypes.c_char_p()
         if _TIFF.TIFFGetField(self._ptr, TiffTag.BACKGROUND_COLOR,
