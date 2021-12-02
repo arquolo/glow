@@ -15,7 +15,7 @@ from collections.abc import Callable
 from itertools import starmap
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, NamedTuple, TypeVar
 
 import loky
 
@@ -70,19 +70,23 @@ class _NullProxy(_Proxy[_F]):
 
 class _Cached(_Proxy[_F]):
     __slots__ = ('obj', 'uid')
-    _saved: ClassVar[_F | None] = None
-    _saved_id: ClassVar[int]
+
+    class _Value(NamedTuple):
+        obj: Any
+        uid: int
+
+    _saved: ClassVar[_Value | None] = None
 
     def __init__(self, obj: _Proxy[_F]):
         self.obj = obj
         self.uid = obj.uid
 
     def get(self) -> _F:
-        if self._saved is None or self._saved_id != self.uid:
-            self.__class__._saved = self.obj.get()
+        if self._saved is None or self._saved.uid != self.uid:
+            self.__class__._saved = self._Value(self.obj.get(), self.obj.uid)
 
-        assert self._saved is not None
-        return self._saved
+        assert self._saved
+        return self._saved.obj
 
 
 class _Mmap:
