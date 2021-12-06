@@ -15,7 +15,7 @@ from collections.abc import Callable
 from itertools import starmap
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any, ClassVar, Generic, NamedTuple, TypeVar
+from typing import Generic, TypeVar
 
 import loky
 
@@ -66,27 +66,6 @@ class _NullProxy(_Proxy[_F]):
 
     def get(self) -> _F:
         return self.obj
-
-
-class _Cached(_Proxy[_F]):
-    __slots__ = ('obj', 'uid')
-
-    class _Value(NamedTuple):
-        obj: Any
-        uid: int
-
-    _saved: ClassVar[_Value | None] = None
-
-    def __init__(self, obj: _Proxy[_F]):
-        self.obj = obj
-        self.uid = obj.uid
-
-    def get(self) -> _F:
-        if self._saved is None or self._saved.uid != self.uid:
-            self.__class__._saved = self._Value(self.obj.get(), self.obj.uid)
-
-        assert self._saved
-        return self._saved.obj
 
 
 class _Mmap:
@@ -188,6 +167,5 @@ class _ShmemProxy(_Proxy[_F]):
 
 
 def move_to_shmem(fn: Callable[..., _T]) -> Callable[..., list[_T]]:
-    proxy = _NullProxy(fn)
-    # proxy = _ShmemProxy(fn)
-    return _Cached(proxy)
+    return _NullProxy(fn)
+    return _ShmemProxy(fn)
