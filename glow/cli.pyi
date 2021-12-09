@@ -12,6 +12,7 @@ def arg(
         default: _T,
         /,
         *,
+        flag: str = ...,
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
         hash: bool = ...,  # noqa: A002
@@ -25,6 +26,7 @@ def arg(
 def arg(
         *,
         factory: Callable[[], _T],
+        flag: str = ...,
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
         hash: bool = ...,  # noqa: A002
@@ -37,6 +39,7 @@ def arg(
 @overload
 def arg(
         *,
+        flag: str = ...,
         init: bool = ...,
         repr: bool = ...,  # noqa: A002
         hash: bool = ...,  # noqa: A002

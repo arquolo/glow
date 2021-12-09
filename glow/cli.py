@@ -2,21 +2,30 @@ from __future__ import annotations
 
 __all__ = ['arg', 'parse_args']
 
+import argparse
+import sys
+import types
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
 from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import MISSING, Field, field, fields, is_dataclass
 from inspect import signature
-from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
+from typing import (Any, Literal, TypeVar, Union, get_args, get_origin,
+                    get_type_hints)
 
 _T = TypeVar('_T')
 _Node = Union[str, tuple[str, type[Any], list['_Node']]]  # type: ignore
 _NoneType = type(None)
+_UNION_TYPES = [Union]
+
+if sys.version_info >= (3, 10):
+    _UNION_TYPES += [types.UnionType]
 
 
 def arg(
         default=MISSING,
         /,
         *,
+        flag=None,
         factory=MISSING,
         init=True,
         repr=True,  # noqa: A002
@@ -26,8 +35,9 @@ def arg(
         metadata=None):
     """Convinient alias for dataclass.field with extra metadata (like help)"""
     metadata = metadata or {}
-    if help:
-        metadata = {**metadata, 'help': help}
+    for k, v in {'flag': flag, 'help': help}.items():
+        if v:
+            metadata = metadata | {k: v}
     return field(  # type: ignore
         default=default,
         default_factory=factory,
@@ -38,24 +48,35 @@ def arg(
         metadata=metadata)
 
 
-def _unwrap_type(tp: type) -> tuple[type, str | None]:
+def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
     if tp is list:
         raise ValueError('Type list should be parametrized')
 
     origin = get_origin(tp)
     *args, = get_args(tp)
     if not origin or not args:
-        return tp, None
+        return tp, {'type': tp}
 
     if origin is list:
-        return args[0], '*'
+        cls, opts = _unwrap_type(args[0])
+        return cls, opts | {'nargs': argparse.ZERO_OR_MORE}
 
-    if origin is Union:
+    if origin in _UNION_TYPES and len(args) == 2 and _NoneType in args:
         args.remove(_NoneType)
-        if len(args) == 1:
-            return args[0], '?'
+        cls, opts = _unwrap_type(args[0])
+        if opts.get('nargs') == argparse.ZERO_OR_MORE:
+            return cls, opts
+        return cls, opts | {'nargs': argparse.OPTIONAL}
 
-    raise ValueError('Only list and Optional are supported '
+    if origin is Literal:
+        choices = get_args(tp)
+        if len(tps := {type(c) for c in choices}) != 1:
+            raise ValueError('Literal parameters should have '
+                             f'the same type. Got: {tps}')
+        cls, = tps
+        return cls, {'type': cls, 'choices': choices}
+
+    raise ValueError('Only list, Optional and Literal are supported '
                      f'as generic types. Got: {tp}')
 
 
@@ -97,9 +118,9 @@ def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
     return nodes
 
 
-def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
+def _prepare_field(parser: ArgumentParser | _ArgumentGroup, tp: type,
                    fd: Field, seen: dict[str, list]) -> _Node:
-    cls, nargs = _unwrap_type(cls)
+    cls, opts = _unwrap_type(tp)
 
     help_ = fd.metadata.get('help') or ''
     if cls is not bool and fd.default is not MISSING:
@@ -110,29 +131,34 @@ def _prepare_field(parser: ArgumentParser | _ArgumentGroup, cls: type,
         return fd.name, cls, _prepare_nested(arg_group, cls, seen)
 
     snake = fd.name.replace('_', '-')
+    flags = [f] if (f := fd.metadata.get('flag')) else []
 
     if cls is bool:  # Optional
         if fd.default is MISSING:
-            raise ValueError(f'Boolean field "{fd.name}" must have default')
+            raise ValueError(f'Boolean field "{fd.name}" should have default')
         parser.add_argument(
             f'--{snake}',
+            *flags,
             action=BooleanOptionalAction,
             default=fd.default,
             help=help_)
 
     elif fd.default is not MISSING:  # Generic optional
+        if opts.get('nargs') == argparse.OPTIONAL:
+            del opts['nargs']
         parser.add_argument(
-            f'--{snake}', default=fd.default, type=cls, help=help_)
+            f'--{snake}', *flags, **opts, default=fd.default, help=help_)
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
-        if nargs is not None:  # N positionals
-            parser.add_argument(snake, nargs=nargs, type=cls, help=help_)
-
-        else:  # Positional
-            parser.add_argument(snake, type=cls, help=help_)
+        if flags:
+            raise ValueError(f'Positional-only field "{fd.name}" '
+                             'should not have flag')
+        parser.add_argument(snake, **opts, help=help_)
 
     else:
-        raise ValueError('Positionals are not allowed for nested types')
+        raise ValueError('Positional-only fields are forbidden '
+                         'for nested types. Please set default value '
+                         f'for "{fd.name}"')
 
     return fd.name
 

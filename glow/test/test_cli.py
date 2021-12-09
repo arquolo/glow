@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Optional, TypeVar
+from typing import Any, Literal, Optional, TypeVar
 
 import pytest
 
@@ -122,7 +122,23 @@ def _kwarg(a: int = 4):
     return a
 
 
+def _kwarg_opt(a: int = None):
+    return a
+
+
+def _kwarg_literal(a: Literal[1, 2] = 1):
+    return a
+
+
 def _kwarg_bool(a: bool = False):
+    return a
+
+
+def _kwarg_list(a: list[int] = []):
+    return a
+
+
+def _kwarg_opt_list(a: list[int] = None):
     return a
 
 
@@ -135,9 +151,21 @@ def _arg_kwarg(a: int, b: str = 'hello'):
     (['42'], _arg, 42),
     ([], _kwarg, 4),
     (['--a', '58'], _kwarg, 58),
+    ([], _kwarg_opt, None),
+    (['--a', '73'], _kwarg_opt, 73),
+    ([], _kwarg_literal, 1),
+    (['--a', '2'], _kwarg_literal, 2),
     ([], _kwarg_bool, False),
     (['--no-a'], _kwarg_bool, False),
     (['--a'], _kwarg_bool, True),
+    ([], _kwarg_list, []),
+    (['--a'], _kwarg_list, []),
+    (['--a', '1'], _kwarg_list, [1]),
+    (['--a', '1', '2'], _kwarg_list, [1, 2]),
+    ([], _kwarg_opt_list, None),
+    (['--a'], _kwarg_opt_list, []),
+    (['--a', '1'], _kwarg_opt_list, [1]),
+    (['--a', '1', '2'], _kwarg_opt_list, [1, 2]),
     (['53'], _arg_kwarg, (53, 'hello')),
     (['87', '--b', 'bye'], _arg_kwarg, (87, 'bye')),
 ])
