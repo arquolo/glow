@@ -6,11 +6,13 @@ from .base import to_index, to_prob
 
 
 def accuracy_(pred, true) -> torch.Tensor:
+    # TODO: Add docs
     _, pred, true = to_index(pred, true)
     return (true == pred).double().mean()
 
 
 def dice(pred, true, macro=True) -> torch.Tensor:
+    # TODO: Add docs
     c, pred, true = to_index(pred, true)
 
     def _dice(pred, true) -> torch.Tensor:
