@@ -372,7 +372,7 @@ class TiffTag:
 
 
 # FIXME: Get around slides from choked SVS encoder
-class _TiffImage(Slide, extensions='tif tiff'):
+class _TiffImage(Slide, extensions='svs tif tiff'):
     def __init__(self, path: Path) -> None:
         _setup_libs()
         # TODO: use memmap instead of libtiff
@@ -457,8 +457,10 @@ class _TiffImage(Slide, extensions='tif tiff'):
         if _TIFF.TIFFGetField(self._ptr, TiffTag.TILE_BYTE_COUNTS,
                               ctypes.byref(tbc_ptr)):
             num_tiles = _TIFF.TIFFNumberOfTiles(self._ptr)
-            tbc = np.ctypeslib.as_array(tbc_ptr, (num_tiles, ))
-            spec['tile_sizes'] = tbc.copy()
+            tbc = np.ctypeslib.as_array(tbc_ptr, [num_tiles]).copy()
+            if (tbc == 0).any():
+                raise ValueError('File has corrupted tiles with zero size')
+            spec['tile_sizes'] = tbc
 
         return spec
 
@@ -469,6 +471,7 @@ class _TiffImage(Slide, extensions='tif tiff'):
         # print(self.path.name, spec['level'], (y, x),
         #       (y // spec['tile'][0], x // spec['tile'][1]), offset)
 
+        assert nbytes, 'File has corrupted tiles with zero size'
         if not nbytes:  # If nothing to read, don't read
             # TODO: here should be reading from more-detailed level
             # * If tile is empty on level N,
