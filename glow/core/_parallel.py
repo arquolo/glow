@@ -244,7 +244,7 @@ def starmap_n(func: Callable[..., _T],
               iterable: Iterable[tuple],
               /,
               *,
-              max_workers: int = _NUM_CPUS,
+              max_workers: int | None = None,
               prefetch: int | None = None,
               mp: bool = False,
               chunksize: int | None = None,
@@ -281,6 +281,14 @@ def starmap_n(func: Callable[..., _T],
     - Setting order to False makes no use of prefetch more than 0.
 
     """
+    if max_workers is None:
+        max_workers = _NUM_CPUS
+        if mp and sys.platform == 'win32' and 'torch' in sys.modules:
+            # On Windows torch initializes CUDA in each process
+            # with RSS leak up to 2GB/process,
+            # so we limit count of subprocesses
+            max_workers = min(_NUM_CPUS, 12)
+
     if not max_workers:
         raise ValueError('max_workers should be greater than 0')
 
@@ -318,7 +326,7 @@ def starmap_n(func: Callable[..., _T],
 def map_n(func: Callable[..., _T],
           /,
           *iterables: Iterable,
-          max_workers: int = _NUM_CPUS,
+          max_workers: int | None = None,
           prefetch: int | None = 2,
           mp: bool = False,
           chunksize: int | None = None,
