@@ -25,7 +25,7 @@ import loky
 from loky.process_executor import ProcessPoolExecutor
 
 from ._more import chunked, sliced
-from ._reduction import move_to_shmem, reducers
+from ._reduction import _IPC_REDUCERS, move_to_shmem
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Future)
@@ -88,8 +88,8 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
             max_workers,
             'loky_init_main',
             _IDLE_WORKER_TIMEOUT,
-            job_reducers=reducers,
-            result_reducers=reducers,
+            job_reducers=_IPC_REDUCERS,
+            result_reducers=_IPC_REDUCERS,
             initializer=_initializer,
         )
         # In generator 'finally' is not reliable enough, use atexit
