@@ -290,7 +290,7 @@ def starmap_n(func: Callable[..., _T],
             max_workers = min(_NUM_CPUS, 12)
 
     if not max_workers:
-        raise ValueError('max_workers should be greater than 0')
+        return starmap(func, iterable)  # Fallback to single thread
 
     if mp and chunksize is None and prefetch is None:
         raise ValueError('With multiprocessing either chunksize or prefetch '
