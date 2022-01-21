@@ -1,6 +1,6 @@
 __all__ = ['Svg']
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import cv2
@@ -29,7 +29,7 @@ for (let group of svg.getElementsByTagName("g")) {
 """
 
 
-def hsv_colors(count):
+def hsv_colors(count: int) -> Iterator[str]:
     for hue in np.linspace(0, 360, num=count, endpoint=False, dtype='int32'):
         yield f'hsl({hue},100%,50%)'
 
@@ -78,12 +78,10 @@ class Svg:
     def save(self, path: Path) -> None:
         path = Path(path)
 
-        script = path.parent / 'main.js'
-        if not script.exists():
+        if not (script := path.parent / 'main.js').exists():
             script.write_text(_SCRIPT)
 
-        style = path.parent / 'main.css'
-        if not style.exists():
+        if not (style := path.parent / 'main.css').exists():
             labels = zip(hsv_colors(len(self.labels)), self.labels)
             style.write_text('\n'.join(
                 f'.{name} {{ stroke: {color} }}' for color, name in labels))
@@ -91,17 +89,17 @@ class Svg:
         path.with_suffix('.svg').write_text(self.body)
 
     @staticmethod
-    def load(path: Path) -> Iterable[tuple[str, list[np.ndarray]]]:
+    def load(path: Path) -> dict[str, list[np.ndarray]]:
         """
         Yields contours, contour is 2d numpy array of shape [count, (x, y)]
         """
         tree = ElementTree()
         tree.parse(path.with_suffix('.svg').as_posix())
 
-        for group in tree.getiterator(f'{{{_SVG_NS}}}g'):
-            points = (polygon.attrib['points'].split(' ') for polygon in group)
-            contours = [
-                np.array([int(p) for p in pset], dtype='i4').reshape(-1, 2)
-                for pset in points
-            ]
-            yield group.attrib['label'], contours
+        fields = ((node.attrib['label'], (p.attrib['points'] for p in node))
+                  for node in tree.getiterator(f'{{{_SVG_NS}}}g'))
+        return {
+            name:
+            [np.fromstring(ll, 'i4', sep=' ').reshape(-1, 2) for ll in lines]
+            for name, lines in fields
+        }
