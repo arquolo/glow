@@ -22,7 +22,7 @@ def as_tuple(xs):
     if xs is None:
         return ()
     if isinstance(xs, tuple):
-        return tuple(x for x in xs if x is not None)
+        return *(x for x in xs if x is not None),
     return (xs, )
 
 

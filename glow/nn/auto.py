@@ -79,7 +79,7 @@ class Model(nn.ModuleDict):
                     for leaf_id, module in self[root_id].items()
                 })
 
-        return tuple(state[o] for o in self.outputs)
+        return *(state[o] for o in self.outputs),
 
 
 def _get_supported_modules() -> Iterator[tuple[str, Any]]:

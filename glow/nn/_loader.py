@@ -25,9 +25,8 @@ class _CollateFn(Protocol):
 
 
 def default_collate(batch: Sequence[tuple]) -> Any:
-    return tuple(
-        torch.stack([torch.as_tensor(item) for item in row])
-        for row in zip(*batch))
+    return *(torch.stack([torch.as_tensor(item) for item in row])
+             for row in zip(*batch)),
 
 
 def pin_memory(data):

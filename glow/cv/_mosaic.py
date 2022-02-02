@@ -75,9 +75,8 @@ class Mosaic(_Base):
                  scale: int = 1,
                  max_workers: int = 1) -> _Tiler:
         """Read tiles from data using scale as stride"""
-        shape = tuple(s // scale for s in data.shape[:2])
-        ishape = tuple(
-            len(range(0, s + self.overlap, self.step)) for s in shape)
+        shape = *(s // scale for s in data.shape[:2]),
+        ishape = *(len(range(0, s + self.overlap, self.step)) for s in shape),
         cells = np.ones(ishape, dtype=np.bool_)
 
         return _Tiler(self.step, self.overlap, shape, cells, data, scale,

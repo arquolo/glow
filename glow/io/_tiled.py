@@ -81,9 +81,8 @@ class _Dzi(NamedTuple):
     def at(self, level: int, iy_ix: tuple[int, ...]) -> np.ndarray:
         scale = 2 ** (max(self.slide.shape[:2]).bit_length() - level)
         tile_0 = self.tile * scale
-        return self.slide.at(
-            tuple(p + ip * tile_0 for p, ip in zip(self.offset, iy_ix)),
-            self.tile, scale)
+        offset_0 = *(p + ip * tile_0 for p, ip in zip(self.offset, iy_ix)),
+        return self.slide.at(offset_0, self.tile, scale)
 
 
 # --------------------------------- decoders ---------------------------------
@@ -152,7 +151,7 @@ class Slide(_Decoder):
 
     @property
     def scales(self) -> tuple[int, ...]:
-        return tuple(self._spec.keys())
+        return *self._spec.keys(),
 
     def __repr__(self) -> str:
         return (f'{type(self).__name__}'
@@ -167,7 +166,7 @@ class Slide(_Decoder):
         if any(s.step == 0 for s in slices):
             raise ValueError('slice step cannot be zero')
 
-        step0, step1 = tuple(s.step or 1 for s in slices)
+        step0, step1 = (s.step or 1 for s in slices)
         if step0 != step1:
             raise ValueError('unequal slices steps are not supported')
         if step0 < 0:
@@ -185,10 +184,8 @@ class Slide(_Decoder):
         ratio = step / step0
         if ratio == 1.:
             return image
-        return cv2.resize(
-            image,
-            tuple(round(ratio * s) for s in image.shape[1::-1]),
-            interpolation=cv2.INTER_AREA)
+        size = *(round(ratio * s) for s in image.shape[1::-1]),
+        return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
 
     def thumbnail(self, scale: int = None) -> tuple[np.ndarray, int]:
         if scale is None:
@@ -314,12 +311,10 @@ class _OpenslideImage(
         return None
 
     def dzi(self, tile: int = 256) -> _Dzi:
-        offset = tuple(
-            int(self._tag(f'openslide.bounds-{ax}'.encode()) or 0)
-            for ax in 'yx')
-        size = tuple(
-            int(self._tag(f'openslide.bounds-{ax}'.encode()) or lim)
-            for ax, lim in zip(('height', 'width'), self.shape[:2]))
+        offset = *(int(self._tag(f'openslide.bounds-{ax}'.encode()) or 0)
+                   for ax in 'yx'),
+        size = *(int(self._tag(f'openslide.bounds-{ax}'.encode()) or lim)
+                 for ax, lim in zip(('height', 'width'), self.shape[:2])),
         return _Dzi(self, offset, size, tile)
 
 

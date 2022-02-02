@@ -41,7 +41,7 @@ def grid_shuffle(image: np.ndarray,
         for (y2, x2), (y1, x1), (ys, xs) in tiles:
             new_v[y2:y2 + ys, x2:x2 + xs] = v[y1:y1 + ys, x1:x1 + xs]
         results.append(new_v)
-    return tuple(results)
+    return *results,
 
 
 def affine(image: np.ndarray,

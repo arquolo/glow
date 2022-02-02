@@ -78,4 +78,4 @@ def get_wild_imports(module: ModuleType) -> tuple[str, ...]:
     __all__ = getattr(module, '__all__', None)
     if __all__ is not None:
         return __all__
-    return tuple(name for name in dir(module) if not name.startswith('_'))
+    return *(name for name in dir(module) if not name.startswith('_')),
