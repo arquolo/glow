@@ -30,6 +30,7 @@ from ._reduction import move_to_shmem, reducers
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Future)
 _NUM_CPUS = os.cpu_count() or 0
+_NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_SMP', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
 
 
@@ -299,7 +300,7 @@ def starmap_n(func: Callable[..., _T],
             # so we limit count of subprocesses
             max_workers = min(_NUM_CPUS, 12)
 
-    if not max_workers:
+    if not max_workers or not _NUM_CPUS:
         return starmap(func, iterable)  # Fallback to single thread
 
     if mp and chunksize is None and prefetch is None:
