@@ -47,8 +47,7 @@ def reduce_if_needed(*tensors: torch.Tensor,
     """Reduce tensors across all machines"""
     if (world := get_world_size()) > 1:
         tensors = *(t.clone() for t in tensors),
-        for op in [dist.all_reduce(t, async_op=True) for t in tensors]:
-            op.wait()
+        dist.all_reduce_multigpu(tensors)
         if mean:
             tensors = *(t / world for t in tensors),
     return tensors
