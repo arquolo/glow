@@ -8,7 +8,7 @@ import types
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
 from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import MISSING, Field, field, fields, is_dataclass
-from inspect import signature
+from inspect import getmodule, signature, stack
 from typing import (Any, Literal, TypeVar, Union, get_args, get_origin,
                     get_type_hints)
 
@@ -101,7 +101,17 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
 
 def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
                     seen: dict[str, list]) -> list[_Node]:
-    hints = get_type_hints(fn)
+    try:
+        hints = get_type_hints(fn)
+    except NameError:
+        if fn.__module__ != '__main__':
+            raise
+        for finfo in stack():
+            if not getmodule(finfo.frame):
+                hints = get_type_hints(fn, finfo.frame.f_globals)
+                break
+        else:
+            raise
 
     nodes: list[_Node] = []
     for fd in _get_fields(fn):
