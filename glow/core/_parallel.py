@@ -13,13 +13,13 @@ from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from dataclasses import dataclass
 from functools import partial
-from itertools import chain, islice, starmap, tee
+from itertools import chain, filterfalse, islice, starmap
 from operator import methodcaller
 from pstats import Stats
 from queue import Queue, SimpleQueue
 from threading import Event, RLock
 from time import perf_counter
-from typing import ContextManager, Protocol, TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 import loky
 from loky.process_executor import ProcessPoolExecutor
@@ -224,20 +224,28 @@ def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterable[tuple],
             yield f
 
 
-def _unwrap(cm: ContextManager, fs: Iterable[Future[_T]], qsize: int | None,
+def _unwrap_loop(s: ExitStack, todo: set[Future[_T]],
+                 q_get: Callable[[], Future[_T]],
+                 fs: Iterator[Future[_T]]) -> Iterator[_T]:
+    with s:
+        while todo:
+            f = q_get()
+            yield f.result()
+            todo.remove(f)
+            todo.update(islice(fs, 1))
+
+
+def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
             order: bool) -> Iterator[_T]:
     q: SimpleQueue[Future] = SimpleQueue()
     q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
-    it1, it2 = tee(fs)
-    f_to_none = zip(it1, map(q_put, it2))  # type: ignore
-    with cm:
-        todo = dict(islice(f_to_none, qsize))
-        while todo:
-            f = q.get()
-            yield f.result()
-            todo.pop(f)
-            todo.update(islice(f_to_none, 1))
+    # As q.put always gives falsy None, filterfalse to call it as side effect
+    fs = filterfalse(q_put, fs)  # type: ignore
+    with s:
+        todo = set(islice(fs, qsize))  # Prefetch
+        s = s.pop_all()
+    return _unwrap_loop(s, todo, q.get, fs)
 
 
 def starmap_n(func: Callable[..., _T],
@@ -245,7 +253,7 @@ def starmap_n(func: Callable[..., _T],
               /,
               *,
               max_workers: int | None = None,
-              prefetch: int | None = None,
+              prefetch: int | None = 2,
               mp: bool = False,
               chunksize: int | None = None,
               order: bool = True) -> Iterator[_T]:
@@ -270,7 +278,9 @@ def starmap_n(func: Callable[..., _T],
     - never deadlocks on any exception or Ctrl-C interruption.
     - accepts infinite iterables due to lazy task creation (option prefetch).
     - has single interface for both threads and processes.
-    - TODO: serializes array-like data using out-of-band Pickle 5 buffers
+    - TODO: serializes array-like data using out-of-band Pickle 5 buffers.
+    - before first `__next__` call it submits at most `prefetch` jobs
+      to warmup pool of workers.
 
     Notes:
 
