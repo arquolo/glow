@@ -17,9 +17,9 @@ from itertools import chain, filterfalse, islice, starmap
 from operator import methodcaller
 from pstats import Stats
 from queue import Queue, SimpleQueue
-from threading import Event, RLock
+from threading import Event, Lock
 from time import perf_counter
-from typing import Protocol, TypeVar, cast
+from typing import Protocol, Sized, TypeVar, cast
 
 import loky
 from loky.process_executor import ProcessPoolExecutor
@@ -47,7 +47,7 @@ class _IQueue(Protocol[_T]):
     def get(self) -> _T:
         ...
 
-    def put(self, value: _T) -> None:
+    def put(self, item: _T) -> None:
         ...
 
 
@@ -176,7 +176,7 @@ class _AutoSize:
     duration: float = 0.0
 
     def __init__(self) -> None:
-        self.lock = RLock()
+        self.lock = Lock()
 
     def suggest(self) -> int:
         with self.lock:
@@ -193,7 +193,7 @@ class _AutoSize:
 
             return self.size
 
-    def update(self, start_time: float, fut: Future[list]):
+    def update(self, start_time: float, fut: Future[Sized]):
         if fut.cancelled() or fut.exception():
             return
 

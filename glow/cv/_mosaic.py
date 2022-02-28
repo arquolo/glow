@@ -92,7 +92,7 @@ class _Sized(_Base):
     def ishape(self) -> tuple[int, ...]:
         return self.cells.shape
 
-    def enumerate(self, it: Iterable[_T]) -> Iterable[tuple[Vec, _T]]:
+    def enumerate(self, it: Iterable[_T]) -> Iterator[tuple[Vec, _T]]:
         return zip(np.argwhere(self.cells).tolist(), it)
 
     def __len__(self) -> int:
