@@ -2,11 +2,13 @@
 
 - Add docs for all exported functions
 
-### `glow.__init__`
+### `__init__`
 
-- Add explicit imports from glow.core.*
+- Add explicit imports from `core.*`
 
-### `glow.mapped` (from `glow.core._parallel`)
+## `core` contents
+
+### `{map,starmap}_n` (from `.core._parallel`)
 
 Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Windows, and tmpfs mmap on Linux.
 
@@ -14,7 +16,7 @@ Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Win
 - `child` -> `parent` = keep in shared if already there, otherwise move as usual.
 - Drop shared data at pool shutdown.
 
-### `glow.{core.wrap -> core.cache}`
+### `core.{wrap -> cache}`
 
 Add case `capacity=None` for unbound cache like in `functools`.
 
@@ -34,41 +36,62 @@ Decorators for callables accepting sequences of hashable items `(items: Sequence
 
 Improve test coverage.
 
-### `glow.whereami`
+### `whereami`
 
 - Improve function signature to show/hide stack frames from `site` modules.
   If 100% detection of foreign functions is not possible, skip only stdlib ones.
 
-### `glow.core._len_helpers.{as_sized, partial_iter}`
+### `core._len_helpers.{as_sized, partial_iter}`
 
 - `len_hint(_object: Any) -> int: ...`
 - Keep signature of wrapped function
 - Make `len()` patching optional
 - Add wrapper for `tqdm` to use there `len_hint(...)` instead of `total=len(...)`
 
-### `glow.core._repr._Si`
+### `core._repr._Si`
 
 Add proper string formatting using `format_spec`
 
-### `glow.io._TiffImage`
+## `io` contents
+
+### `io._TiffImage`
 
 - Enable fallthrough for bad tiles
 - Use mmap and tile offsets from `libtiff` to decompose I/O from decoding to allow concurrent decoding.
 
-### `glow.{nn.make_loader -?> utils.make_loader}`
+## `nn` contents
 
-- Seed as argument to toggle patching of dataset and iterable to provide batchsize- and workers-invariant data generation
+- Store only modules and ops for them
 
-### `glow.nn.auto`
+### `nn.auto`
 
 - Drop module for use of `torch.nn.lazy.LazyModule`
 
-### `glow.nn.modules`
+### `nn.modules`
 
 - Drop garbage, redesign all of it
-- Use glow.env as storage for options.
+- Use glow.env as storage for options
 
-### `glow.{nn.plot -> utils.plot}`
+## `zoo`
+
+- Add `get_model() -> torch.nn.Module(stem=Stem(...), levels=[Level(...), ...], head=Head())`
+- Add `VGG`, `ResNet`, `ResNet-D`, `ResNeXt`, `ResNeSt`, `Inception`, `DenseNet`, `EfficientNet`, `ViT`, `SWiN`
+- Add `LinkNet`, `Unet`, `DeepLab`, `SkipNet`, `Tiramisu`, `MAnet`, `FPN`, `PAN`, `PSPNet`
+
+## `optim` contents (old `nn.optimizers`)
+
+- Subtype of `Iterable[float]` for lr policy.
+- Class-adaptor for lr scheduler (batch/epoch-wise).
+- Dataclass for optimizer of single parameter group.
+- Class-adaptor to combine optimizers.
+
+## `util` contents
+
+### `util.get_loader` (from `nn.make_loader`)
+
+- Seed as argument to toggle patching of dataset and iterable to provide batchsize- and workers-invariant data generation
+
+### `util.plot` (from `nn.plot`)
 
 - Fix plotting to collapse standard modules, instead of falling through into them.
 - Refactor visitor to be more readable.

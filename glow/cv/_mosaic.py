@@ -19,7 +19,7 @@ from .. import chunked, map_n
 Vec = tuple[int, int]
 _T = TypeVar('_T')
 
-# TODO: yield namedtuples everywhere
+# TODO: yield namedtuples/frozen dataclasses everywhere
 # TODO: use offsets scaled to current level in each __iter__()
 
 

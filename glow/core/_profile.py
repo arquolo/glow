@@ -78,6 +78,8 @@ class _Stat:
     times: dict[int, float] = field(default_factory=lambda: defaultdict(float))
 
     def update_call(self, duration: float):
+        # TODO: drop len(set[ident]), use max(len(set[ident])),
+        # TODO:  aka max concurrency
         idx = threading.get_ident()
         self.calls[idx] += 1
         self.times[idx] += duration
