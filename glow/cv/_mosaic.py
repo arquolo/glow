@@ -23,12 +23,17 @@ _T = TypeVar('_T')
 
 
 def _probs_to_hsv(prob: np.ndarray) -> np.ndarray:
-    h, w, c = prob.shape
-    vmax = 1 if prob.dtype == 'u1' else 255
+    hue = prob.argmax(-1).astype('u1')
+    value = prob.max(-1)
+    if value.dtype != 'u1':
+        value *= 255
+        value = value.round().astype('u1')
+
+    hue_lut = (np.arange(256) * (127 / prob.shape[2])).round().astype('u1')
     hsv = cv2.merge([
-        (prob.argmax(-1).astype('f4') * (127 / c)).astype('u1'),
-        np.full((h, w), 255, dtype='u1'),
-        (prob.max(-1) * vmax).astype('u1'),
+        cv2.LUT(hue, hue_lut),
+        np.broadcast_to(np.uint8(255), prob.shape[:2]),
+        value,
     ])
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
 
