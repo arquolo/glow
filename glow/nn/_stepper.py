@@ -29,7 +29,7 @@ class Stepper:
 
     def _step(self, data: torch.Tensor, target: torch.Tensor,
               is_train: bool) -> tuple[torch.Tensor, ...]:
-        with torch.autocast(self.device.type, self.fp16):
+        with torch.autocast(self.device.type, enabled=self.fp16):
             out = self.net(data.to(self.device))
         if is_train:
             with self._ctx:
