@@ -40,7 +40,7 @@ def _probs_to_hsv(prob: np.ndarray) -> np.ndarray:
 
 def _get_weight(step: int, overlap: int) -> np.ndarray:
     assert overlap
-    pad = np.arange(0.5, 0.5 + overlap) / overlap
+    pad = np.linspace(0, 1, overlap + 2)[1:-1]  # strip initial 0 and final 1
     return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
 
 
