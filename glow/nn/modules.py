@@ -2,7 +2,7 @@ from __future__ import annotations
 
 __all__ = [
     'Activation', 'Cat', 'Mish', 'Noise', 'Sum', 'Swish', 'UpsampleArea',
-    'UpsamplePoint', 'View', 'resblock'
+    'UpsamplePoint', 'resblock'
 ]
 
 import functools
@@ -13,6 +13,7 @@ import torch
 import torch.autograd
 import torch.jit
 import torch.nn.functional as F
+from einops.layers.torch import Rearrange, Reduce
 from torch import nn
 
 from .. import repr_as_obj
@@ -34,18 +35,6 @@ class Activation(nn.Module):  # TODO: deprecate and/or refactor
         fn = self.closure.func
         return (f'fn={fn.__module__}.{fn.__qualname__},'
                 f' {repr_as_obj(self.closure.keywords)}')
-
-
-class View(nn.Module):
-    def __init__(self, *shape):
-        super().__init__()
-        self.shape = shape
-
-    def forward(self, x):
-        return x.view(x.shape[0], *self.shape)
-
-    def extra_repr(self):
-        return f'shape={(None, *self.shape)}'
 
 
 class Noise(nn.Module):
@@ -178,19 +167,19 @@ def _act_fn(inplace: bool = False) -> nn.Module:
     return nn.ReLU(inplace=inplace)
 
 
-def conv(cin, cout=None, kernel=3, stride=1, padding=1):
-    cout = cout or cin
+def conv(dim, cout=None, kernel=3, stride=1, padding=1):
+    cout = cout or dim
     return nn.Sequential(
-        nn.Conv2d(cin, cout, kernel, stride, padding=padding, bias=False),
+        nn.Conv2d(dim, cout, kernel, stride, padding=padding, bias=False),
         _norm_fn(cout),
         _act_fn(inplace=True),
     )
 
 
-def upconv(cin: int, cout: int | None = None) -> nn.Sequential:
-    cout = cout or cin
+def upconv(dim: int, cout: int | None = None) -> nn.Sequential:
+    cout = cout or dim
     return nn.Sequential(
-        nn.ConvTranspose2d(cin, cout, 3, stride=2, padding=1),
+        nn.ConvTranspose2d(dim, cout, 3, stride=2, padding=1),
         _norm_fn(cout),
         _act_fn(inplace=True),
     )
@@ -207,51 +196,59 @@ class _Named:
 
 
 class SEBlock(_Named, nn.Sequential):
-    def __init__(self, cin: int, reduction: int = 16):
-        mid = cin // reduction
+    def __init__(self, dim: int, mlp_ratio: float = 1 / 16):
+        dim_inner = int(dim * mlp_ratio)
         super().__init__(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(cin, mid, 1, bias=False),
+            Reduce('b c h w -> b c', 'mean'),
+            nn.Linear(dim, dim_inner, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid, cin, 1, bias=False),
+            nn.Linear(dim_inner, dim, bias=False),
             nn.Sigmoid(),
+            Rearrange('b c -> b c 1 1'),
         )
-        self.name = f'{type(self).__name__}({cin} -> {mid} -> {cin})'
+        self.name = f'{type(self).__name__}({dim} -> {dim_inner} -> {dim})'
 
     def forward(self, x):
         return x * super().forward(x)
 
 
-class SplitAttention(_Named, nn.Sequential):
-    def __init__(self, cin: int, groups: int = 1, radix: int = 2):
-        mid = cin * radix // 4
+class SplitAttention(_Named, nn.Module):
+    """
+    SplitAttention block from ResNeSt.
+    If radix == 1, equals to SqueezeExitation block from SENet.
+    """
+    def __init__(self, dim: int, groups: int = 1, radix: int = 2):
+        dim_inner = dim * radix // 4
 
-        super().__init__(
-            # Mean by radix and spatial dims
-            View(groups, radix, cin // groups, -1),
-            nn.AdaptiveAvgPool3d((1, None, 1)),  # type: ignore
-            View(-1, 1, 1),
-            # Core
-            nn.Conv2d(cin, mid, 1, groups=groups, bias=False),
-            _norm_fn(mid),
-            _act_fn(inplace=True),
-            nn.Conv2d(mid, cin * radix, 1, groups=groups, bias=False),
-            # Normalize
-            View(groups, radix, cin // groups),
-            nn.Sigmoid() if radix == 1 else nn.Softmax(dim=2),
-        )
-        self.groups = groups
+        super().__init__()
         self.radix = radix
-        self.name = (f'{type(self).__name__}'
-                     f'({cin} -> {mid} -> {cin}x{radix}, groups={groups}')
+        self.attn = nn.Sequential(
+            # Mean by radix and spatial dims
+            Reduce('b (g r c) h w -> b (g c) 1 1', 'mean', g=groups, r=radix),
+            # Core
+            nn.Conv2d(dim, dim_inner, 1, groups=groups, bias=False),
+            _norm_fn(dim_inner),
+            _act_fn(inplace=True),
+            nn.Conv2d(dim_inner, dim * radix, 1, groups=groups, bias=False),
+            # Normalize
+            Rearrange('b (g r c) 1 1 -> b g r c', g=groups, r=radix),
+            nn.Sigmoid() if radix == 1 else nn.Softmax(2),
+        )
+        self.to_radix = Rearrange(
+            'b (g r c) h w -> b g r c h w', g=groups, r=radix)
+        self.to_out = Rearrange('b g c h w -> b (g c) h w', g=groups)
+
+        self.name = (
+            f'{type(self).__name__}'
+            f'({dim} -> {dim_inner} -> {dim}x{radix}, groups={groups}')
 
     def forward(self, x):
-        b, _, h, w = x.shape
-        return torch.einsum(
-            'bgrc,bgrchw->bgchw',
-            super().forward(x * self.radix),
-            x.view(b, self.groups, self.radix, -1, h, w),
-        ).view(b, -1, h, w)
+        x = torch.einsum(
+            'bgrchw,bgrc->bgchw',
+            self.to_radix(x),
+            self.attn(x * self.radix if self.radix > 1 else x),
+        )
+        return self.to_out(x)
 
 
 def _resblock(
@@ -264,69 +261,75 @@ def _resblock(
     )
 
 
-def _resblock_core(cin: int, bottleneck: bool, groups: int, radix: int,
-                   expansion: int) -> list[nn.Module]:
+def _resblock_core(dim: int, bottleneck: bool, groups: int, radix: int,
+                   ratio: float) -> list[nn.Module]:
     if not bottleneck:  # resnet-18/34
         return [
-            nn.Conv2d(cin, cin, 3, padding=1, bias=False),
-            _norm_fn(cin),
+            nn.Conv2d(dim, dim, 3, padding=1, bias=False),
+            _norm_fn(dim),
             _act_fn(inplace=True),
-            nn.Conv2d(cin, cin, 3, padding=1, bias=False),
+            nn.Conv2d(dim, dim, 3, padding=1, bias=False),
         ]
 
     if radix:  # resnest-50/...
-        mid = round(cin * groups / expansion)
-        sa = [SplitAttention(mid, groups=groups, radix=radix)]
-        mid2 = mid * radix
+        dim_inner = round(dim * groups / ratio)
+        sa = [SplitAttention(dim_inner, groups=groups, radix=radix)]
+        dim_radix = dim_inner * radix
         groups *= radix
     else:  # (wide)resnet/resnext-50/101/152
-        mid = mid2 = round(cin / expansion)
+        dim_inner = dim_radix = round(dim / ratio)
         sa = []
 
     return [
-        nn.Conv2d(cin, mid, 1, bias=False),
-        _norm_fn(mid),
+        nn.Conv2d(dim, dim_inner, 1, bias=False),
+        _norm_fn(dim_inner),
         _act_fn(inplace=True),
-        nn.Conv2d(mid, mid2, 3, padding=1, groups=groups, bias=False),
-        _norm_fn(mid2),
+        nn.Conv2d(dim_inner, dim_radix, 3, 1, 1, groups=groups, bias=False),
+        _norm_fn(dim_radix),
         _act_fn(inplace=True),
         *sa,
-        nn.Conv2d(mid, cin, 1, bias=False),
+        nn.Conv2d(dim_inner, dim, 1, bias=False),
     ]
 
 
-def resblock(cin: int,
+def resblock(dim: int,
              se: bool = False,
              bottleneck: bool = False,
              groups: int = 1,
              radix: int = 1,
-             expansion: int = 4,
+             ratio: float = 4.,
              preact: Literal['no', 'base', 'full'] = 'no') -> nn.Sequential:
     """
     Modes:
-    - basic: 3x3(cin, cin) -> 3x3(cin, cin)
-    - bottleneck: 1x1(cin, mid) -> 3x3(mid, mid, groups) -> sa -> 1x1(mid, cin)
-        where: mid = cout // expansion.
+    - basic:
+        - 3x3(dim, dim)
+        - 3x3(dim, dim)
+    - bottleneck:
+        - 1x1(dim, dim_inner)
+        - 3x3(dim_inner, dim_inner, groups)
+        - sa
+        - 1x1(dim_inner, dim)
+        where: dim_inner = dim * ratio.
 
     For ResNet-18/34 use basic mode. Groups, expansion & radix are not used.
     For deeper nets:
     - groups=1:
-        - ResNet-X: expansion=4
-        - WideResNet: expansion=2
-        - ResNeSt: expansion=4, radix=2 (with se = False)
+        - ResNet-X: ratio=4
+        - WideResNet: ratio=2
+        - ResNeSt: ratio=4, radix=2 (with se = False)
     - groups=32:
-        - ResNeXt-32x4d: expansion=2
-        - ResNeXt-32x8d: expansion=1
+        - ResNeXt-32x4d: ratio=2
+        - ResNeXt-32x8d: ratio=1
 
     If preactivation is used, first resblock should use only 'base' mode,
     subsequent blocks should use 'full'.
     """
     assert not (se and radix)
 
-    core = _resblock_core(cin, bottleneck, groups, radix, expansion)
-    norm = _norm_fn(cin)
+    core = _resblock_core(dim, bottleneck, groups, radix, ratio)
+    norm = _norm_fn(dim)
     act = _act_fn(inplace=True)
-    se_block = [SEBlock(cin)] if se else ()
+    se_block = [SEBlock(dim)] if se else []
 
     if preact == 'full':  # fully pre-activated block
         return _resblock([norm, act, *core, *se_block])
