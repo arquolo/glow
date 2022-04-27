@@ -22,6 +22,7 @@ from weakref import WeakValueDictionary
 from .._repr import si_bin
 from .._sizeof import sizeof
 from .reusable import make_loop
+from .util import make_key
 
 
 class _Empty(enum.Enum):
@@ -206,7 +207,7 @@ class _Job(NamedTuple):
     future: asyncio.Future | cf.Future
 
 
-def _dispatch(fn: Callable[[Sequence], list], cache: dict[Hashable, object],
+def _dispatch(fn: Callable[[Sequence], list], cache: dict[Hashable, Any],
               queue: dict[Hashable, _Job]) -> None:
     jobs = {**queue}
     queue.clear()
@@ -274,8 +275,9 @@ def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
         return future
 
     def wrapper(tokens: Sequence) -> list:
+        futs = []
         with ExitStack() as stack:
-            futs = [_load(stack, token) for token in tokens]
+            futs += [_load(stack, token) for token in tokens]
         return [fut.result() for fut in futs]
 
     wrapper.cache = cache  # type: ignore
@@ -284,35 +286,13 @@ def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
 
 # ----------------------------- factory wrappers -----------------------------
 
-_KWD_MARK = object()
-
-
-class _HashedSeq(list):  # List is mutable, that's why not NamedTuple
-    __slots__ = 'hashvalue',
-
-    def __init__(self, tup: tuple):
-        self[:] = tup
-        self.hashvalue = hash(tup)  # Memorize hash
-
-    def __hash__(self):
-        return self.hashvalue
-
-
-def _make_key(*args, **kwargs) -> Hashable:
-    """Copied from functools._make_key, as private function"""
-    if len(args) == 1 and isinstance(args[0], (int, str)):
-        return args[0]
-    if kwargs:
-        args = sum(kwargs.items(), (*args, _KWD_MARK))
-    return _HashedSeq(args)
-
 
 def memoize(
     capacity: SupportsInt,
     *,
     batched: bool = False,
     policy: _Policy = 'raw',
-    key_fn: _KeyFn = _make_key,
+    key_fn: _KeyFn = make_key,
 ) -> Callable[[_F], _F] | Callable[[_Fbatch], _Fbatch]:
     """Returns dict-cache decorator.
 
