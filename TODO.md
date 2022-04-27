@@ -59,6 +59,8 @@ Add proper string formatting using `format_spec`
 - Enable fallthrough for bad tiles
 - Use mmap and tile offsets from `libtiff` to decompose I/O from decoding to allow concurrent decoding.
 
+### `io.Mosaic` (old `cv.Mosaic`)
+
 ## `nn` contents
 
 - Store only modules and ops for them
