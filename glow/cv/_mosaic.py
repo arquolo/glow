@@ -73,6 +73,9 @@ class Mosaic(_Base):
     Parameters:
     - step - Step between consecutive tiles
     - overlap - Count of pixels that will be shared among overlapping tiles
+
+    So tile size = overlap + non-overlapped area + overlap = step + overlap,
+    and non-overlapped area = step - overlap.
     """
     def as_tiles(self,
                  data: NumpyLike,

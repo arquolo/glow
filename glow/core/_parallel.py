@@ -102,10 +102,6 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
         try:
             yield threads
         finally:
-            # TODO: On pool death, set flag in proxy.
-            # TODO: In each worker, check this flag before call,
-            # TODO:  if it's set, then kill all worker-owned pools.
-            # TODO: To use this, somethere should be dict[ident, list[pool]]
             is_success = sys.exc_info() is None
             threads.shutdown(wait=is_success, cancel_futures=True)
 
@@ -241,7 +237,7 @@ def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
     q: SimpleQueue[Future] = SimpleQueue()
     q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
-    # As q.put always gives falsy None, filterfalse to call it as side effect
+    # As q.put always gives falsy None, filterfalse to call it as a side effect
     fs = filterfalse(q_put, fs)  # type: ignore
     with s:
         todo = set(islice(fs, qsize))  # Prefetch
