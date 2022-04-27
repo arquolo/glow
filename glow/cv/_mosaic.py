@@ -8,11 +8,10 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 import cv2
 import numpy as np
-from tqdm.auto import tqdm
 
 from .. import chunked, map_n
 
@@ -308,20 +307,28 @@ class _Merger(_Sized):
             v = view[y // v_scale:, x // v_scale:][:tw // ratio, :th // ratio]
             yield (y, x), out, v
 
-    def fuse(self, pool: int = 1, progress: bool = False) -> np.ndarray:
+    def fuse(self,
+             pool: int = 1,
+             status: Callable[[int, int], Any] | None = None) -> np.ndarray:
         """
-        Merges tiles to image, which has Hue proportional to ArgMax(-1),
-        and Value proporional to Max(-1).
+        Merges tiles to image, with argmax(-1) as hue, and max(-1) as value.
+        Parameters:
 
-        Created only for debugging.
+        - pool - scale to resize result down.
+        - status - optional callback accepting (index, total) to report status.
         """
         scale = self.scale * pool
         result = np.zeros((*(s // pool for s in self.shape), 3), dtype='u1')
 
-        for (y, x), tile in (tqdm(self, leave=False) if progress else self):
+        total = len(self)
+        if status:
+            status(0, total)
+        for i, ((y, x), tile) in enumerate(self, 1):
             h, w = (s // pool for s in tile.shape[:2])
             im = tile[::pool, ::pool][:h, :w]
             if im.size:
                 result[y // scale:, x // scale:][:h, :w] = _probs_to_hsv(im)
+            if status:
+                status(i, total)
 
         return result
