@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 __all__ = [
-    'Activation', 'Cat', 'Mish', 'Noise', 'Sum', 'Swish', 'UpsampleArea',
-    'UpsamplePoint', 'resblock'
+    'Activation', 'Cat', 'Noise', 'Sum', 'UpsampleArea', 'UpsamplePoint',
+    'resblock'
 ]
 
 import functools
@@ -49,53 +49,6 @@ class Noise(nn.Module):
 
     def extra_repr(self):
         return f'std={self.std}'
-
-
-# ------------------------- EfficientNet activations -------------------------
-
-
-class _ModuleBase(nn.Module):
-    class _AutoFn(torch.autograd.Function):
-        @classmethod
-        def forward(cls, ctx, x):
-            ctx.save_for_backward(x)
-            return cls._forward(x)
-
-        @classmethod
-        def backward(cls, ctx, grad):
-            return cls._backward(ctx.saved_tensors[0], grad)
-
-    def forward(self, x):
-        return self._AutoFn.apply(x)
-
-
-class Swish(_ModuleBase):
-    class _AutoFn(_ModuleBase._AutoFn):
-        @staticmethod
-        @torch.jit.script
-        def _forward(x):
-            return x.sigmoid().mul(x)
-
-        @staticmethod
-        @torch.jit.script
-        def _backward(x, grad):
-            sig = x.sigmoid()
-            return (sig * (1 + x * (1 - sig))).mul(grad)
-
-
-class Mish(_ModuleBase):
-    class _AutoFn(_ModuleBase._AutoFn):
-        @staticmethod
-        @torch.jit.script
-        def _forward(x):
-            return F.softplus(x).tanh().mul(x)
-
-        @staticmethod
-        @torch.jit.script
-        def _backward(x, grad):
-            sig = x.sigmoid()
-            tanh = F.softplus(x).tanh()
-            return (tanh + x * sig * (1 - tanh * tanh)).mul(grad)
 
 
 # ---------------------------- proper upsampling ----------------------------
