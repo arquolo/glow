@@ -66,7 +66,7 @@ class MaskTransform(_SingleTransform):
 
 
 class DualStageTransform(Transform):
-    _keys: frozenset[str] = frozenset({'image', 'mask'})
+    _keys = frozenset[str]({'image', 'mask'})
 
     def prepare(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
         return {}

@@ -124,7 +124,7 @@ metrics = [
 stepper = gnn.Stepper(
     net, opt, criterion, metrics, device=DEVICE, fp16=args.fp16)
 
-history: defaultdict[str, list] = defaultdict(list)
+history = defaultdict[str, list](list)
 with tqdm(total=epoch_len * args.epochs, desc='train') as pbar:
     for i, split in enumerate(glow.ichunked(loader, epoch_len), 1):
         tscalars = stepper.run(split, pbar).scalars

@@ -234,11 +234,12 @@ def _unwrap_loop(s: ExitStack, todo: set[Future[_T]],
 
 def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
             order: bool) -> Iterator[_T]:
-    q: SimpleQueue[Future] = SimpleQueue()
+    q = SimpleQueue[Future]()
     q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
     # As q.put always gives falsy None, filterfalse to call it as a side effect
     fs = filterfalse(q_put, fs)  # type: ignore
+    todo = set()
     with s:
         todo = set(islice(fs, qsize))  # Prefetch
         s = s.pop_all()

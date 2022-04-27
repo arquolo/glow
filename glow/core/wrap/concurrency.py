@@ -75,7 +75,7 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
 def shared_call(fn: _F) -> _F:
     """Merges concurrent calls to `fn` with the same `args` to single one.
     DO NOT USE with recursive functions"""
-    tasks: WeakValueDictionary[Hashable, _UniqueTask] = WeakValueDictionary()
+    tasks = WeakValueDictionary[Hashable, _UniqueTask]()
     lock = Lock()
 
     def wrapper(*args, **kwargs):

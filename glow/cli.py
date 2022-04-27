@@ -22,17 +22,18 @@ if sys.version_info >= (3, 10):
 
 
 def arg(
-        default=MISSING,
-        /,
-        *,
-        flag=None,
-        factory=MISSING,
-        init=True,
-        repr=True,  # noqa: A002
-        hash=None,  # noqa: A002
-        help=None,  # noqa: A002
-        compare=True,
-        metadata=None):
+    default=MISSING,
+    /,
+    *,
+    flag=None,
+    factory=MISSING,
+    init=True,
+    repr=True,  # noqa: A002
+    hash=None,  # noqa: A002
+    help=None,  # noqa: A002
+    compare=True,
+    metadata=None,
+):
     """Convinient alias for dataclass.field with extra metadata (like help)"""
     metadata = metadata or {}
     for k, v in {'flag': flag, 'help': help}.items():
@@ -99,8 +100,8 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
         yield fd
 
 
-def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
-                    seen: dict[str, list]) -> list[_Node]:
+def _visit_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
+                  seen: dict[str, list]) -> list[_Node]:
     try:
         hints = get_type_hints(fn)
     except NameError:
@@ -117,7 +118,7 @@ def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
     for fd in _get_fields(fn):
         if fd.init:
             seen.setdefault(fd.name, []).append(fn)
-            nodes.append(_prepare_field(parser, hints[fd.name], fd, seen))
+            nodes.append(_visit_field(parser, hints[fd.name], fd, seen))
 
     for name, usages in seen.items():
         if len(usages) > 1:
@@ -128,8 +129,8 @@ def _prepare_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
     return nodes
 
 
-def _prepare_field(parser: ArgumentParser | _ArgumentGroup, tp: type,
-                   fd: Field, seen: dict[str, list]) -> _Node:
+def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
+                 seen: dict[str, list]) -> _Node:
     cls, opts = _unwrap_type(tp)
 
     help_ = fd.metadata.get('help') or ''
@@ -138,7 +139,7 @@ def _prepare_field(parser: ArgumentParser | _ArgumentGroup, tp: type,
 
     if is_dataclass(cls):  # Nested dataclass
         arg_group = parser.add_argument_group(fd.name)
-        return fd.name, cls, _prepare_nested(arg_group, cls, seen)
+        return fd.name, cls, _visit_nested(arg_group, cls, seen)
 
     snake = fd.name.replace('_', '-')
     flags = [f] if (f := fd.metadata.get('flag')) else []
@@ -190,7 +191,7 @@ def parse_args(fn: Callable[..., _T],
     """Create parser from type hints of callable, parse args and do call"""
     # TODO: Rename to `exec_cli`
     parser = ArgumentParser(prog)
-    nodes = _prepare_nested(parser, fn, {})
+    nodes = _visit_nested(parser, fn, {})
 
     if args is not None:  # fool's protection
         args = line.split(' ') if (line := ' '.join(args).strip()) else []

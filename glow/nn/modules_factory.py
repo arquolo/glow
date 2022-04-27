@@ -91,8 +91,8 @@ class Sum(nn.Sequential):  # TODO: deprecate and/or refactor
 
     def __init__(self,
                  *children: nn.Module,
-                 tail: nn.Module = None,
-                 ident: nn.Module = None,
+                 tail: nn.Module | None = None,
+                 ident: nn.Module | None = None,
                  skip: float = 0.0) -> None:
         super().__init__(*children)
         self.tail = tail

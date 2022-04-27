@@ -5,7 +5,7 @@ from __future__ import annotations
 __all__ = ['get_amp_context']
 
 import warnings
-from collections import abc
+from collections import abc, deque
 from functools import partial
 
 import numpy as np
@@ -31,7 +31,9 @@ def _apply(xs, fn):
     return xs
 
 
-def deep_to(xs, device: torch.device = None, dtype: torch.dtype = None):
+def deep_to(xs,
+            device: torch.device | None = None,
+            dtype: torch.dtype | None = None):
     def fun(x):
         if x.is_floating_point():
             return x.to(device, dtype, non_blocking=True)
@@ -64,12 +66,12 @@ class OptContext:
         state_dict = {**state_dict}
         self.optim.load_state_dict(state_dict.pop('optim'))
 
-        dst = []
+        dst = deque()
         _apply({k: self.__dict__[k] for k in state_dict}, dst.append)
 
         with torch.no_grad():
             self.__dict__.update(
-                _apply(state_dict, lambda src: dst.pop(0).copy_(src)))
+                _apply(state_dict, lambda src: dst.popleft().copy_(src)))
 
     def __enter__(self) -> OptContext:
         self.zero_grad()

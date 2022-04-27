@@ -9,9 +9,10 @@ import threading
 from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from itertools import chain, cycle, islice, repeat, tee
-from typing import Any, TypeVar, overload
+from typing import TypeVar, overload
 
 import numpy as np
+import numpy.typing as npt
 
 from ._len_helpers import _SizedIterator, as_sized
 
@@ -22,11 +23,11 @@ class _Empty(enum.Enum):
 
 _T = TypeVar('_T')
 _Seq = TypeVar('_Seq', bound=Sequence)
-_Dtype = TypeVar('_Dtype', bound=np.dtype)
+_Scalar = TypeVar('_Scalar', bound=np.generic, covariant=True)
 _empty = _Empty.token
 
 
-def as_iter(obj: Iterable[_T] | _T, limit: int = None) -> Iterator[_T]:
+def as_iter(obj: Iterable[_T] | _T, limit: int | None = None) -> Iterator[_T]:
     """Make iterator with at most `limit` items"""
     if isinstance(obj, Iterable):
         return islice(obj, limit)
@@ -50,8 +51,8 @@ def sliced(seq: _Seq, size: int) -> Iterator[_Seq]:
 
 
 @overload
-def sliced(seq: np.ndarray[Any, _Dtype],
-           size: int) -> Iterator[np.ndarray[Any, _Dtype]]:
+def sliced(seq: npt.NDArray[_Scalar],
+           size: int) -> Iterator[npt.NDArray[_Scalar]]:
     ...
 
 

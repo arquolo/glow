@@ -20,7 +20,7 @@ def mangle() -> Callable[[str], str | None]:
     >>> mangled('a')
     'a:1'
     """
-    store: Counter[str] = Counter()
+    store = Counter[str]()
 
     def call(name: str) -> str | None:
         if name is None:
