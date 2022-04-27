@@ -1,29 +1,21 @@
 from __future__ import annotations
 
-__all__ = [
-    'coroutine', 'lock_seed', 'summary', 'trace', 'trace_module', 'whereami'
-]
+__all__ = ['lock_seed', 'trace', 'trace_module', 'whereami']
 
-import functools
 import gc
 import inspect
 import os
 import random
-import threading
 import types
-from collections import Counter
-from collections.abc import Callable, Generator, Hashable, Iterator
+from collections.abc import Iterator
 from contextlib import suppress
 from itertools import islice
 from types import FrameType
-from typing import TypeVar, cast
 
 import numpy as np
 import wrapt
 
 from ._import_hook import register_post_import_hook
-
-_F = TypeVar('_F', bound=Callable[..., Generator])
 
 
 def _get_module(frame: FrameType) -> str:
@@ -113,47 +105,6 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
 def trace_module(name):
     """Enables call logging for each callable inside module name"""
     register_post_import_hook(_set_trace, name)
-
-
-# ---------------------------------------------------------------------------
-
-
-@wrapt.decorator
-def threadsafe_coroutine(fn, _, args, kwargs):
-    coro = fn(*args, **kwargs)
-    coro.send(None)
-    lock = threading.RLock()
-
-    class Synchronized(wrapt.ObjectProxy):
-        def send(self, item):
-            with lock:
-                return self.__wrapped__.send(item)
-
-        def __next__(self):
-            return self.send(None)
-
-    return Synchronized(coro)
-
-
-@threadsafe_coroutine
-def summary() -> Generator[None, Hashable, None]:
-    state: Counter[Hashable] = Counter()
-    while True:
-        key = yield
-        if key is None:
-            state.clear()
-            continue
-        state[key] += 1
-        print(dict(state), flush=True, end='\r')
-
-
-def coroutine(fn: _F) -> _F:
-    def wrapper(*args, **kwargs):
-        coro = fn(*args, **kwargs)
-        coro.send(None)
-        return coro
-
-    return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
 # ---------------------------------------------------------------------------
