@@ -77,17 +77,13 @@ class Mosaic(_Base):
     So tile size = overlap + non-overlapped area + overlap = step + overlap,
     and non-overlapped area = step - overlap.
     """
-    def as_tiles(self,
-                 data: NumpyLike,
-                 scale: int = 1,
-                 max_workers: int = 1) -> _Tiler:
+    def as_tiles(self, data: NumpyLike, max_workers: int = 1) -> _Tiler:
         """Read tiles from data using scale as stride"""
-        shape = *(s // scale for s in data.shape[:2]),
+        shape = data.shape[:2]
         ishape = *(len(range(0, s + self.overlap, self.step)) for s in shape),
         cells = np.ones(ishape, dtype=np.bool_)
 
-        return _Tiler(self.step, self.overlap, shape, cells, data, scale,
-                      max_workers)
+        return _Tiler(self.step, self.overlap, shape, cells, data, max_workers)
 
 
 @dataclass
@@ -115,7 +111,6 @@ class _Sized(_Base):
 @dataclass
 class _Tiler(_Sized):
     data: NumpyLike
-    scale: int
     max_workers: int
 
     def select(self, mask: np.ndarray, scale: int) -> _Tiler:
@@ -124,8 +119,8 @@ class _Tiler(_Sized):
         mask = mask.astype('u1')
 
         ih, iw = self.ishape
-        step = (self.step * self.scale) // scale
-        pad = (self.overlap * self.scale // 2) // scale
+        step = self.step // scale
+        pad = self.overlap // 2 // scale
 
         mh, mw = (ih * step), (iw * step)
         if mask.shape[:2] != (mh, mw):
@@ -144,22 +139,20 @@ class _Tiler(_Sized):
 
     def _get_tile(self, iy: int, ix: int) -> np.ndarray:
         """Read non-overlapping tile of source image"""
-        scale = self.scale
-        (y0, y1), (x0, x1) = ((i * self.step - self.overlap,
-                               (i + 1) * self.step) for i in (iy, ix))
+        (y0, y1), (x0, x1) = ((self.step * i - self.overlap,
+                               self.step * (i + 1)) for i in (iy, ix))
         if iy and self.cells[iy - 1, ix]:
             y0 += self.overlap
         if ix and self.cells[iy, ix - 1]:
             x0 += self.overlap
-        return self.data[y0 * scale:y1 * scale:scale,  # type: ignore
-                         x0 * scale:x1 * scale:scale]
+        return self.data[y0:y1, x0:x1]
 
     def _rejoin_tiles(
             self, image_parts: Iterable[np.ndarray]) -> Iterator[np.ndarray]:
         """Joins non-overlapping parts to tiles"""
         assert self.overlap
         cells = np.pad(self.cells, [(0, 1), (0, 1)])
-        row: defaultdict[int, np.ndarray] = defaultdict()
+        row = defaultdict[int, np.ndarray]()
 
         for (iy, ix), part in self.enumerate(image_parts):
             # Lazy init, first part is always whole
@@ -184,8 +177,7 @@ class _Tiler(_Sized):
         return self._rejoin_tiles(parts) if self.overlap else iter(parts)
 
     def _offset(self) -> Sequence[Vec]:
-        offsets = np.argwhere(self.cells) * self.step - self.overlap
-        return (offsets * self.scale).tolist()
+        return (np.argwhere(self.cells) * self.step - self.overlap).tolist()
 
     def __iter__(self) -> Iterator[tuple[Vec, np.ndarray]]:
         """
@@ -196,7 +188,6 @@ class _Tiler(_Sized):
 
     def apply(self,
               func: Callable[[Iterable[np.ndarray]], list[np.ndarray]],
-              scale: int,
               batch_size: int = 1,
               max_workers: int = 1,
               weighting: bool = True) -> _Merger:
@@ -210,29 +201,25 @@ class _Tiler(_Sized):
         float dtype.
 
         Parameters:
-        - scale - Scale of output.
         - batch_size - Batch size to use for grouping tiles for func.
         - weighting - Whether to apply weight for each tile,
           or don't when func already applies it.
         """
-        ratio = scale / self.scale
-        step, overlap, *shape = (
-            int(s * ratio) for s in (self.step, self.overlap) + self.shape)
-
-        weight = _get_weight(step, overlap) if overlap and weighting else None
+        weight = (
+            _get_weight(self.step, self.overlap)
+            if self.overlap and weighting else None)
 
         image_parts = self._raw_iter()
         chunks = chunked(image_parts, batch_size)
         batches = map_n(func, chunks, max_workers=max_workers)
         results = chain.from_iterable(batches)
 
-        return _Merger(step, overlap, tuple(shape), self.cells, scale,
+        return _Merger(self.step, self.overlap, self.shape, self.cells,
                        zip(self._offset(), results), weight)
 
 
 @dataclass
 class _Merger(_Sized):
-    scale: int
     source: Iterable[tuple[Vec, np.ndarray]]
     weight: np.ndarray | None
 
@@ -258,7 +245,7 @@ class _Merger(_Sized):
             tile[:self.overlap, self.step - top.shape[1]:self.step] += top
         else:
             tile = tile[self.overlap:]  # cut TOP
-            y += self.overlap * self.scale
+            y += self.overlap
 
         if ix and self._cells[iy, ix - 1]:  # LEFT exists
             left = self._carry.pop()
@@ -269,7 +256,7 @@ class _Merger(_Sized):
                      self.overlap:-self.overlap, :self.overlap] += left
         else:
             tile = tile[:, self.overlap:]  # cut LEFT
-            x += self.overlap * self.scale
+            x += self.overlap
 
         tile, right = np.split(tile, [-self.overlap], axis=1)
         if self._cells[iy, ix + 1]:  # RIGHT exists
@@ -291,10 +278,9 @@ class _Merger(_Sized):
     def _crop(
         self, source: Iterable[tuple[Vec, np.ndarray]]
     ) -> Iterator[tuple[Vec, np.ndarray]]:
-        shape = self.shape
-        scale = self.scale
+        h, w = self.shape
         for (y, x), out in source:
-            yield (y, x), out[:shape[0] - y // scale, :shape[1] - x // scale]
+            yield (y, x), out[:h - y, :w - x]
 
     def __iter__(self) -> Iterator[tuple[Vec, np.ndarray]]:
         isource = self.source
@@ -307,12 +293,11 @@ class _Merger(_Sized):
             self, view: np.ndarray,
             v_scale: int) -> Iterator[tuple[Vec, np.ndarray, np.ndarray]]:
         """Extracts tiles from `view` simultaneously with tiles from self"""
-        assert v_scale >= self.scale
-        ratio = v_scale // self.scale
-
+        assert v_scale >= 1
         for (y, x), out in self:
             tw, th = out.shape[:2]
-            v = view[y // v_scale:, x // v_scale:][:tw // ratio, :th // ratio]
+            v = view[y // v_scale:,
+                     x // v_scale:][:tw // v_scale, :th // v_scale]
             yield (y, x), out, v
 
     def fuse(self,
@@ -325,8 +310,7 @@ class _Merger(_Sized):
         - pool - scale to resize result down.
         - status - optional callback accepting (index, total) to report status.
         """
-        scale = self.scale * pool
-        result = np.zeros((*(s // pool for s in self.shape), 3), dtype='u1')
+        r = np.zeros((*(s // pool for s in self.shape), 3), dtype='u1')
 
         total = len(self)
         if status:
@@ -335,8 +319,8 @@ class _Merger(_Sized):
             h, w = (s // pool for s in tile.shape[:2])
             im = tile[::pool, ::pool][:h, :w]
             if im.size:
-                result[y // scale:, x // scale:][:h, :w] = _probs_to_hsv(im)
+                r[y // pool:, x // pool:][:h, :w] = _probs_to_hsv(im)
             if status:
                 status(i, total)
 
-        return result
+        return r
