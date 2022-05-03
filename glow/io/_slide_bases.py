@@ -49,9 +49,9 @@ class Lod(Item):
         raise NotImplementedError
 
     @final
-    def __getitem__(self, slices: tuple[slice, ...] | slice) -> np.ndarray:
+    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Reads crop of LOD"""
-        slices = normalize(slices, self.shape)
+        slices = normalize(key, self.shape)
         assert all(s.step == 1 for s in slices)
         return self.crop(slices)
 

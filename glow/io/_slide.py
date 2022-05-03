@@ -114,12 +114,13 @@ class Slide:
         p, lod = self.best_lod_for(zoom)
         if p == zoom:
             return lod
+        assert zoom % p == 0, 'fractional pooling is not supported'
         return lod.downscale(zoom // p)
 
-    def __getitem__(self, slices: tuple[slice, ...] | slice) -> np.ndarray:
+    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         """Retrieves tile"""
         # TODO: Ignore step, always redirect to self.lods[0].__getitem__
-        slices = normalize(slices, self.shape)
+        slices = normalize(key, self.shape)
 
         step0, step1 = (s.step for s in slices)
         if step0 != step1:

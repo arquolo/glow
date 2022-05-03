@@ -49,7 +49,7 @@ class NumpyLike(Protocol):
     def shape(self) -> tuple[int, ...]:
         ...
 
-    def __getitem__(self, index: slice | tuple[slice, ...]) -> np.ndarray:
+    def __getitem__(self, key: slice | tuple[slice, ...]) -> np.ndarray:
         ...
 
 
