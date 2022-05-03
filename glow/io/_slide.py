@@ -155,6 +155,12 @@ class Slide:
             return np.array(item, copy=False, order='C')
         return None
 
+    def thumbnail(self) -> np.ndarray:
+        item = self.extras.get('thumbnail')
+        if not item:
+            item = self.lods[-1]
+        return np.asarray(item)
+
     @classmethod
     def open(cls, anypath: Path | str) -> Slide:
         """Open multi-scale image."""
