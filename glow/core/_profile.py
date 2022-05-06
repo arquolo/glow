@@ -2,14 +2,15 @@ from __future__ import annotations
 
 __all__ = ['memprof', 'time_this', 'timer']
 
-import functools
-import threading
-import time
-import weakref
-from collections import defaultdict
+import atexit
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import partial
+from itertools import accumulate, count
+from threading import get_ident
+from time import perf_counter_ns, process_time_ns, thread_time_ns
 from typing import TYPE_CHECKING
 
 from wrapt import ObjectProxy
@@ -48,20 +49,19 @@ def memprof(name_or_callback: str | Callable[[float], object] | None = None,
 
 
 @contextmanager
-def timer(name_or_callback: str | Callable[[float], object] | None = None,
+def timer(name_or_callback: str | Callable[[int], object] | None = None,
+          time: Callable[[], int] = perf_counter_ns,
           /) -> Iterator[None]:
-    init = time.perf_counter()
+    begin = time()
     try:
         yield
     finally:
-        duration = time.perf_counter() - init
+        end = time()
         if callable(name_or_callback):
-            name_or_callback(duration)
+            name_or_callback(end - begin)
         else:
-            name = name_or_callback
-            if name is None:
-                name = f'{whereami(2, 1)} line'
-            print(f'{name} done in {si(duration)}s')
+            name = name_or_callback or f'{whereami(2, 1)} line'
+            print(f'{name} done in {si((end - begin) / 1e9)}s')
 
 
 def _to_fname(obj) -> str:
@@ -72,91 +72,140 @@ def _to_fname(obj) -> str:
     return f'{obj.__module__}.{obj.__qualname__}'
 
 
-@dataclass
+class _Times(dict[int, int]):
+    def add(self, value: int):
+        idx = get_ident()
+        self[idx] = self.get(idx, 0) + value
+
+    def total(self) -> int:
+        return sum(self.values())
+
+
+class _Nlwp:
+    __slots__ = ('_add_event', '_get_max')
+
+    def __init__(self) -> None:
+        events = deque[int]()
+        self._add_event = events.append
+
+        deltas = iter(events.popleft, None)
+        totals = accumulate(deltas)
+        maximums = accumulate(totals, max, initial=0)
+        self._get_max = maximums.__next__
+
+    def __enter__(self):
+        self._add_event(+1)
+        self._get_max()
+
+    def __exit__(self, *args):
+        self._add_event(-1)
+        self._get_max()
+
+    def max(self) -> int:
+        self._add_event(0)
+        return self._get_max()
+
+
+@dataclass(frozen=True)
 class _Stat:
-    calls: dict[int, int] = field(default_factory=lambda: defaultdict(int))
-    times: dict[int, float] = field(default_factory=lambda: defaultdict(float))
+    calls: count = field(default_factory=count)
+    nlwp: _Nlwp = field(default_factory=_Nlwp)
+    cpu_ns: _Times = field(default_factory=_Times)
+    all_ns: _Times = field(default_factory=_Times)
 
-    def update_call(self, duration: float):
-        # TODO: drop len(set[ident]), use max(len(set[ident])),
-        # TODO:  aka max concurrency
-        idx = threading.get_ident()
-        self.calls[idx] += 1
-        self.times[idx] += duration
+    def __call__(self, op, *args, **kwargs):
+        with self.nlwp, \
+                timer(self.all_ns.add), \
+                timer(self.cpu_ns.add, thread_time_ns):
+            return op(*args, **kwargs)
 
-    def update_next(self, duration: float):
-        idx = threading.get_ident()
-        self.times[idx] += duration
-
-    def stat(self) -> tuple[str, float] | None:
-        if not self.calls:
+    def stat(self) -> tuple[float, float, str] | None:
+        if not (n := next(self.calls)):
             return None
+        w = self.nlwp.max()
+        t = self.cpu_ns.total() / 1e9
+        a = self.all_ns.total() / 1e9
 
-        w = len(self.calls | self.times)
-        n = sum(self.calls.values())
-        t = sum(self.times.values())
-        tail = (f' ({n} x {si(t / n)}s)' if w == 1 else
-                f' ({n} x {si(t / n)}s @ {w}T)') if n > 1 else ''
-        return f'{si(t)}s{tail}', t
-
-
-_start = time.perf_counter()
-_stats: dict[str, _Stat] = defaultdict(_Stat)
-_lock = threading.RLock()
+        tail = (f'{n} x {si(t / n)}s' +
+                (f' @ {w}T' if w > 1 else '')) if n > 1 else ''
+        return t, (a - t), tail
 
 
-class _TimedIter(ObjectProxy):
-    def __init__(self, wrapped, callback):
+class _Proxy(ObjectProxy):
+    def __init__(self, wrapped, wrapper):
         super().__init__(wrapped)
-        self._self_callback = callback
+        self._self_wrapper = wrapper
 
+
+class _TimedCall(_Proxy):
+    def __get__(self, instance, owner):
+        fn = self.__wrapped__.__get__(instance, owner)
+        return _BoundTimedCall(fn, self._self_wrapper)
+
+    def __call__(self, *args, **kwargs):
+        next(self._self_wrapper.calls)
+        r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
+        if isinstance(r, Iterator):
+            return _TimedIter(r, self._self_wrapper)
+        return r
+
+
+class _BoundTimedCall(_TimedCall):
+    def __get__(self, instance, owner):
+        return self
+
+
+class _TimedIter(_Proxy):
     def __iter__(self):
         return self
 
     def __next__(self):
-        with timer(self._self_callback):
-            return next(self.__wrapped__)
-
-    def close(self):
-        with timer(self._self_callback):
-            return self.__wrapped__.close()
+        return self._self_wrapper(self.__wrapped__.__next__)
 
     def send(self, value):
-        with timer(self._self_callback):
-            return self.__wrapped__.send(value)
+        return self._self_wrapper(self.__wrapped__.send, value)
 
     def throw(self, typ, val=None, tb=None):
-        with timer(self._self_callback):
-            return self.__wrapped__.throw(typ, val, tb)
+        return self._self_wrapper(self.__wrapped__.throw, typ, val, tb)
+
+    def close(self):
+        return self._self_wrapper(self.__wrapped__.close)
 
 
-def _print_stats(name: str):
-    with _lock:
-        if not (stat := _stats.pop(name)):
-            return
-    if not (lines := stat.stat()):
-        return
+# Wall time, i.e. sum of per-thread times, excluding sleep
+_start = process_time_ns()
+_stats = defaultdict[str, _Stat](_Stat)
 
-    text, runtime = lines
-    total = time.perf_counter() - _start + 1e-7
-    print(f'{name} - {text} - {runtime / total:.2%} of all')
+
+@atexit.register
+def _print_stats(*names: str):
+    all_busy = (process_time_ns() - _start + 1) / 1e9
+
+    stats = []
+    names = names or tuple(_stats)
+    for name in names:
+        if not (stat := _stats.pop(name, None)):
+            continue
+        if not (lines := stat.stat()):
+            continue
+        stats.append((*lines, name))
+
+    for busy, idle, tail, name in sorted(stats):
+        print(
+            f'{busy/all_busy:6.2%}',
+            f'{si(busy):>5s}s + {si(idle):>5s}s',
+            name,
+            tail,
+            sep=' - ')
 
 
 def time_this(fn=None, /, *, name: str | None = None):
     """Log function and/or generator timings at program exit"""
     if fn is None:
-        return functools.partial(time_this, name=name)
+        return partial(time_this, name=name)
 
     if name is None:
         name = _to_fname(fn)
 
-    stat = _stats[name]
-    call_cbk, next_cbk = stat.update_call, stat.update_next
-
-    def wrapper(*args, **kwargs):
-        with timer(call_cbk):
-            res = fn(*args, **kwargs)
-        return _TimedIter(res, next_cbk) if isinstance(res, Iterator) else res
-
-    wrapper.finalize = weakref.finalize(fn, _print_stats, name)  # type: ignore
-    return functools.update_wrapper(wrapper, fn)
+    fn.log_timing = partial(_print_stats, name)
+    return _TimedCall(fn, _stats[name])
