@@ -190,14 +190,17 @@ class _AutoSize:
             return self.size
 
     def update(self, start_time: float, fut: Future[Sized]):
-        if fut.cancelled() or fut.exception():
+        # Compute as soon as future became done, discard later if not needed
+        duration = perf_counter() - start_time
+
+        try:
+            r = fut.result()  # Do not disturb Future._condition for nothing
+        except BaseException:  # noqa: PIE786
             return
 
-        size = len(fut.result())
         with self.lock:
-            if size != self.size:
+            if len(r) != self.size:
                 return
-            duration = perf_counter() - start_time
             self.duration = ((0.8 * self.duration + 0.2 * duration)
                              if self.duration > 0 else duration)
 
