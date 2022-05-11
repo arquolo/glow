@@ -9,7 +9,7 @@ from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._sizeof import sizeof
 from ._uuid import Uid
 from .debug import lock_seed, trace, trace_module, whereami
-from .wrap import (Reusable, call_once, memoize, shared_call, stream_batched,
+from .wrap import (Reusable, call_once, memoize, shared_call, streaming,
                    threadlocal)
 
 __all__ = [
@@ -17,7 +17,7 @@ __all__ = [
     'coroutine', 'countable', 'eat', 'ichunked', 'lock_seed', 'mangle',
     'map_n', 'memoize', 'memprof', 'repr_as_obj', 'Reusable', 'roundrobin',
     'shared_call', 'si', 'si_bin', 'sizeof', 'sliced', 'starmap_n',
-    'stream_batched', 'summary', 'threadlocal', 'time_this', 'timer',
+    'streaming', 'summary', 'threadlocal', 'time_this', 'timer',
     'trace_module', 'trace', 'Uid', 'whereami', 'windowed'
 ]
 

@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-__all__ = ['stream_batched', 'call_once', 'threadlocal', 'shared_call']
+__all__ = ['streaming', 'call_once', 'threadlocal', 'shared_call']
 
 import threading
 from collections.abc import Callable, Hashable, Sequence
-from concurrent.futures import Future
+from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
-from time import monotonic, sleep
-from typing import Any, NoReturn, TypeVar, cast
+from time import monotonic
+from typing import Any, TypeVar, cast
 from weakref import WeakValueDictionary
 
+from .._thread_quota import ThreadQuota
 from .util import make_key
 
 _T = TypeVar('_T')
@@ -39,13 +40,13 @@ def threadlocal(fn: Callable[..., _T], *args: object,
 
 
 @dataclass
-class _UniqueTask:
+class _UFuture:
     _fn: Callable[[], Any]
     _lock: Lock = field(default_factory=Lock)
     _result: Any = _unset
     _exception: BaseException | None = None
 
-    def run(self):
+    def result(self):
         with self._lock:
             if self._exception:
                 raise self._exception
@@ -53,41 +54,54 @@ class _UniqueTask:
                 return self._result
 
             try:
-                r = self._fn()
+                self._result = r = self._fn()
+                return r
             except BaseException as e:
                 self._exception = e
                 raise
-            else:
-                self._result = r
-                return r
 
 
 def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
     """Makes `fn()` callable a singleton.
     DO NOT USE with recursive functions"""
     def wrapper():
-        return task.run()
+        return f.result()
 
-    fn._task = task = _UniqueTask(fn)  # type: ignore
+    fn._future = f = _UFuture(fn)  # type: ignore
     return cast(_ZeroArgsF, update_wrapper(wrapper, fn))
 
 
 def shared_call(fn: _F) -> _F:
     """Merges concurrent calls to `fn` with the same `args` to single one.
     DO NOT USE with recursive functions"""
-    tasks = WeakValueDictionary[Hashable, _UniqueTask]()
+    fs = WeakValueDictionary[Hashable, _UFuture]()
     lock = Lock()
 
     def wrapper(*args, **kwargs):
         key = make_key(*args, **kwargs)
 
         with lock:  # Create only one task per args-kwargs set
-            if not (task := tasks.get(key)):
-                tasks[key] = task = _UniqueTask(partial(fn, *args, **kwargs))
+            if not (f := fs.get(key)):
+                fs[key] = f = _UFuture(partial(fn, *args, **kwargs))
 
-        return task.run()
+        return f.result()
 
     return cast(_F, update_wrapper(wrapper, fn))
+
+
+def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
+                 timeout: float) -> list[_T]:
+    # Wait indefinitely for the first item
+    batch = [q.get()]
+
+    # Waiting is limited only for the consecutive items
+    end = monotonic() + timeout
+    while len(batch) < batch_size and (left := end - monotonic()) > 0:
+        try:
+            batch.append(q.get(timeout=left))
+        except Empty:
+            break
+    return batch
 
 
 def _batch_invoke(func: _Make[Sequence[_T]], futures: Sequence[Future[_T]]):
@@ -102,46 +116,49 @@ def _batch_invoke(func: _Make[Sequence[_T]], futures: Sequence[Future[_T]]):
             fut.set_result(res)
 
 
-def stream_batched(func=None, *, batch_size, latency=0.1, timeout=20.):
+def _compute(func, batch):
+    fs, items = zip(*batch)
+    _batch_invoke(partial(func, items), fs)
+
+
+def streaming(func=None, *, batch_size, timeouts=(0.1, 20.), workers=1):
     """
-    Delays start of computation up to `latency` seconds
-    in order to fill batch to batch_size items and
-    send it at once to target function.
-    `timeout` specifies timeout to wait results from worker.
+    Delays start of computation to until batch is collected.
+    Accepts two timeouts (in seconds):
+    - first controls waiting of items from the consecutive calls.
+    - second is responsible for waiting of results.
 
     Simplified version of https://github.com/ShannonAI/service-streamer
+
+    Note: currently supports only functions and bound methods.
     """
     if func is None:
-        return partial(
-            stream_batched,
-            batch_size=batch_size,
-            latency=latency,
-            timeout=timeout)
+        return partial(streaming, batch_size=batch_size, timeouts=timeouts)
 
     assert callable(func)
-    buf = SimpleQueue()
+    assert workers >= 1
+    q = SimpleQueue()
+    batch_timeout, result_timeout = timeouts
+    executor = ThreadQuota(workers)
 
-    def _fetch_batch():
-        end_time = monotonic() + latency
-        for _ in range(batch_size):
-            try:
-                yield buf.get(timeout=end_time - monotonic())
-            except (Empty, ValueError):  # ValueError on negative timeout
-                return
-
-    def _serve_forever() -> NoReturn:
+    def _collect():
         while True:
-            if batch := [*_fetch_batch()]:
-                fs, items = zip(*batch)
-                _batch_invoke(partial(func, items), fs)
-            else:
-                sleep(0.001)
+            batch = _fetch_batch(q, batch_size, batch_timeout)
+            executor.submit(_compute, func, batch)
+
+    Thread(target=_collect, daemon=True).start()
 
     def wrapper(items):
-        fs_iter = iter(Future, None)
-        fs = [f for x, f in zip(items, fs_iter) if not buf.put((f, x))]
-        end_time = monotonic() + timeout
-        return [f.result(end_time - monotonic()) for f in fs]
+        fs = {Future(): item for item in items}
+        for f_x in fs.items():
+            q.put(f_x)
 
-    Thread(target=_serve_forever, daemon=True).start()
+        if wait(fs, result_timeout, return_when='FIRST_EXCEPTION').not_done:
+            raise TimeoutError
+        return [f.result() for f in fs]
+
+    # TODO: if func is instance method - recreate wrapper per instance
+    # TODO: find how to distinguish between
+    # TODO:  not yet bound method and plain function
+    # TODO:  maybe implement __get__ on wrapper
     return update_wrapper(wrapper, func)

@@ -1,8 +1,10 @@
-from typing import Callable, ContextManager, Sequence, TypeVar, overload
+from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager
+from typing import TypeVar, overload
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
-_BatchF = TypeVar('_BatchF', bound=Callable[[Sequence], list])
+_BatchF = TypeVar('_BatchF', bound=Callable[[Iterable], list])
 
 
 def threadlocal(fn: Callable[..., _T], *args: object,
@@ -10,7 +12,7 @@ def threadlocal(fn: Callable[..., _T], *args: object,
     ...
 
 
-def interpreter_lock(timeout: float = ...) -> ContextManager[None]:
+def interpreter_lock(timeout: float = ...) -> AbstractContextManager[None]:
     ...
 
 
@@ -23,17 +25,17 @@ def shared_call(fn: _F) -> _F:
 
 
 @overload
-def stream_batched(*,
-                   batch_size: int,
-                   latency: float = ...,
-                   timeout: float = ...) -> Callable[[_BatchF], _BatchF]:
+def streaming(*,
+              batch_size: int,
+              timeouts: tuple[float, float] = ...,
+              workers: int = ...) -> Callable[[_BatchF], _BatchF]:
     ...
 
 
 @overload
-def stream_batched(func: _BatchF,
-                   *,
-                   batch_size: int,
-                   latency: float = ...,
-                   timeout: float = ...) -> _BatchF:
+def streaming(func: _BatchF,
+              *,
+              batch_size: int,
+              timeouts: tuple[float, float] = ...,
+              workers: int = ...) -> _BatchF:
     ...
