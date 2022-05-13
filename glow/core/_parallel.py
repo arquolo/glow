@@ -7,30 +7,31 @@ import enum
 import os
 import signal
 import sys
-from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+import weakref
+from collections.abc import Callable, Iterable, Iterator, Sized
+from concurrent.futures import Executor, Future
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
-from dataclasses import dataclass
 from functools import partial
 from itertools import chain, filterfalse, islice, starmap
+from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
-from queue import Queue, SimpleQueue
-from threading import Event, Lock
+from queue import SimpleQueue
+from threading import Lock
 from time import perf_counter
-from typing import Protocol, Sized, TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 import loky
-from loky.process_executor import ProcessPoolExecutor
 
 from ._more import chunked, sliced
 from ._reduction import move_to_shmem, reducers
+from ._thread_quota import ThreadQuota
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Future)
 _NUM_CPUS = os.cpu_count() or 0
-_NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_SMP', _NUM_CPUS)))
+_NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
 
 
@@ -43,7 +44,7 @@ _empty = _Empty.token
 # -------------------------- some useful interfaces --------------------------
 
 
-class _IQueue(Protocol[_T]):
+class _Queue(Protocol[_T]):
     def get(self) -> _T:
         ...
 
@@ -51,7 +52,7 @@ class _IQueue(Protocol[_T]):
         ...
 
 
-class _IEvent(Protocol):
+class _Event(Protocol):
     def is_set(self) -> bool:
         ...
 
@@ -85,7 +86,7 @@ def _initializer():
 @contextmanager
 def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
     if mp:
-        processes: ProcessPoolExecutor = loky.get_reusable_executor(
+        processes: loky.ProcessPoolExecutor = loky.get_reusable_executor(
             max_workers,
             'loky_init_main',
             _IDLE_WORKER_TIMEOUT,
@@ -98,7 +99,7 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
         yield processes
         atexit.unregister(hook)
     else:
-        threads = ThreadPoolExecutor(max_workers)
+        threads = ThreadQuota(max_workers)
         try:
             yield threads
         finally:
@@ -106,60 +107,78 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
             threads.shutdown(wait=is_success, cancel_futures=True)
 
 
-def _setup_queues(
-        stack: ExitStack, latency: int,
-        executor: bool | Executor) -> tuple[Executor, _IQueue, _IEvent]:
-    if not isinstance(executor, Executor):
-        executor = stack.enter_context(_get_executor(1, executor))
-
-    if isinstance(executor, ThreadPoolExecutor):
-        return executor, Queue(latency), Event()
-
-    assert isinstance(executor, loky.ProcessPoolExecutor)
-    mgr = stack.enter_context(executor._context.Manager())
-    return executor, mgr.Queue(latency), mgr.Event()
+def _get_manager(executor: Executor):
+    if isinstance(executor, loky.ProcessPoolExecutor):
+        return executor._context.Manager()
+    else:
+        from multiprocessing.dummy import Manager
+        return Manager()
 
 
 # -------- bufferize iterable by offloading to another thread/process --------
 
 
-@dataclass
-class buffered(Iterable[_T]):  # noqa: N801
+def _consume(iterable: Iterable[_T], q: _Queue[_T | _Empty], ev: _Event):
+    try:
+        for item in iterable:
+            if ev.is_set():
+                break
+            q.put(item)
+    finally:
+        q.put(_empty)  # Signal to stop iteration
+        q.put(_empty)  # Match last q.get
+
+
+class buffered(Iterator[_T]):  # noqa: N801
     """
     Iterates over `iterable` in background thread with at most `latency`
     items ahead from caller
     """
-    iterable: Iterable[_T]
-    latency: int = 2
-    mp: bool | Executor = False
+    __slots__ = ('_get', '_task', 'close', '__weakref__')
 
-    def _consume(self, q: _IQueue[_T | _Empty], stop: _IEvent):
-        with ExitStack() as s:
-            s.callback(q.put, _empty)  # Match last q.get
-            s.callback(q.put, _empty)  # Signal to stop iteration
+    def __init__(self,
+                 iterable: Iterable[_T],
+                 latency: int = 2,
+                 mp: bool | Executor = False):
+        s = ExitStack()
+        if isinstance(mp, Executor):
+            executor = mp
+        else:
+            executor = s.enter_context(_get_executor(1, mp))
 
-            for item, _ in zip(self.iterable, iter(stop.is_set, True)):
-                q.put(item)
+        mgr = _get_manager(executor)
+        if isinstance(mgr, BaseManager):
+            s.enter_context(mgr)
 
-            # if stop.is_set():
-            #     s.pop_all()
-            # q.put(_empty)  # Will happen if all ok to notify main to stop
+        ev: _Event = mgr.Event()
+        q: _Queue[_T | _Empty] = mgr.Queue(latency)
+        self._task = executor.submit(_consume, iterable, q, ev)  # type: ignore
+
+        # If main killed, wakes up consume to check ev
+        # Otherwise collects 2nd _empty from q.
+        # Called 2nd
+        s.callback(q.get)
+
+        # If main killed, signals consume to stop.
+        # If consume is already stopped (on error or not), does nothing.
+        # Called 1st
+        s.callback(ev.set)
+
+        self._get = q.get
+        self.close = weakref.finalize(self, s.close)
 
     def __iter__(self) -> Iterator[_T]:
-        with ExitStack() as s:
-            q: _IQueue[_T | _Empty]
-            executor, q, stop = _setup_queues(s, self.latency, self.mp)
+        return self
 
-            s.callback(q.get)  # Wakes q.put when main fails
-            s.callback(stop.set)
+    def __next__(self) -> _T:
+        if self.close.alive:
+            if (item := self._get()) is not _empty:
+                return item
 
-            task = executor.submit(self._consume, q, stop)
-            while (item := q.get()) is not _empty:
-                yield item
-            task.result()  # Throws if `consume` is dead
+            self.close()
+            self._task.result()  # Throws exception if worker killed itself
 
-    def __len__(self) -> int:
-        return len(self.iterable)  # type: ignore
+        raise StopIteration
 
 
 # ---------------------------- automatic batching ----------------------------
@@ -213,20 +232,20 @@ def _schedule(make_future: Callable[..., _F], args_zip: Iterable[tuple],
     return starmap(make_future, chunked(args_zip, chunksize))
 
 
-def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterable[tuple],
+def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterator[tuple],
                    max_workers: int) -> Iterator[_F]:
-    it = iter(args_zip)
+    # For the whole wave make futures with the same job size
     size = _AutoSize()
-    while items := [*islice(it, size.suggest() * max_workers)]:
-        chunksize = len(items) // max_workers or 1
-        for f in starmap(make_future, sliced(items, chunksize)):
+    while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
+        chunksize = len(tuples) // max_workers or 1
+        for f in starmap(make_future, sliced(tuples, chunksize)):
             f.add_done_callback(partial(size.update, perf_counter()))
             yield f
 
 
-def _unwrap_loop(s: ExitStack, todo: set[Future[_T]],
-                 q_get: Callable[[], Future[_T]],
-                 fs: Iterator[Future[_T]]) -> Iterator[_T]:
+def _get_unwrap_iter(s: ExitStack, todo: set[Future[_T]],
+                     q_get: Callable[[], Future[_T]],
+                     fs: Iterator[Future[_T]]) -> Iterator[_T]:
     with s:
         while todo:
             f = q_get()
@@ -242,11 +261,13 @@ def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
 
     # As q.put always gives falsy None, filterfalse to call it as a side effect
     fs = filterfalse(q_put, fs)  # type: ignore
-    todo = set()
-    with s:
+    try:
         todo = set(islice(fs, qsize))  # Prefetch
-        s = s.pop_all()
-    return _unwrap_loop(s, todo, q.get, fs)
+    except BaseException:
+        s.close()  # Unwind here on an error
+        raise
+    else:
+        return _get_unwrap_iter(s, todo, q.get, fs)
 
 
 def starmap_n(func: Callable[..., _T],
@@ -311,8 +332,8 @@ def starmap_n(func: Callable[..., _T],
         prefetch += max_workers
 
     it = iter(iterable)
-    cm = ExitStack()
-    submit = cm.enter_context(_get_executor(max_workers, mp)).submit
+    s = ExitStack()
+    submit = s.enter_context(_get_executor(max_workers, mp)).submit
 
     if mp:
         submit_many = cast(
@@ -324,14 +345,14 @@ def starmap_n(func: Callable[..., _T],
         else:
             fs = _schedule(submit_many, it, chunksize or 1)
 
-        chunks = _unwrap(cm, fs, prefetch, order)
+        chunks = _unwrap(s, fs, prefetch, order)
         return chain.from_iterable(chunks)
     else:
         submit_one = cast(
             Callable[..., Future[_T]],
             partial(submit, func),
         )
-        return _unwrap(cm, starmap(submit_one, it), prefetch, order)
+        return _unwrap(s, starmap(submit_one, it), prefetch, order)
 
 
 def map_n(func: Callable[..., _T],
