@@ -211,7 +211,7 @@ class _AutoSamplerProxy(_IAutoSampler):
 def make_loader(dataset: Dataset,
                 batch_size: int,
                 shuffle: bool = False,
-                sampler: Sampler = None,
+                sampler: Sampler | None = None,
                 max_workers: int = _NUM_CPUS,
                 collate_fn: _CollateFn = default_collate,
                 pin_memory: bool = False,

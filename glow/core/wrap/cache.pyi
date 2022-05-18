@@ -1,9 +1,12 @@
-from typing import Callable, Hashable, Literal, Sequence, TypeVar, overload
+from collections.abc import Callable, Hashable, Sequence
+from typing import Literal, TypeVar, overload
+
+from typing_extensions import TypeAlias
 
 _F = TypeVar('_F', bound=Callable)
 _Fbatch = TypeVar('_Fbatch', bound=Callable[[Sequence], list])
-_Policy = Literal['raw', 'lru', 'mru']
-_KeyFn = Callable[..., Hashable]
+_Policy: TypeAlias = Literal['raw', 'lru', 'mru']
+_KeyFn: TypeAlias = Callable[..., Hashable]
 
 
 @overload
