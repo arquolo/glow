@@ -39,6 +39,10 @@ def true_vars(obj) -> dict[str, object] | None:
     """Get instance's vars(), even it's hidden.
 
     Inspired by [magic_get_dict](https://stackoverflow.com/a/45315745/9868257)
+
+    For more details see:
+    - https://utcc.utoronto.ca/~cks/space/blog/python/HowSlotsWorkI
+    - https://utcc.utoronto.ca/~cks/space/blog/python/DictoffsetNotes
     """
     tp = type(obj)
 

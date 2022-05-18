@@ -1,3 +1,45 @@
+"""argparse and dataclasses, married.
+
+Example:
+```
+@dataclass
+class Args:
+    a: int
+    b: str = 'hello'
+
+args, parser = parse_args(Args)
+```
+Or with plain function:
+```
+@parse_args
+def main(name: str = 'user'):
+    print(f'Hello {name}')
+```
+
+Reasons not to use alternatives:
+- [simple-parsing](https://github.com/lebrice/SimpleParsing):
+  - Has underscores (`--like_this`) instead of dashes (`--like-this`)
+  - Erases type on parser result, thus making typed prototype useless
+    (what is the point of using dataclasses if it is passed
+     through function returning typing.Any/argparse.Namespace?)
+
+- [datargs](https://github.com/roee30/datargs):
+  - No nesting support
+  - No function's support
+
+- [pydantic](https://github.com/samuelcolvin/pydantic):
+  - supports CLI via BaseSettings and environment variables parsing
+  - no nesting, as requires mixing only via multiple inheritance
+
+- [typer](https://github.com/tiangolo/typer):
+  - No support on dataclasses
+    (https://github.com/tiangolo/typer/issues/154).
+  - No fine way to extract parsed options without invoking because of
+    decorator/callback based implementation. Thus enforces wrapping of the
+    whole app into `typer.run`.
+    (https://github.com/tiangolo/typer/issues/197).
+"""
+
 from __future__ import annotations
 
 __all__ = ['arg', 'parse_args']
