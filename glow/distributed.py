@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 __all__ = [
-    'auto_ddp', 'auto_model', 'barrier', 'get_rank', 'get_world_size',
-    'reduce_if_needed'
+    'auto_ddp', 'auto_model', 'barrier', 'get_ddp_info', 'reduce_if_needed'
 ]
 
 import pickle
 from collections.abc import Callable
 from functools import partial, update_wrapper
 from pathlib import Path
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
 import torch
 import torch.cuda
@@ -20,36 +19,31 @@ from torch import nn
 # -------------------------------- primitives --------------------------------
 
 
-def get_rank() -> int:
-    """
-    In distributed context returns the rank of current process group. otherwise
-    returns -1.
-    """
-    return dist.get_rank() if dist.is_initialized() else -1
+class _DdpInfo(NamedTuple):
+    world: int
+    rank: int
 
 
-def get_world_size() -> int:
-    """
-    In distributed context returns number of processes in the current process
-    group, otherwise returns 0.
-    """
-    return dist.get_world_size() if dist.is_initialized() else 0
+def get_ddp_info() -> _DdpInfo | None:
+    if not dist.is_initialized():
+        return None
+    return _DdpInfo(dist.get_rank(), dist.get_world_size())
 
 
 def barrier(rank: int | None = None) -> None:
     """Synchronize all processes"""
-    if get_world_size() > 1 and (rank is None or rank == get_rank()):
+    if (info := get_ddp_info()) and (rank is None or rank == info.rank):
         dist.barrier()
 
 
 def reduce_if_needed(*tensors: torch.Tensor,
                      mean: bool = False) -> tuple[torch.Tensor, ...]:
     """Reduce tensors across all machines"""
-    if (world := get_world_size()) > 1:
+    if (ddp := get_ddp_info()) and ddp.world > 1:
         tensors = *(t.clone() for t in tensors),
         dist.all_reduce_multigpu(tensors)
         if mean:
-            tensors = *(t / world for t in tensors),
+            tensors = *(t / ddp.world for t in tensors),
     return tensors
 
 
@@ -57,13 +51,13 @@ def reduce_if_needed(*tensors: torch.Tensor,
 
 
 def auto_model(net: nn.Module, sync_bn: bool = True) -> nn.Module:
-    if (rank := get_rank()) >= 0:
-        torch.cuda.set_device(rank)
+    if (ddp := get_ddp_info()) and ddp.world > 1:
+        torch.cuda.set_device(ddp.rank)
 
-        net.to(rank)
+        net.to(ddp.rank)
         if sync_bn:
             net = nn.SyncBatchNorm.convert_sync_batchnorm(net)
-        return nn.parallel.DistributedDataParallel(net, device_ids=[rank])
+        return nn.parallel.DistributedDataParallel(net, device_ids=[ddp.rank])
 
     net.cuda()
     return (nn.parallel.DataParallel(net)
@@ -120,32 +114,33 @@ def auto_ddp(train_fn: _TrainFnType) -> _TrainFnType:
 def once_per_world(fn: _F) -> _F:
     """Call function only in rank=0 process, and share result for others"""
     def wrapper(*args, **kwargs):
-        rank = get_rank()
-        world = get_world_size()
+        ddp = get_ddp_info()
+        if not ddp or ddp.world == 1:
+            # Master process, so no neighbors to share results with
+            return fn(*args, **kwargs)
 
         # Generate random fname and share it among whole world
         idx = torch.empty((), dtype=torch.int64).random_()
-        if rank == 0:
+        if ddp.rank == 0:
             dist.broadcast(idx, 0)
+
         tmp = Path(f'/tmp/_ddp_share_{idx.item():x}.pkl')
         result = None
 
-        if rank <= 0:  # master
+        if ddp.rank == 0:  # 0th child
             result = fn(*args, **kwargs)
-            if world <= 1:
-                return result  # only master exists
             with tmp.open('wb') as fp:
                 pickle.dump(result, fp)
 
         barrier()
 
-        if rank > 0:  # slave, here must be IPC with PickleBuffers, i.e. reduce
+        if ddp.rank > 0:  # Gather results from 0th child
             with tmp.open('rb') as fp:
                 result = pickle.load(fp)
 
         barrier()
 
-        if rank == 0 and world > 1:  # parent
+        if ddp.rank == 0:  # 0th child
             tmp.unlink()
 
         return result

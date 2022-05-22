@@ -42,21 +42,21 @@ def _len_map(x):
 
 @len_hint.register(count)
 def _len_count(_):
-    return float('+Inf')
+    return float('inf')
 
 
 @len_hint.register(cycle)
 def _len_cycle(x):
     _, [iterable], (buf, pos) = x.__reduce__()
     if buf or len(iterable):
-        return float('+Inf')
+        return float('inf')
     return 0
 
 
 @len_hint.register(repeat)
 def _len_repeat(x):
     _, (obj, *left) = x.__reduce__()
-    return left[0] if left else float('+Inf')
+    return left[0] if left else float('inf')
 
 
 # ---------------------------- itertools.finite ----------------------------

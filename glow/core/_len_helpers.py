@@ -39,11 +39,11 @@ class _SizedIterable(Generic[_T]):
 
     def __repr__(self) -> str:
         cls = type(self.it)
-        line = f'{cls.__module__}.{cls.__qualname__} object '
-        if name := getattr(self.it, '__qualname__', None):
-            line += f'{name} '
-        line += f'at 0x{id(self.it):X} with {self.size} items'
-        return f'<{line}>'
+        if qualname := getattr(self.it, '__qualname__', ''):
+            qualname += ' '
+        return (f'<{cls.__module__}.{cls.__qualname__} object {qualname}'
+                f'at 0x{id(self.it):X} '
+                f'with {self.size} items>')
 
 
 @dataclass(repr=False)
