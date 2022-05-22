@@ -10,6 +10,8 @@ from typing import TypeVar, cast
 
 import wrapt
 
+from ._more import _deiter
+
 _T = TypeVar('_T')
 _R = TypeVar('_R')
 _F = TypeVar('_F', bound=Callable[..., Generator])
@@ -74,7 +76,7 @@ def as_actor(
     transform: Callable[[Iterable[_T]], Iterator[_R]]
 ) -> Generator[_R, _T, None]:
     buf = deque[_T]()
-    gen = transform(iter(buf.popleft, object()))  # infinite
+    gen = transform(_deiter(buf))  # infinite
 
     # shortcuts
     buf_append, gen_next = buf.append, gen.__next__

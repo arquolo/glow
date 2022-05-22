@@ -12,7 +12,7 @@ from threading import Event
 import numpy as np
 from tqdm.auto import tqdm
 
-from .. import sliced
+from .. import chunked
 
 
 def _play(arr: np.ndarray,
@@ -39,14 +39,14 @@ def _play(arr: np.ndarray,
         rate, blocksize, callback=callback, finished_callback=ev.set)
 
     fmt = '{percentage:3.0f}% |{bar}| [{elapsed}<{remaining}]'
-    blocks = sliced(arr, blocksize)
+    blocks = chunked(arr, blocksize)
 
-    with ExitStack() as stack:
-        stack.enter_context(stream)  # Close stream
-        stack.callback(ev.wait)  # Wait for completion
-        stack.callback(q.put, None)  # Close queue
+    with ExitStack() as s:
+        s.enter_context(stream)  # Close stream
+        s.callback(ev.wait)  # Wait for completion
+        s.callback(q.put, None)  # Close queue
 
-        for data in stack.enter_context(
+        for data in s.enter_context(
                 tqdm(blocks, leave=False, smoothing=0, bar_format=fmt)):
             q.put(data)
 

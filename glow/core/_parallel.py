@@ -24,7 +24,7 @@ from typing import Protocol, TypeVar, cast
 
 import loky
 
-from ._more import chunked, sliced
+from ._more import chunked
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
 
@@ -238,7 +238,7 @@ def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterator[tuple],
     size = _AutoSize()
     while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
         chunksize = len(tuples) // max_workers or 1
-        for f in starmap(make_future, sliced(tuples, chunksize)):
+        for f in starmap(make_future, chunked(tuples, chunksize)):
             f.add_done_callback(partial(size.update, perf_counter()))
             yield f
 
