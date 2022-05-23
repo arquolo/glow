@@ -65,13 +65,8 @@ Add proper string formatting using `format_spec`
 
 - Store only modules and ops for them
 
-### `nn.auto`
-
-- Drop module for use of `torch.nn.lazy.LazyModule`
-
 ### `nn.modules`
 
-- Drop garbage, redesign all of it
 - Use glow.env as storage for options
 
 ## `zoo`

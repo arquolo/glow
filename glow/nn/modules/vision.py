@@ -23,24 +23,25 @@ class Show(nn.Module):
         super().__init__()
         self.name = f'{type(self).__name__}_0x{id(self):x}'
         self.colored = colored
-        self.register_buffer(
-            'weight', torch.tensor(128 / self.nsigmas), persistent=False)
-        self.register_buffer('bias', torch.tensor(128.), persistent=False)
+
+        weight = torch.tensor(128 / self.nsigmas)
+        bias = torch.tensor(128.)
+        self.register_buffer('weight', weight, persistent=False)
+        self.register_buffer('bias', bias, persistent=False)
 
         self.close = weakref.finalize(self, cv2.destroyWindow, self.name)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        _, ch, _, _ = inputs.shape
+        c = inputs.shape[1]
 
-        ten = torch.tensor(inputs)
-
-        weight = self.weight.expand(ch)
-        bias = self.bias.expand(ch)
-        ten = F.instance_norm(ten, weight=weight, bias=bias)
-        image: np.ndarray = ten.clamp_(0, 255).byte().cpu().numpy()
+        with torch.no_grad():
+            weight = self.weight.expand(c)
+            bias = self.bias.expand(c)
+            ten = F.instance_norm(inputs, None, None, weight, bias)
+            image: np.ndarray = ten.clamp_(0, 255).byte().cpu().numpy()
 
         if self.colored:
-            groups = ch // 3
+            groups = c // 3
             image = image[:, :groups * 3, :, :]
             image = rearrange(image, 'b (g c) h w -> (b h) (g w) c', c=3)
         else:
