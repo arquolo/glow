@@ -3,6 +3,7 @@ __all__ = ['apply']
 
 import builtins
 import functools
+import math
 import operator
 from collections.abc import Iterable, Iterator, Sized
 from dataclasses import dataclass
@@ -51,49 +52,74 @@ _iterables: list[Iterable] = [
     set(),
     frozenset()
 ]
-for _seq in _iterables:
-    len_hint.register(_seq.__iter__().__class__, operator.length_hint)
+_transparent_types: tuple[type, ...] = tuple(
+    it.__iter__().__class__ for it in _iterables)
+for _tp in _transparent_types:
+    len_hint.register(_tp, operator.length_hint)
+
+
+def _are_definitely_independent(iters):
+    return (len({id(it) for it in iters}) == len(iters) and
+            all(isinstance(it, _transparent_types) for it in iters))
 
 
 @len_hint.register(zip)
-def _len_zip(x):
-    _, seqs = x.__reduce__()
-    return min(map(len, seqs), default=0)
+def _len_zip(x):  # type: ignore
+    _, iters = x.__reduce__()
+    if not iters:
+        return 0
+    if len(iters) == 1:
+        return len(iters[0])
+
+    # Do not compute zip size when it's constructed from multiple iterables.
+    # as there's currently no reliable way to check whether underlying
+    # iterables are independent or not
+    if _are_definitely_independent(iters):
+        return min(map(len, iters))
+
+    raise TypeError
 
 
 @len_hint.register(map)
-def _len_map(x):
-    _, (_fn, *seqs) = x.__reduce__()
-    return min(map(len, seqs), default=0)
+def _len_map(x):  # type: ignore
+    _, (__fn, *iters) = x.__reduce__()
+    if len(iters) == 1:
+        return len(iters[0])
+
+    # Same as for zip above
+    if _are_definitely_independent(iters):
+        return min(map(len, iters))
+
+    raise TypeError
 
 
 # --------------------------- itertools.infinite ---------------------------
 
 
 @len_hint.register(count)
-def _len_count(_):
-    return float('inf')
+def _len_count(_):  # type: ignore
+    return _INF
 
 
 @len_hint.register(cycle)
-def _len_cycle(x):
+def _len_cycle(x):  # type: ignore
     _, [iterable], (buf, pos) = x.__reduce__()
     if buf or len(iterable):
-        return float('inf')
+        return _INF
     return 0
 
 
 @len_hint.register(repeat)
-def _len_repeat(x):
+def _len_repeat(x):  # type: ignore
     _, (obj, *left) = x.__reduce__()
-    return left[0] if left else float('inf')
+    return left[0] if left else _INF
 
 
 # ---------------------------- itertools.finite ----------------------------
 
 
 @len_hint.register(accumulate)
-def _len_accumulate(x):
+def _len_accumulate(x):  # type: ignore
     _, (seq, _fn), _total = x.__reduce__()
     return len(seq)
 
@@ -102,41 +128,48 @@ def _len_accumulate(x):
 
 
 @len_hint.register(islice)
-def _len_islice(x):
-    _, (src, start, *stop_step), done = x.__reduce__()
+def _len_islice(x):  # type: ignore
+    _, (it, start, *stop_step), done = x.__reduce__()
     if not stop_step:
         return 0
     stop, step = stop_step
-    total = len(src) + done
+    total = len(it) + done
     stop = total if stop is None else min(total, stop)
+    if math.isinf(stop):
+        # range can't handle inf
+        return _INF
     return len(range(start, stop, step))
 
 
 @len_hint.register(starmap)
-def _len_starmap(x):
+def _len_starmap(x):  # type: ignore
     _, (_fn, seq) = x.__reduce__()
     return len(seq)
 
 
 @len_hint.register(_tee)
-def _len_tee(x):
+def _len_tee(x):  # type: ignore
     _, [empty_tuple], (dataobject, pos) = x.__reduce__()
     _, (src, buf, none) = dataobject.__reduce__()
     return len(src) + len(buf) - pos
 
 
 @len_hint.register(zip_longest)
-def _len_zip_longest(x):
-    _, seqs, _pad = x.__reduce__()
-    return max(map(len, seqs))
+def _len_zip_longest(x):  # type: ignore
+    _, iters, _pad = x.__reduce__()
+    if _are_definitely_independent(iters):
+        return max(map(len, iters))
+    raise TypeError
 
 
 # -------------------------- itertools.combinatoric -------------------------
 
 
 @len_hint.register(product)
-def _len_product(x):
+def _len_product(x):  # type: ignore
     _, seqs, *pos = x.__reduce__()
+
+    # Greedy caches all input iterables, no need to check interference
     lens = *map(len, seqs),
     total = functools.reduce(operator.mul, lens, 1)
     if not pos:
