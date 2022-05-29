@@ -3,16 +3,20 @@ from __future__ import annotations
 __all__ = ['Sound']
 
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from queue import Queue
 from threading import Event
+from typing import Generic, TypeVar
 
 import numpy as np
+import numpy.typing as npt
 from tqdm.auto import tqdm
 
 from .. import chunked
+
+_Scalar = TypeVar('_Scalar', bound=np.generic, covariant=True)
 
 
 def _play(arr: np.ndarray,
@@ -51,8 +55,8 @@ def _play(arr: np.ndarray,
             q.put(data)
 
 
-@dataclass(repr=False)
-class Sound:
+@dataclass(repr=False, frozen=True)
+class Sound(Generic[_Scalar]):
     """Wraps numpy.array to be playable as sound
 
     Parameters:
@@ -82,36 +86,40 @@ class Sound:
     raw = np.array(sound)
     ```
     """
-    raw: np.ndarray
+    data: npt.NDArray[_Scalar]
     rate: int = 44_100
-    duration: timedelta = field(init=False)
-    channels: int = field(init=False)
 
     def __post_init__(self):
-        assert self.raw.ndim == 2
-        assert 0 < self.raw.shape[-1] <= 2
-        assert self.raw.dtype in {'int8', 'int16', 'int32', 'float32'}
-        num_samples, self.channels = self.raw.shape
-        self.duration = timedelta(seconds=num_samples / self.rate)
+        assert self.data.ndim == 2
+        assert self.data.shape[-1] in (1, 2)
+        assert self.data.dtype in ('i1', 'i2', 'i4', 'f4')
+
+    @property
+    def channels(self) -> int:
+        return self.data.shape[1]
+
+    @property
+    def duration(self) -> timedelta:
+        return timedelta(seconds=self.data.shape[0] / self.rate)
 
     def __repr__(self) -> str:
         duration = self.duration
         channels = self.channels
-        dtype = self.raw.dtype
+        dtype = self.data.dtype
         return f'{type(self).__name__}({duration=!s}, {channels=}, {dtype=!s})'
 
-    def __array__(self) -> np.ndarray:
-        return self.raw
+    def __array__(self) -> npt.NDArray[_Scalar]:
+        return self.data
 
     def play(self, blocksize=1024) -> None:
         """Plays audio from array. Supports interruption via Crtl-C."""
-        _play(self.raw, self.rate, blocksize=blocksize)
+        _play(self.data, self.rate, blocksize=blocksize)
 
     @classmethod
-    def load(cls, path: Path | str) -> 'Sound':
+    def load(cls, path: Path | str) -> Sound:
         spath = str(path)
         assert spath.endswith('.flac')
         import soundfile
 
         data, rate = soundfile.read(spath)
-        return cls(data.astype('float32'), rate)
+        return cls(data.astype('f4'), rate)
