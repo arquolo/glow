@@ -7,6 +7,7 @@ import enum
 import os
 import signal
 import sys
+import warnings
 import weakref
 from collections.abc import Callable, Iterable, Iterator, Sized
 from concurrent.futures import Executor, Future
@@ -24,6 +25,11 @@ from typing import Protocol, TypeVar, cast
 
 import loky
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 from ._more import chunked
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
@@ -33,6 +39,7 @@ _F = TypeVar('_F', bound=Future)
 _NUM_CPUS = os.cpu_count() or 0
 _NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
+_VMS_THRESHOLD = 2 << 30  # VMS size on Windows to start taking it into account
 
 
 class _Empty(enum.Enum):
@@ -41,7 +48,7 @@ class _Empty(enum.Enum):
 
 _empty = _Empty.token
 
-# -------------------------- some useful interfaces --------------------------
+# ------------------- some useful interfaces and functions -------------------
 
 
 class _Queue(Protocol[_T]):
@@ -58,6 +65,40 @@ class _Event(Protocol):
 
     def set(self) -> None:  # noqa: A003
         ...
+
+
+def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
+                          mp: bool = False) -> Iterator[int]:
+    yield upper_bound
+    yield os.cpu_count() or 1
+
+    # Windows platform lacks memory overcommit, so it's sensitive to VMS growth
+    if not mp or sys.platform != 'win32' or 'torch' not in sys.modules:
+        return
+
+    import torch
+    if torch.version.cuda and torch.version.cuda >= '11.7.0':
+        # It's expected that torch will fix .nv_fatb readonly flag in its DLLs
+        # See https://stackoverflow.com/a/69489193/9868257
+        return
+
+    if psutil is None:
+        warnings.warn('Max process count may be calculated incorrectly, '
+                      'leading to application crash or even BSOD. '
+                      'Install psutil to avoid that')
+        return
+
+    # Overcommit on Windows is forbidden, thus VMS planning is necessary
+    vms: int = psutil.Process().memory_info().vms
+    if vms < _VMS_THRESHOLD:
+        return
+
+    free_vms: int = psutil.virtual_memory().free + psutil.swap_memory().free
+    yield free_vms // vms
+
+
+def max_cpu_count(upper_bound: int = sys.maxsize, mp: bool = False) -> int:
+    return min(_get_cpu_count_limits(upper_bound, mp))
 
 
 # ---------------------------- pool initialization ----------------------------
@@ -314,12 +355,7 @@ def starmap_n(func: Callable[..., _T],
 
     """
     if max_workers is None:
-        max_workers = _NUM_CPUS
-        if mp and sys.platform == 'win32' and 'torch' in sys.modules:
-            # On Windows torch initializes CUDA in each process
-            # with RSS leak up to 2GB/process,
-            # so we limit count of subprocesses
-            max_workers = min(_NUM_CPUS, 12)
+        max_workers = max_cpu_count(_NUM_CPUS, mp)
 
     if not max_workers or not _NUM_CPUS:
         return starmap(func, iterable)  # Fallback to single thread

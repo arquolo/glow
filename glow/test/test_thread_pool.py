@@ -1,19 +1,18 @@
-import os
-import sys
 from typing import NamedTuple
 
 import numpy as np
+import pytest
 
 import glow
+from glow.core._parallel import max_cpu_count
 
 DEATH_RATE = 0
 SIZE = 100
 NUM_STEPS = 10
 DTYPE = np.dtype(np.float32)
 
-NUM_CPUS = os.cpu_count() or 1
-if sys.platform == 'win32':
-    NUM_CPUS = min(NUM_CPUS, 8)
+MAX_PROCS = 8
+NUM_PROCS = max_cpu_count(MAX_PROCS, True)
 
 
 def _make_array(n):
@@ -140,7 +139,7 @@ def _test_interrupt():
         np.random.randint(2 ** 10, size=SIZE),
     )
     # sources = map(glow.buffered, sources)
-    res = glow.map_n(do_work, *sources, max_workers=NUM_CPUS, mp=True)
+    res = glow.map_n(do_work, *sources, max_workers=NUM_PROCS, mp=True)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')
@@ -154,11 +153,13 @@ def _test_interrupt():
     print('\rmain done')
 
 
+@pytest.mark.skipif(NUM_PROCS < 2, reason='not enough memory')
 def test_interrupt():
     rs = _test_interrupt()
     assert [*rs] == [*range(SIZE)]
 
 
+@pytest.mark.skipif(NUM_PROCS < 2, reason='not enough memory')
 def test_interrupt_with_buffer():
     rs = glow.buffered(_test_interrupt())
     assert [*rs] == [*range(SIZE)]
