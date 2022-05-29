@@ -4,9 +4,39 @@ __all__ = ['apply']
 import builtins
 import functools
 import operator
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Sized
+from dataclasses import dataclass
 from itertools import (accumulate, count, cycle, islice, product, repeat,
                        starmap, tee, zip_longest)
+from typing import Generic, Protocol, TypeVar, runtime_checkable
+
+# -------------------------- iterable-size proxies ---------------------------
+
+_T_co = TypeVar('_T_co', covariant=True)
+_INF = float('inf')
+
+
+@runtime_checkable
+class SizedIterable(Sized, Iterable[_T_co], Protocol[_T_co]):
+    ...
+
+
+@dataclass(repr=False, frozen=True)
+class _SizedIterable(Generic[_T_co]):
+    _it: Iterable[_T_co]
+    _size: int
+
+    def __iter__(self) -> Iterator[_T_co]:
+        return iter(self._it)
+
+    def __len__(self) -> int:
+        return self._size
+
+    def __repr__(self) -> str:
+        line = object.__repr__(self._it)
+        line = line.removeprefix('<').removesuffix('>')
+        return f'<{line} with {self._size} items>'
+
 
 # --------------------------------- builtins ---------------------------------
 

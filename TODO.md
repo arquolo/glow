@@ -41,7 +41,7 @@ Improve test coverage.
 - Improve function signature to show/hide stack frames from `site` modules.
   If 100% detection of foreign functions is not possible, skip only stdlib ones.
 
-### `core._len_helpers.{as_sized, partial_iter}`
+### `core._patch_len`
 
 - `len_hint(_object: Any) -> int: ...`
 - Keep signature of wrapped function
