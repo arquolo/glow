@@ -1,22 +1,69 @@
 from __future__ import annotations
 
-__all__ = ['make_loader']
+__all__ = ['get_loader']
 
 import os
 import warnings
-from collections.abc import Iterator, Mapping, Sequence, Sized
-from dataclasses import dataclass
+from collections.abc import Iterator, Sequence, Sized
+from dataclasses import dataclass, replace
+from itertools import islice
 from typing import Any, Protocol
 
 import torch
-from torch.utils.data import Dataset, IterableDataset, Sampler
+from torch.utils.data import (Dataset, IterableDataset, RandomSampler, Sampler,
+                              SequentialSampler)
 from torch.utils.data._utils import worker as torch_worker
 
 from .. import buffered, chunked, map_n, roundrobin
-from ..core._parallel import _get_executor
-from ..distributed import get_rank, get_world_size
+from ..core._parallel import _get_executor, max_cpu_count
+from ..distributed import get_ddp_info
+from ._sampler import DdpSampler, SamplerLike, generate_seed
+from .util import _apply
 
 _NUM_CPUS: int = os.cpu_count() or 1
+
+# ------------------------------- common bases -------------------------------
+
+
+class _Loader(Protocol):
+    def __iter__(self) -> Iterator:
+        raise NotImplementedError
+
+    def __len__(self) -> int:
+        raise NotImplementedError
+
+
+# ------------------------------ memory pinning ------------------------------
+
+
+def pin_memory(data):
+    def _pin_memory(x):
+        return x.pin_memory()
+
+    return _apply(data, _pin_memory)
+
+
+@dataclass(frozen=True)
+class _PinningLoader(_Loader):
+    base: _Loader
+
+    def __iter__(self) -> Iterator:
+        return map_n(pin_memory, self.base, max_workers=1)
+
+    def __len__(self) -> int:
+        return len(self.base)
+
+
+class _PinnableLoader(_Loader):
+    def pin(self) -> _Loader:
+        """
+        Copies Tensors into device/CUDA pinned memory before returning them.
+        Works in extra thread.
+        """
+        return _PinningLoader(self) if torch.cuda.is_available() else self
+
+
+# --------------------------------- batching ---------------------------------
 
 
 class _CollateFn(Protocol):
@@ -29,47 +76,59 @@ def default_collate(batch: Sequence[tuple]) -> Any:
              for row in zip(*batch)),
 
 
-def pin_memory(data):
-    if isinstance(data, torch.Tensor):
-        return data.pin_memory()
-    if hasattr(data, 'pin_memory'):
-        return data._pin_memory()
-
-    if isinstance(data, (str, bytes)):
-        return data
-    if isinstance(data, tuple) and hasattr(data, '_fields'):  # namedtuple
-        return type(data)(*(pin_memory(sample) for sample in data))
-    if isinstance(data, Sequence):
-        return [pin_memory(sample) for sample in data]
-
-    if isinstance(data, Mapping):
-        return {k: pin_memory(sample) for k, sample in data.items()}
-
-    return data
-
-
-# ------------------------------- base loader -------------------------------
-
-
 @dataclass(frozen=True)
-class _BaseLoader:
+class _BatchedLoader(_PinnableLoader):
+    base: _Loader
     batch_size: int
-    max_workers: int
     collate_fn: _CollateFn
-    pin_memory: bool
-    dataset: Dataset
-
-    def _iter_samples(self) -> Iterator:
-        raise NotImplementedError
+    drop_last: bool
 
     def __iter__(self) -> Iterator:
-        batches = chunked(self._iter_samples(), self.batch_size)
-        batches = map(self.collate_fn, batches)
-        if not self.pin_memory:
-            return batches
-        return map_n(pin_memory, batches, max_workers=1)
+        it = iter(self.base)
+
+        if self.drop_last:
+            total = len(self) * self.batch_size
+            it = islice(it, total)
+
+        batches = chunked(it, self.batch_size)
+        return map(self.collate_fn, batches)
 
     def __len__(self) -> int:
+        len_ = len(self.base)
+
+        if self.drop_last:
+            return len_ // self.batch_size
+
+        return len(range(0, len_, self.batch_size))
+
+
+class _BatchableLoader(_PinnableLoader):
+    def batch(self,
+              batch_size: int,
+              collate_fn: _CollateFn = default_collate,
+              drop_last: bool = False) -> _BatchedLoader:
+        """
+        Groups data into batches.
+
+        Parameters:
+        - batch_size - How many samples per batch to load
+        - collate_fn - Merges a list of samples to form a mini-batch of
+          Tensor(s).
+        - drop_last - Set to `True` to drop the last incomplete batch,
+          if size of underlying loader is not divisible by the batch size.
+          Otherwise the last batch can be smaller than others.
+        """
+        return _BatchedLoader(self, batch_size, collate_fn, drop_last)
+
+    def shuffle(self,
+                sampler: Sampler | SamplerLike | None) -> _BatchableLoader:
+        """
+        Reshuffle data at every epoch.
+
+        Parameters:
+        - sampler - Defines the strategy to draw samples from the dataset.
+          Can be any `Iterable` with `__len__` implemented.
+        """
         raise NotImplementedError
 
 
@@ -77,18 +136,35 @@ class _BaseLoader:
 
 
 @dataclass(frozen=True)
-class _MapLoader(_BaseLoader):
+class _MapLoader(_BatchableLoader):
+    dataset: Dataset
     sampler: Sampler
+
+    def __iter__(self) -> Iterator:
+        return map(self.dataset.__getitem__, self.sampler)
+
+    def __len__(self) -> int:
+        assert isinstance(self.sampler, Sized)
+        return len(self.sampler)
+
+    def shuffle(self, sampler: Sampler | SamplerLike | None) -> _MapLoader:
+        if sampler is None:
+            assert isinstance(self.dataset, Sized)
+            sampler = RandomSampler(self.dataset)
+
+        return replace(self, sampler=DdpSampler(sampler))
+
+
+@dataclass(frozen=True)
+class _MapMultiLoader(_MapLoader):
+    max_workers: int
     mp: bool
-    chunksize: int | None
+    chunksize: int | None = None
 
-    def _iter_samples(self) -> Iterator:
+    def __iter__(self) -> Iterator:
         max_workers = self.max_workers
-        if (world := get_world_size()) > 1:
-            max_workers //= world
-
-        if not max_workers:
-            return map(self.dataset.__getitem__, self.sampler)
+        if ddp := get_ddp_info():
+            max_workers //= ddp.world
 
         return map_n(
             self.dataset.__getitem__,
@@ -96,14 +172,6 @@ class _MapLoader(_BaseLoader):
             max_workers=max_workers,
             chunksize=self.chunksize,
             mp=self.mp)
-
-    def __len__(self) -> int:
-        indices = range(0, len(self.sampler), self.batch_size)  # type: ignore
-        return len(indices)
-
-    def set_epoch(self, epoch: int):
-        if isinstance(self.sampler, _AutoSampler):
-            self.sampler.set_epoch(epoch)
 
 
 # -------------------- loader for iterable-style datasets --------------------
@@ -125,107 +193,44 @@ class _Worker:
 
 
 @dataclass(frozen=True)
-class _IterableLoader(_BaseLoader):
+class _IterableLoader(_BatchableLoader):
     dataset: IterableDataset
 
-    def _iter_samples(self) -> Iterator:
-        if not self.max_workers:
-            yield from buffered(self.dataset)
-            return
-
-        seed = torch.empty((), dtype=torch.int64).random_().item()
-        workers = [
-            _Worker(self.dataset, idx, self.max_workers, int(seed))
-            for idx in range(self.max_workers)
-        ]
-        with _get_executor(self.max_workers, True) as executor:
-            yield from roundrobin(*(buffered(w, mp=executor) for w in workers))
+    def __iter__(self) -> Iterator:
+        return buffered(self.dataset)
 
     def __len__(self) -> int:
-        indices = range(0, len(self.dataset), self.batch_size)  # type: ignore
-        return len(indices)
+        assert isinstance(self.dataset, Sized)
+        return len(self.dataset)
 
 
-# --------------------------------- samplers ---------------------------------
-
-
-class _IAutoSampler(Sampler):
-    def __init__(self, source: Dataset | Sampler) -> None:
-        if not isinstance(source, Sized):
-            raise TypeError('Argument should have length')
-
-        self.source = source
-        self.epoch = 0
-        self.seed = int(torch.empty((), dtype=torch.int64).random_().item())
-
-    def _indices(self) -> list:
-        raise NotImplementedError
+@dataclass(frozen=True)
+class _IterableMultiLoader(_IterableLoader):
+    max_workers: int
 
     def __iter__(self) -> Iterator:
-        indices = self._indices()
-
-        if (world := get_world_size()) > 1:
-            if remainder := (len(indices) % world):
-                indices += indices[:world - remainder]
-            indices = indices[get_rank()::world]
-
-        if len(indices) != len(self):
-            raise RuntimeError(f'{len(indices)} vs {len(self)}')
-
-        return iter(indices)
-
-    def __len__(self) -> int:
-        world = get_world_size() or 1
-        return (len(self.source) + world - 1) // world
-
-    def set_epoch(self, epoch: int) -> None:
-        self.epoch = epoch
-
-
-class _AutoSampler(_IAutoSampler):
-    def __init__(self, dataset: Dataset, shuffle: bool = False):
-        if not isinstance(dataset, Sized):
-            raise TypeError('Argument sampler should have length')
-
-        super().__init__(dataset)
-        self.shuffle = shuffle
-
-    def _indices(self) -> list:
-        if not self.shuffle:
-            return list(range(len(self.source)))
-
-        rng = torch.Generator()
-        rng.manual_seed(self.seed + self.epoch)
-        return torch.randperm(len(self.source), generator=rng).tolist()
-
-
-class _AutoSamplerProxy(_IAutoSampler):
-    def _indices(self) -> list:
-        torch.manual_seed(self.seed + self.epoch)
-        return [*self.source]  # type: ignore
+        seed = generate_seed()
+        workers = [
+            _Worker(self.dataset, idx, self.max_workers, seed)
+            for idx in range(self.max_workers)
+        ]
+        with _get_executor(self.max_workers, True) as ex:
+            yield from roundrobin(*(buffered(w, mp=ex) for w in workers))
 
 
 # ----------------------------- factory function -----------------------------
 
 
-def make_loader(dataset: Dataset,
-                batch_size: int,
-                shuffle: bool = False,
-                sampler: Sampler | None = None,
-                max_workers: int = _NUM_CPUS,
-                collate_fn: _CollateFn = default_collate,
-                pin_memory: bool = False,
-                multiprocessing: bool = True,
-                chunk_from_batch: bool = False) -> _BaseLoader:
+def get_loader(dataset: Dataset,
+               max_workers: int | None = 0,
+               mp: bool = False) -> _BatchableLoader:
     """
-    Data loader. Combines a dataset and a sampler, and provides an iterable
-    over the given dataset.
+    Data loader. Combines a dataset and a sampler (via shuffle method), and
+    provides an iterable over the given dataset.
 
     The data loader supports both map-style and iterable-style datasets with
     single- or multi-process loading, customizing loading order and
     automatic batching (collation) and memory pinning.
-
-    Yields batches of batch_size from dataset in order from sampler.
 
     Differences from torch.utils.data.DataLoader:
     - Support of threadpool backend for map-style datasets.
@@ -233,49 +238,39 @@ def make_loader(dataset: Dataset,
       reduce IPC overhead when multiple processes are used.
     - Automatically adjusts number of workers in distributed context for
       map-style datasets.
-    - Use set_epoch() method before __iter__() for reprocucibility.
 
     Parameters:
-    - batch_size - size of batch, each workers computes batch independently.
-    - workers - Count of workers, by default all hardware threads are occupied.
-    - multiprocessing - whether to use processes or threads.
-    - chunk_from_batch - Set count of samples to pass each worker. If set
-      then chunksize will be equal to batch_size, otherwise it will be
-      estimated automatically.
+    - dataset - Dataset from which to load the data.
+    - max_workers - How many threads or subprocesses to use for data loading.
+      `0` means that the data will be loaded in the main process/thread.
+      `None` means all logical processors.
+    - mp - Whether to use multiprocessing or not.
     """
-    if isinstance(dataset, IterableDataset):
-        if shuffle or sampler is not None:
-            raise ValueError(
-                'Loader with IterableDataset: sampler/shuffle options are '
-                'not supported')
+    if max_workers is None:
+        max_workers = max_cpu_count(_NUM_CPUS, mp)
 
-        if not multiprocessing and max_workers != 0:
+    if isinstance(dataset, IterableDataset):
+        if not mp and max_workers != 0:
             warnings.warn(
-                'Loader with IterableDataset: ThreadPool is not supported. '
+                'For iterable-style datasets multithreading is not supported. '
                 'Setting max_workers to 0')
             max_workers = 0
 
-        if get_world_size() > 1:
+        if (ddp := get_ddp_info()) and ddp.world > 1:
             raise ValueError(
-                'Loader with IterableDataset: distributed context is not '
+                'For iterable-style datasets distributed use is not '
                 'supported')
 
-        return _IterableLoader(batch_size, max_workers, collate_fn, pin_memory,
-                               dataset)
+        if not max_workers:
+            return _IterableLoader(dataset)
+        return _IterableMultiLoader(dataset, max_workers)
 
     else:
-        if shuffle and sampler is not None:
-            raise ValueError(
-                'Loader with MapDataset: sampler option is mutually exclusive '
-                'with shuffle')
+        if not isinstance(dataset, Sized):
+            raise TypeError("dataset should be sized when it's not iterable")
 
-        if sampler is None:
-            sampler = _AutoSampler(dataset, shuffle=shuffle)
-        else:
-            sampler = _AutoSamplerProxy(sampler)
+        sampler = SequentialSampler(dataset)
 
-        chunksize = None
-        if multiprocessing and chunk_from_batch:
-            chunksize = batch_size
-        return _MapLoader(batch_size, max_workers, collate_fn, pin_memory,
-                          dataset, sampler, multiprocessing, chunksize)
+        if not max_workers:
+            return _MapLoader(dataset, DdpSampler(sampler))
+        return _MapMultiLoader(dataset, DdpSampler(sampler), max_workers, mp)

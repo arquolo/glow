@@ -84,7 +84,7 @@ Add proper string formatting using `format_spec`
 
 ## `util` contents
 
-### `util.get_loader` (from `nn.make_loader`)
+### `util.get_loader`
 
 - Seed as argument to toggle patching of dataset and iterable to provide batchsize- and workers-invariant data generation
 

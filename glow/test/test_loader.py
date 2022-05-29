@@ -3,7 +3,7 @@ from itertools import count, islice
 import torch
 from torch.utils import data
 
-from glow.nn import make_loader
+from glow.nn import get_loader
 
 
 class Dataset(data.Dataset):
@@ -27,12 +27,7 @@ class Sampler(data.Sampler):
 
 
 def test_loader():
-    loader = make_loader(
-        Dataset(),
-        1,
-        sampler=Sampler(5),
-        multiprocessing=False,
-    )
+    loader = get_loader(Dataset()).shuffle(Sampler(5)).batch(1)
     assert len(loader) == 5
     assert torch.as_tensor([*loader]).tolist() == [[0], [1], [2], [3], [4]]
     assert len(loader) == 5

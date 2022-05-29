@@ -1,7 +1,7 @@
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from ._loader import make_loader
+from ._loader import get_loader
 from ._stepper import Stepper
 from .amp import get_amp_context
 from .driver import get_gpu_state
@@ -15,7 +15,7 @@ __all__ = [
     'AdamW', 'Dropsample', 'Ensemble', 'Noise', 'RAdam', 'SGDW',
     'SplitAttention', 'SqueezeExcitation', 'Stepper', 'Upscale2d', 'detach_',
     'device', 'dump_to_onnx', 'eval_', 'frozen', 'get_amp_context',
-    'get_gpu_state', 'inference', 'make_loader', 'param_count', 'plot_model',
+    'get_loader', 'get_gpu_state', 'inference', 'param_count', 'plot_model',
     'profile'
 ]
 
