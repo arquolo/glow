@@ -1,77 +1,123 @@
 from __future__ import annotations
 
 __all__ = [
-    'device', 'dump_to_onnx', 'frozen', 'inference', 'param_count', 'profile'
+    'detach_', 'device', 'dump_to_onnx', 'eval_', 'frozen', 'inference',
+    'param_count', 'profile'
 ]
 
 import functools
-import pickle
-from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from io import BytesIO
 from itertools import islice
-from pathlib import Path
-from typing import Callable, TypeVar, cast
+from typing import Any, TypeVar, cast
 
+import numpy as np
 import torch
-import torch.autograd
-import torch.cuda
-import torch.jit
-import torch.onnx
 from torch import nn
 
 from .. import si
 
+_T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable[..., Iterator])
+
+
+def _apply(xs: _T, fn: Callable[[torch.Tensor], Any]) -> _T:
+    if isinstance(xs, torch.Tensor):
+        return fn(xs)
+
+    if isinstance(xs, (str, bytes, np.ndarray)):
+        return xs  # type: ignore
+
+    if isinstance(xs, tuple) and hasattr(xs, '_fields'):  # namedtuple
+        return type(xs)(*(_apply(x, fn) for x in xs))  # type: ignore
+    if isinstance(xs, Mapping):
+        return dict(_apply(kv, fn) for kv in xs.items())  # type: ignore
+    if isinstance(xs, Iterable):
+        return type(xs)(_apply(x, fn) for x in xs)  # type: ignore
+    return xs
 
 
 def device() -> torch.device:
     """Gets current device, including CPU"""
-    if torch.cuda.is_available():
-        return torch.device(torch.cuda.current_device())
-    return torch.device('cpu')
+    return torch.device(f'cuda:{torch.cuda.current_device()}' if torch.cuda
+                        .is_available() else 'cpu')
+
+
+def param_count(module: nn.Module) -> int:
+    """Count of parameters in net, both training and not"""
+    params = {p for p in module.parameters() if not nn.parameter.is_lazy(p)}
+    return si(sum(p.numel() for p in params))
 
 
 @contextmanager
-def _set_eval(net: nn.Module) -> Iterator[None]:
-    """Locally switch net to eval-mode"""
-    was_train = net.training
+def eval_(module: nn.Module) -> Iterator[None]:
+    """
+    Switches all children to eval mode.
+    Restores train/eval distribution at exit.
+    """
+    were_train = {m for m in module.modules() if m.training}
     try:
-        net.eval()
+        module.eval()
         yield
     finally:
-        net.train(was_train)
+        for m in module.modules():
+            if m in were_train:
+                m.training = True  # Don't call .train() as it's recursive.
 
 
 @contextmanager
-def frozen(net: nn.Module) -> Iterator[None]:
-    """Blocks net from changing its state. Useful while training.
+def detach_(module: nn.Module) -> Iterator[None]:
+    """Prevents module from changing its parameters.
 
-    Net is switched to eval mode, and its parameters are detached from graph.
-    Grads are computed if inputs require grad.
-    Works as context manager"""
-    with ExitStack() as stack:
-        stack.enter_context(_set_eval(net))
-        for p in net.parameters():
-            if p.requires_grad:
-                stack.callback(p.requires_grad_)
-                p.detach_()
+    Forbids autograd to record operations on parameters in this module, thus
+    excluding them from gradient computation.
+
+    This method is helpful for freezing part of the module for finetuning or
+    training parts of a model individually (e.g., GAN training).
+
+    NEITHER disable gradient flow NOR prevents buffers to change.
+    """
+    required_grad = {
+        p.detach_() for p in module.parameters()
+        if not nn.parameter.is_lazy(p) and p.requires_grad
+    }
+    try:
+        yield
+    finally:
+        for p in required_grad:
+            p.requires_grad_()
+
+
+@contextmanager
+def frozen(module: nn.Module) -> Iterator[None]:
+    """Blocks module from changing state of its parameters and buffers.
+
+    Switches all children to eval mode and detaches all parameters.
+    DOES NOT disable gradient flow.
+    """
+    with eval_(module), detach_(module):
         yield
 
 
 @contextmanager
-def inference(net: nn.Module) -> Iterator[None]:
-    """Blocks net from changing its state. Useful while inference.
+def inference(module: nn.Module) -> Iterator[None]:
+    """Enables inference mode for module.
 
-    Net is switched to eval mode, and gradient computation is turned off.
-    Works as context manager"""
-    with _set_eval(net), torch.inference_mode():
+    Switches all children to eval mode.
+    Disables gradient flow.
+
+    All the tensors created in this mode are marked as inference,
+    and they are NOT COMPATIBLE WITH AUTOGRAD AT ALL
+    (used in JIT, backward, etc.).
+
+    DON'T use this mode to initialize lazy modules.
+    """
+    with eval_(module), torch.inference_mode():
         yield
 
 
-def param_count(net: nn.Module) -> int:
-    """Count of parameters in net, both training and not"""
-    return si(sum(p.numel() for p in net.parameters()))
+# ----------------------------- profile CUDA ops -----------------------------
 
 
 def profile(fn: _F) -> _F:
@@ -98,18 +144,18 @@ def profile(fn: _F) -> _F:
     return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
-def dump_to_onnx(net: nn.Module,
+def dump_to_onnx(model: nn.Module,
                  *shapes: tuple[int, ...],
-                 device: str = 'cpu') -> bytes:
+                 device: str | torch.device = 'cpu') -> bytes:
     """Converts model to ONNX graph, represented as bytes
 
     Parameters:
-    - net - torch.nn.Module to convert
+    - model - torch.nn.Module to convert
     - shapes - Shapes of input data, all except batch dimension
 
     Example usage:
-    >>> net = torch.nn.Linear(4, 4)
-    >>> bytes_ = dump_to_onnx(net, [4])
+    >>> module = torch.nn.Linear(4, 4)
+    >>> bytes_ = dump_to_onnx(module, [4])
 
     To restore graph:
     >>> from onnxruntime import backend
@@ -125,40 +171,13 @@ def dump_to_onnx(net: nn.Module,
     }
     buf = BytesIO()
     torch.onnx.export(
-        net.to(device).eval(),
+        model.to(device).eval(),
         tuple(
-            torch.rand(1, *shape, requires_grad=True, device=device)
-            for shape in shapes),
+            torch.rand(1, *s, requires_grad=True, device=device)
+            for s in shapes),
         buf,
         input_names=[*dynamic_axes],
         dynamic_axes=dynamic_axes,
-        opset_version=11,
+        opset_version=13,
         do_constant_folding=True)
     return buf.getvalue()
-
-
-# ----------------- tracing ----------------------
-
-
-class LazilyTraced(nn.Module):
-    def __init__(self, impl: nn.Module):
-        super().__init__()
-        self.impl = impl
-        self.traced: torch.jit.TracedModule | None = None
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        if torch.is_grad_enabled():
-            return self.impl(x)
-
-        if self.traced is None:
-            with torch.autocast('cuda', False):
-                self.traced = torch.jit.trace(self.impl, x[:2])
-        assert self.traced is not None
-        return self.traced(x)
-
-    def save(self, path: Path, **metadata):
-        buf = BytesIO()
-        if self.traced is not None:
-            self.traced.save(buf)
-        with path.open('wb') as fp:
-            pickle.dump({'traced': buf.getvalue(), 'meta': metadata}, fp)

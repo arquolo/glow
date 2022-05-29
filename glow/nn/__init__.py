@@ -8,13 +8,15 @@ from .driver import get_gpu_state
 from .modules import (Dropsample, Ensemble, Noise, SplitAttention,
                       SqueezeExcitation, Upscale2d)
 from .optimizers import SGDW, AdamW, RAdam
-from .util import device, dump_to_onnx, frozen, inference, param_count, profile
+from .util import (detach_, device, dump_to_onnx, eval_, frozen, inference,
+                   param_count, profile)
 
 __all__ = [
     'AdamW', 'Dropsample', 'Ensemble', 'Noise', 'RAdam', 'SGDW',
-    'SplitAttention', 'SqueezeExcitation', 'Stepper', 'Upscale2d', 'device',
-    'dump_to_onnx', 'frozen', 'get_amp_context', 'get_gpu_state', 'inference',
-    'make_loader', 'param_count', 'plot_model', 'profile'
+    'SplitAttention', 'SqueezeExcitation', 'Stepper', 'Upscale2d', 'detach_',
+    'device', 'dump_to_onnx', 'eval_', 'frozen', 'get_amp_context',
+    'get_gpu_state', 'inference', 'make_loader', 'param_count', 'plot_model',
+    'profile'
 ]
 
 _exports = {
