@@ -1,8 +1,8 @@
 __all__ = ['plot_model']
 
 import functools
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import ExitStack
-from typing import Any
 
 import graphviz
 import torch
@@ -11,19 +11,29 @@ from torch.autograd import Function
 
 from .. import mangle, si
 
+# TODO: Still buggy, continue research/refactor
 
-def id_(x: Any) -> str:
+
+def id_(x) -> str:
     if hasattr(x, 'variable'):
         x = x.variable
-    return hex(x.storage().data_ptr() if torch.is_tensor(x) else id(x))
+    addr = x.storage().data_ptr() if isinstance(x, torch.Tensor) else id(x)
+    return hex(addr)
 
 
-def as_tuple(xs):
+def flatten(xs) -> Iterator[torch.Tensor]:
     if xs is None:
-        return ()
-    if isinstance(xs, tuple):
-        return *(x for x in xs if x is not None),
-    return (xs, )
+        return
+    if isinstance(xs, torch.Tensor):
+        yield xs
+        return
+    if isinstance(xs, Iterable):
+        if isinstance(xs, Mapping):
+            xs = xs.items()
+        for x in xs:
+            yield from flatten(x)
+        return
+    raise TypeError(f'Unsupported argument type: {type(xs)}')
 
 
 def sized(var: torch.Tensor):
@@ -33,14 +43,18 @@ def sized(var: torch.Tensor):
 
 
 class Builder:
-    flat = False
-
-    def __init__(self, inputs: set, params: dict):
+    def __init__(self,
+                 inputs: set[str],
+                 params: dict[str, str],
+                 nesting: bool = True,
+                 variables: bool = True):
         self.inputs = inputs
         self.params = params
+        self.nesting = nesting
+        self.variables = variables
 
         self._mangle = mangle()
-        self._seen: dict[str, str] = {}
+        self._memo: dict[str, str] = {}
         self._shapes: dict[Function, str] = {}
         root = graphviz.Digraph(
             name='root',
@@ -63,95 +77,96 @@ class Builder:
         )
         self.stack = [root]
 
-    def _add_node(self, grad):
-        root = self.stack[-1]
-        # doesn't have variable, so it's "operation"
-        if not hasattr(grad, 'variable'):
-            label = type(grad).__name__.replace('Backward', '')
-            if grad in self._shapes:
-                label = f'{label}\n=> {tuple(self._shapes[grad])}'
-            root.node(id_(grad), label)
-            return False
+    def _add_op_node(self, grad_id: str, grad: Function):
+        label = type(grad).__name__.replace('Backward', '')
+        if grad in self._shapes:
+            label = f'{label}\n=> {tuple(self._shapes[grad])}'
+        self.stack[-1].node(grad_id, label)
 
-        # have variable, so it's either Parameter or Variable
-        var, label = grad.variable, ''
-        try:
-            name = self.params[id(var)] + '\n'
-            label = (name.partition if self.flat else name.rpartition)('.')[-1]
-        except KeyError:
+    def _add_var_node(self, var_id: str, var: torch.Tensor):
+        label_ = []
+        if param_name := self.params.get(var_id):
+            root = self.stack[-1]
+            parts = param_name.split('.')
+            label_.append(parts[-1] if self.nesting else '.'.join(parts[1:]))
+        else:
             root = self.stack[0]  # unnamed, that's why external
-        label = f'{label}{var.storage().data_ptr():x}\n'
 
-        color = 'yellow' if id(var) in self.inputs else 'lightblue'
-        root.node(id_(grad), label + sized(var), fillcolor=color)
-        return True
+        label = '\n'.join([*label_, var_id, sized(var)])
+        color = 'yellow' if var_id in self.inputs else 'lightblue'
+        root.node(var_id, label, fillcolor=color)
 
-    def _traverse_saved(self, grad):
-        saved_tensors = grad.saved_tensors or ()
-        saved_tensors = [var for var in saved_tensors if torch.is_tensor(var)]
-        if not saved_tensors:
+    def _traverse_saved(self, grad_id: str, *tensors):
+        tensors = *(v for v in tensors if isinstance(v, torch.Tensor)),
+        if not tensors:
             return
-        with self.stack[-1].subgraph() as s:
+        with self.stack[-1].subgraph() as s:  # type: ignore
             s.attr(rank='same')
-            for var in saved_tensors:
-                label = hex(var.storage().data_ptr()) + '\n' + sized(var)
-                # label = sized(var)
-                if id_(var) not in self._seen:
-                    s.node(id_(var), label, fillcolor='orange')
-                s.edge(id_(var), id_(grad))
+            for var in tensors:
+                var_id = id_(var)
+                if var_id not in self._memo:
+                    label = f'{var_id}\n{sized(var)}'
+                    s.node(var_id, label, fillcolor='orange')
+                s.edge(var_id, grad_id)
 
-    def _traverse(self, grad, depth=0):
-        if grad is None or id_(grad) in self._seen:
+    def _traverse(self, grad: Function, depth: int = 0):
+        if grad is None or (grad_id := id_(grad)) in self._memo:
             return
 
         root = self.stack[-1]
-        self._seen[id_(grad)] = head = root.name
-        if self._add_node(grad):
+        self._memo[grad_id] = head = root.name
+        if hasattr(grad, 'variable'):
+            # Has variable, so it's either Parameter or Variable
+            self._add_var_node(grad_id, grad.variable)
             yield (depth - 1, None, grad)
             return
 
+        # Doesn't have variable, so it's "operation"
+        self._add_op_node(grad_id, grad)
+
         # TODO : add merging of tensors with same data
-        if hasattr(grad, 'saved_tensors'):
-            self._traverse_saved(grad)
+        if self.variables and hasattr(grad, 'saved_tensors'):
+            self._traverse_saved(grad_id, *(grad.saved_tensors or ()))
 
-        for ch, _ in getattr(grad, 'next_functions', ()):
-            if ch is None:
+        for grad_next, _ in getattr(grad, 'next_functions', ()):
+            if grad_next is None:
                 continue
-            yield from self._traverse(ch, depth + 1)
+            yield from self._traverse(grad_next, depth + 1)
 
-            tail = self._seen.get(id_(ch))
+            next_id = id_(grad_next)
+            tail = self._memo.get(next_id)
             if tail is not None and head is not None and not (
                     head.startswith(tail) or tail.startswith(head)):
-                yield (depth, ch, grad)  # leafs, yield for depth-check
+                yield (depth, grad_next, grad)  # leafs, yield for depth-check
                 continue
 
-            name = self.params.get(id(getattr(ch, 'variable', None)))
-            if not self.flat and name and name.rpartition('.')[0] == head:
+            name = self.params.get(next_id)
+            if self.nesting and name and name.rpartition('.')[0] == head:
                 with root.subgraph() as s:  # type: ignore
                     s.attr(rank='same')
-                    s.edge(id_(ch), id_(grad))  # same module, same rank
+                    s.edge(next_id, grad_id)  # same module, same rank
             else:
-                self.stack[0].edge(id_(ch), id_(grad))
+                self.stack[0].edge(next_id, grad_id)
 
     def _mark(self, ts):
         edges = []
-        for t in as_tuple(ts):
+        for t in flatten(ts):
             if t.grad_fn is not None:
                 self._shapes[t.grad_fn] = t.shape
-                edges.extend(self._traverse(t.grad_fn))
+                edges += self._traverse(t.grad_fn)
         if not edges:
             return
 
         max_depth = max(depth for depth, *_ in edges) + 1
         for depth, tail, head in edges:  # inter-module edges
             if tail is not None:
-                minlen = None if self.flat else f'{max_depth - depth}'
+                minlen = f'{max_depth - depth}' if self.nesting else None
                 self.stack[0].edge(id_(tail), id_(head), minlen=minlen)
 
     def forward_pre(self, name, module, xs):
         self._mark(xs)
         # -------- start node --------
-        if self.flat:
+        if not self.nesting:
             return
         scope = graphviz.Digraph(name=self._mangle(name))
         scope.attr(label=f'{name.split(".")[-1]}:{type(module).__name__}')
@@ -159,26 +174,34 @@ class Builder:
 
     def forward(self, module, _, ys):
         self._mark(ys)
-        if self.flat:
+        if not self.nesting:
             return
-        cluster = self.stack.pop(-1)
+        cluster = self.stack.pop()
         cluster.name = f'cluster_{cluster.name}'
         self.stack[-1].subgraph(cluster)
         # -------- end node --------
 
 
-def plot_model(model: nn.Module, *input_shapes: tuple[int, ...], device='cpu'):
+def plot_model(model: nn.Module,
+               *input_shapes: tuple[int, ...],
+               device='cpu',
+               nesting: bool = True,
+               variables: bool = False):
     """Produces Graphviz representation of PyTorch autograd graph
 
     Blue nodes are the Variables that require grad, orange are Tensors
     saved for backward in torch.autograd.Function
     """
-    inputs = [torch.zeros(1, *shape, device=device) for shape in input_shapes]
-    inputs = [inp.requires_grad_() for inp in inputs]
+    inputs = [
+        torch.zeros(1, *s, device=device, requires_grad=True)
+        for s in input_shapes
+    ]
     params = model.state_dict(prefix='root.', keep_vars=True)
     hk = Builder(
-        {id(var) for var in inputs},
-        {id(var): name for name, var in params.items()},
+        {id_(var) for var in inputs},
+        {id_(var): name for name, var in params.items()},
+        nesting=nesting,
+        variables=variables,
     )
     with ExitStack() as stack:
         for name, m in model.named_modules(prefix='root'):
