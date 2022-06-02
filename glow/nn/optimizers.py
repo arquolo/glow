@@ -78,7 +78,6 @@ class SGDW(_OptimizerBase):
         momentum = group['momentum']
         grad = p.grad
         if momentum != 0:
-            state = self.state[p]
             if state:
                 grad = state['exp_avg']
                 grad.mul_(momentum).add_(p.grad, alpha=1 - group['dampening'])

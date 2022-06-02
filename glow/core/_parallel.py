@@ -144,7 +144,7 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
         try:
             yield threads
         finally:
-            is_success = sys.exc_info() is None
+            is_success = sys.exc_info()[0] is None
             threads.shutdown(wait=is_success, cancel_futures=True)
 
 

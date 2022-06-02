@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 __all__ = ['affine', 'flip', 'grid_shuffle', 'mask_dropout']
 
 import cv2
@@ -5,7 +7,7 @@ import numpy as np
 
 
 def grid_shuffle(image: np.ndarray,
-                 mask: np.ndarray = None,
+                 mask: np.ndarray | None = None,
                  *,
                  rng: np.random.Generator,
                  grid=4) -> tuple[np.ndarray, ...]:

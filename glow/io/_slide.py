@@ -37,8 +37,7 @@ def _cached_open(path: Path) -> Slide:
                 return Slide(path, tp)
             except ValueError as exc:
                 last_exc = exc
-        else:
-            raise last_exc from None
+        raise last_exc from None
     raise ValueError(f'Unknown file format {path}')
 
 

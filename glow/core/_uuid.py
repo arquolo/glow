@@ -85,13 +85,13 @@ class Uid(UUID):
         yield cls
 
     @classmethod
-    def __modify_schema__(cls, field_schema):  # Required for OpenAPI
-        field_schema |= {
-            'examples': [str(cls.v4()) for _ in range(2)],
-            'type': 'string',
-            'format': None,
-            'pattern': _REGEX.pattern,
-        }
+    def __modify_schema__(cls, field_schema: dict):  # Required for OpenAPI
+        field_schema.update(
+            examples=[str(cls.v4()) for _ in range(2)],
+            type='string',
+            format=None,
+            pattern=_REGEX.pattern,
+        )
 
     @classmethod
     def v4(cls) -> Uid:
