@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from ._loader import get_loader
 from ._stepper import Stepper
 from .amp import get_amp_context
-from .driver import get_gpu_state
 from .modules import (Dropsample, Ensemble, Noise, SplitAttention,
                       SqueezeExcitation, Upscale2d)
 from .optimizers import SGDW, AdamW, RAdam
@@ -14,20 +13,23 @@ from .util import (detach_, device, dump_to_onnx, eval_, frozen, inference,
 __all__ = [
     'AdamW', 'Dropsample', 'Ensemble', 'Noise', 'RAdam', 'SGDW',
     'SplitAttention', 'SqueezeExcitation', 'Stepper', 'Upscale2d', 'detach_',
-    'device', 'dump_to_onnx', 'eval_', 'frozen', 'get_amp_context',
-    'get_loader', 'get_gpu_state', 'inference', 'param_count', 'plot_model',
-    'profile'
+    'device', 'dump_to_onnx', 'eval_', 'frozen', 'get_gpu_capability',
+    'get_gpu_memory_info', 'get_amp_context', 'get_loader', 'inference',
+    'param_count', 'plot_model', 'profile'
 ]
 
 _exports = {
     '.plot': ['plot_model'],
+    '.driver': ['get_gpu_capability', 'get_gpu_memory_info'],
 }
 _submodule_by_name = {
     name: modname for modname, names in _exports.items() for name in names
 }
 
 if TYPE_CHECKING:
+    from .driver import get_gpu_capability, get_gpu_memory_info
     from .plot import plot_model
+
 else:
 
     def __getattr__(name: str):
