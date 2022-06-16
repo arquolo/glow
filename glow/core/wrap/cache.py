@@ -10,8 +10,8 @@ import concurrent.futures as cf
 import enum
 import functools
 from collections import Counter
-from collections.abc import (Callable, Hashable, KeysView, MutableMapping,
-                             Sequence)
+from collections.abc import (Callable, Hashable, Iterable, KeysView,
+                             MutableMapping)
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import RLock
@@ -31,7 +31,7 @@ class _Empty(enum.Enum):
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
-_Fbatch = TypeVar('_Fbatch', bound=Callable[[Sequence], list])
+_BatchedFn = TypeVar('_BatchedFn', bound=Callable[[list], Iterable])
 _Policy = Literal['raw', 'lru', 'mru']
 _KeyFn = Callable[..., Hashable]
 _empty = _Empty.token
@@ -207,13 +207,13 @@ class _Job(NamedTuple):
     future: asyncio.Future | cf.Future
 
 
-def _dispatch(fn: Callable[[Sequence], list], cache: dict[Hashable, Any],
+def _dispatch(fn: Callable[[list], Iterable], cache: dict[Hashable, Any],
               queue: dict[Hashable, _Job]) -> None:
     jobs = {**queue}
     queue.clear()
 
     try:
-        values = fn([job.token for job in jobs.values()])
+        *values, = fn([job.token for job in jobs.values()])
         assert len(values) == len(jobs)
 
         for job, value in zip(jobs.values(), values):
@@ -225,7 +225,7 @@ def _dispatch(fn: Callable[[Sequence], list], cache: dict[Hashable, Any],
             job.future.set_exception(exc)
 
 
-def _memoize_batched_aio(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
+def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
     assert callable(fn)
     cache: dict[Hashable, asyncio.Future] = {}
     queue: dict[Hashable, _Job] = {}
@@ -244,18 +244,18 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
 
         return future
 
-    async def _load_many(tokens: Sequence) -> list:
-        return list(await asyncio.gather(*map(_load, tokens)))
+    async def _load_many(tokens: Iterable) -> tuple:
+        return await asyncio.gather(*map(_load, tokens))
 
-    def wrapper(tokens: Sequence) -> list:
+    def wrapper(tokens: Iterable) -> tuple:
         coro = _load_many(tokens)
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
     wrapper.cache = cache  # type: ignore
-    return cast(_Fbatch, functools.update_wrapper(wrapper, fn))
+    return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
-def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
+def _memoize_batched(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
     assert callable(fn)
     lock = RLock()
     cache: dict[Hashable, cf.Future] = {}
@@ -274,14 +274,14 @@ def _memoize_batched(key_fn: _KeyFn, fn: _Fbatch) -> _Fbatch:
 
         return future
 
-    def wrapper(tokens: Sequence) -> list:
+    def wrapper(tokens: Iterable) -> list:
         futs = []
         with ExitStack() as stack:
             futs += [_load(stack, token) for token in tokens]
         return [fut.result() for fut in futs]
 
     wrapper.cache = cache  # type: ignore
-    return cast(_Fbatch, functools.update_wrapper(wrapper, fn))
+    return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
 # ----------------------------- factory wrappers -----------------------------
@@ -293,7 +293,7 @@ def memoize(
     batched: bool = False,
     policy: _Policy = 'raw',
     key_fn: _KeyFn = make_key,
-) -> Callable[[_F], _F] | Callable[[_Fbatch], _Fbatch]:
+) -> Callable[[_F], _F] | Callable[[_BatchedFn], _BatchedFn]:
     """Returns dict-cache decorator.
 
     Parameters:

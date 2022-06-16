@@ -4,7 +4,7 @@ from typing import TypeVar, overload
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
-_BatchF = TypeVar('_BatchF', bound=Callable[[Iterable], list])
+_BatchedFn = TypeVar('_BatchedFn', bound=Callable[[list], Iterable])
 
 
 def threadlocal(fn: Callable[..., _T], *args: object,
@@ -28,14 +28,14 @@ def shared_call(fn: _F) -> _F:
 def streaming(*,
               batch_size: int,
               timeouts: tuple[float, float] = ...,
-              workers: int = ...) -> Callable[[_BatchF], _BatchF]:
+              workers: int = ...) -> Callable[[_BatchedFn], _BatchedFn]:
     ...
 
 
 @overload
-def streaming(func: _BatchF,
+def streaming(func: _BatchedFn,
               *,
               batch_size: int,
               timeouts: tuple[float, float] = ...,
-              workers: int = ...) -> _BatchF:
+              workers: int = ...) -> _BatchedFn:
     ...
