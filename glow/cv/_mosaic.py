@@ -1,47 +1,26 @@
 from __future__ import annotations
 
-__all__ = ['Mosaic']
+__all__ = ['Mosaic', 'Tile', 'get_fusion']
 
 import dataclasses
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import Any, Protocol, TypeVar
+from typing import NamedTuple, Protocol, TypeVar, cast
 
 import cv2
 import numpy as np
 
 from .. import chunked, map_n
+from ._util import get_trapz
 
 Vec = tuple[int, int]
-_T = TypeVar('_T')
 
-# TODO: yield namedtuples/frozen dataclasses everywhere
-# TODO: use offsets scaled to current level in each __iter__()
+# TODO: allow result of .map/.map_batched to have different tile and step
 
-
-def _probs_to_hsv(prob: np.ndarray) -> np.ndarray:
-    hue = prob.argmax(-1).astype('u1')
-    value = prob.max(-1)
-    if value.dtype != 'u1':
-        value *= 255
-        value = value.round().astype('u1')
-
-    hue_lut = (np.arange(256) * (127 / prob.shape[2])).round().astype('u1')
-    hsv = cv2.merge([
-        cv2.LUT(hue, hue_lut),
-        np.broadcast_to(np.uint8(255), prob.shape[:2]),
-        value,
-    ])
-    return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
-
-
-def _get_weight(step: int, overlap: int) -> np.ndarray:
-    assert overlap
-    pad = np.linspace(0, 1, overlap + 2)[1:-1]  # strip initial 0 and final 1
-    return np.r_[pad, np.ones(step - overlap), pad[::-1]].astype('f4')
+# ------------------------------- basic types --------------------------------
 
 
 class NumpyLike(Protocol):
@@ -53,20 +32,76 @@ class NumpyLike(Protocol):
         ...
 
 
+class Tile(NamedTuple):
+    idx: Vec
+    vec: Vec
+    data: np.ndarray
+
+
+# ---------------------------- utility functions -----------------------------
+
+
+def _apply(fn: Callable[[np.ndarray], np.ndarray], obj: Tile) -> Tile:
+    r = fn(obj.data)
+    assert r.shape[:2] == obj.data.shape[:2], \
+        'Tile shape alteration (besides channel count) is forbidden'
+    return obj._replace(data=r)
+
+
+def _apply_batched(fn: Callable[[list[np.ndarray]], Iterable[np.ndarray]],
+                   ts: tuple[Tile, ...]) -> list[Tile]:
+    *rs, = fn([t.data for t in ts])
+    assert len(rs) == len(ts)
+    assert all(r.shape[:2] == t.data.shape[:2]
+               for r, t in zip(rs, ts)), \
+        'Tile shape alteration (besides channel count) is forbidden'
+    return [t._replace(data=r) for t, r in zip(ts, rs)]
+
+
+def _reweight(weight: np.ndarray, tile: np.ndarray) -> np.ndarray:
+    assert tile.dtype.kind == 'f'
+    return np.einsum('hwc,h,w -> hwc', tile, weight, weight, optimize=True)
+
+
+def _crop(tiles: Iterable[Tile], shape: tuple[int, ...]) -> Iterator[Tile]:
+    h, w = shape
+    for iyx, (y, x), tile in tiles:
+        yield Tile(iyx, (y, x), tile[:h - y, :w - x])
+
+
+def get_fusion(tiles: Iterable[Tile],
+               shape: tuple[int, ...] | None = None) -> np.ndarray | None:
+    r: np.ndarray | None = None
+
+    if shape is None:  # Collect all the tiles to compute destination size
+        tiles = [*tiles]
+        # N arrays of (yx + hw)
+        yx_hw = np.array([[[t.vec, t.data.shape[:2]] for t in tiles]]).sum(1)
+        # bottom left most edge
+        shape = *yx_hw.max(0).tolist(),
+    else:
+        assert len(shape) == 2
+
+    for _, (y, x), tile in tiles:
+        if not tile.size:
+            continue
+
+        h, w, c = tile.shape
+        if r is None:  # First iteration, initilize
+            r = np.zeros((*shape, c), tile.dtype)
+
+        assert c == r.shape[2]
+        v = r[y:, x:][:h, :w]  # View to destination
+        v[:] = tile[:v.shape[0], :v.shape[1]]  # Crop if needed
+
+    return r
+
+
+# ------------------------------ mosaic setting ------------------------------
+
+
 @dataclass
-class _Base:
-    step: int
-    overlap: int
-
-    def __post_init__(self):
-        assert 0 <= self.overlap <= self.step
-        assert self.overlap % 2 == 0  # That may be optional
-
-    def get_weight(self) -> np.ndarray:
-        return _get_weight(self.step, self.overlap)
-
-
-class Mosaic(_Base):
+class Mosaic:
     """
     Helper to split image to tiles and process them.
 
@@ -77,17 +112,35 @@ class Mosaic(_Base):
     So tile size = overlap + non-overlapped area + overlap = step + overlap,
     and non-overlapped area = step - overlap.
     """
-    def as_tiles(self, data: NumpyLike, max_workers: int = 1) -> _Tiler:
-        """Read tiles from data using scale as stride"""
-        shape = data.shape[:2]
+    step: int
+    overlap: int
+
+    def __post_init__(self):
+        assert 0 <= self.overlap <= self.step
+        assert self.overlap % 2 == 0  # That may be optional
+
+    def get_kernel(self) -> np.ndarray:
+        return get_trapz(self.step, self.overlap)
+
+    def iterate(self,
+                image: NumpyLike,
+                max_workers: int = 1) -> _TiledArrayView:
+        """Read tiles from input image"""
+        shape = image.shape[:2]
         ishape = *(len(range(0, s + self.overlap, self.step)) for s in shape),
         cells = np.ones(ishape, dtype=np.bool_)
 
-        return _Tiler(self.step, self.overlap, shape, cells, data, max_workers)
+        return _TiledArrayView(self, shape, cells, image, max_workers)
+
+
+# --------------------------------- actions ----------------------------------
+
+_Self = TypeVar('_Self', bound='_BaseView')
 
 
 @dataclass
-class _Sized(_Base):
+class _BaseView:
+    m: Mosaic
     shape: tuple[int, ...]
     cells: np.ndarray
 
@@ -95,39 +148,165 @@ class _Sized(_Base):
     def ishape(self) -> tuple[int, ...]:
         return self.cells.shape
 
-    def enumerate(self, it: Iterable[_T]) -> Iterator[tuple[Vec, _T]]:
-        return zip(np.argwhere(self.cells).tolist(), it)
-
     def __len__(self) -> int:
         return int(self.cells.sum())
 
-    def stats(self) -> tuple[float, float]:
+    def report(self) -> dict[str, str]:
         """Cells and area usage"""
-        cells = self.cells.mean()
-        coverage = cells * (1 + self.overlap / self.step) ** 2
-        return cells, coverage
+        used = int(self.cells.sum())
+        total = self.cells.size
+        coverage = (used / total) * (1 + self.m.overlap / self.m.step) ** 2
+        return {'cells': f'{used}/{total}', 'coverage': f'{coverage:.0%}'}
+
+    def __iter__(self) -> Iterator[Tile]:
+        raise NotImplementedError
+
+    def map(self: _Self,
+            fn: Callable[[np.ndarray], np.ndarray],
+            /,
+            max_workers: int = 0) -> _Self:
+        """
+        Applies function to each tile.
+        Note: change of tile shape besides channel count is forbidden.
+        Each tile is HWC-ordered ndarray.
+        Supports threading.
+        """
+        tile_fn = partial(_apply, fn)
+        tiles = map_n(tile_fn, self, max_workers=max_workers)
+        return cast(
+            _Self,  # don't narrow type
+            _IterView(self.m, self.shape, self.cells, tiles))
+
+    def pool(self: _Self, stride: int = 1) -> _Self:
+        """Resizes each tile to desired stride"""
+        if stride == 1:
+            return self
+        shape = *(len(range(0, s, stride)) for s in self.shape),
+        return cast(  # don't narrow type
+            _Self,
+            _DecimatedView(
+                Mosaic(self.m.step // stride, self.m.overlap // stride), shape,
+                self.cells, stride, self))
+
+    def crop(self) -> _BaseView:
+        return _IterView(self.m, self.shape, self.cells, _crop(
+            self, self.shape))
+
+    def zip_with(
+            self, view: np.ndarray,
+            v_scale: int) -> Iterator[tuple[Vec, Vec, np.ndarray, np.ndarray]]:
+        """Extracts tiles from `view` simultaneously with tiles from self"""
+        assert v_scale >= 1
+        for tile in self:
+            tw, th = tile.data.shape[:2]
+            v = view[tile.vec[0] // v_scale:,
+                     tile.vec[1] // v_scale:][:tw // v_scale, :th // v_scale]
+            yield *tile, v
 
 
 @dataclass
-class _Tiler(_Sized):
+class _View(_BaseView):
+    def map_batched(self,
+                    fn: Callable[[list[np.ndarray]], Iterable[np.ndarray]],
+                    /,
+                    batch_size: int = 1,
+                    max_workers: int = 0) -> _View:
+        """
+        Applies function to batches of tiles.
+        Note: change of tile shape besides channel count is forbidden.
+        Each tile is HWC-ordered ndarray.
+        Supports threading.
+        """
+        tile_fn = partial(_apply_batched, fn)
+
+        chunks = chunked(self, batch_size)
+        batches = map_n(tile_fn, chunks, max_workers=max_workers)
+        tiles = chain.from_iterable(batches)
+
+        return _IterView(self.m, self.shape, self.cells, tiles)
+
+    def transform(self, fn: Callable[[Iterable[Tile]],
+                                     Iterable[Tile]]) -> _View:
+        """
+        TODO: fill docs
+        """
+        tiles = fn(self)
+        return _IterView(self.m, self.shape, self.cells, tiles)
+
+    def reweight(self) -> _View:
+        """
+        Applies weight to tile edges to prepare them for summation
+        if overlap exists.
+        Note: no need to call this method if you have already applied it.
+        """
+        if not self.m.overlap:  # No need
+            return self
+
+        weight = self.m.get_kernel()
+        tile_fn = partial(_reweight, weight)
+        return self.map(tile_fn)
+
+    def merge(self) -> _BaseView:
+        """
+        Removes overlapping regions from all the tiles if any.
+        Tiles should be reweighted if overlap exists.
+        """
+        if self.m.overlap:
+            return _UniqueTileView(self.m, self.shape, self.cells, self)
+        return self
+
+
+@dataclass
+class _IterView(_View):
+    source: Iterable[Tile]
+
+    def __iter__(self) -> Iterator[Tile]:
+        return iter(self.source)
+
+
+@dataclass
+class _DecimatedView(_View):
+    """
+    Decimates tiles.
+    Doesn't change size uniformity.
+    Yields decimated views of original tiles.
+    """
+    stride: int
+    source: Iterable[Tile]
+
+    def __iter__(self) -> Iterator[Tile]:
+        for t in self.source:
+            yield Tile(
+                t.idx,
+                tuple(c // self.stride for c in t.vec),  # type: ignore
+                t.data[::self.stride, ::self.stride],
+            )
+
+
+@dataclass
+class _TiledArrayView(_View):
+    """
+    Extracts tiles from array.
+    Yields same-sized tiles with overlaps.
+    """
     data: NumpyLike
     max_workers: int
 
-    def select(self, mask: np.ndarray, scale: int) -> _Tiler:
+    def select(self, mask: np.ndarray, scale: int) -> _TiledArrayView:
         """Drop tiles where `mask` is 0"""
         assert mask.ndim == 2
         mask = mask.astype('u1')
 
         ih, iw = self.ishape
-        step = self.step // scale
-        pad = self.overlap // 2 // scale
+        step = self.m.step // scale
+        pad = self.m.overlap // (scale * 2)
 
         mh, mw = (ih * step), (iw * step)
         if mask.shape[:2] != (mh, mw):
             mask_pad = [(0, s1 - s0) for s0, s1 in zip(mask.shape, (mh, mw))]
             mask = np.pad(mask, mask_pad)[:mh, :mw]
 
-        if self.overlap:
+        if self.m.overlap:
             kernel = np.ones((3, 3), dtype='u1')
             mask = cv2.dilate(mask, kernel, iterations=pad)
 
@@ -137,24 +316,25 @@ class _Tiler(_Sized):
         cells = mask.reshape(ih, step, iw, step).any((1, 3))
         return dataclasses.replace(self, cells=cells)
 
-    def _get_tile(self, iy: int, ix: int) -> np.ndarray:
+    def _get_tile(self, iy: int, ix: int) -> Tile:
         """Read non-overlapping tile of source image"""
-        (y0, y1), (x0, x1) = ((self.step * i - self.overlap,
-                               self.step * (i + 1)) for i in (iy, ix))
+        (y0, y1), (x0, x1) = ((self.m.step * i - self.m.overlap,
+                               self.m.step * (i + 1)) for i in (iy, ix))
         if iy and self.cells[iy - 1, ix]:
-            y0 += self.overlap
+            y0 += self.m.overlap
         if ix and self.cells[iy, ix - 1]:
-            x0 += self.overlap
-        return self.data[y0:y1, x0:x1]
+            x0 += self.m.overlap
+        return Tile((iy, ix), (y0, x0), self.data[y0:y1, x0:x1])
 
-    def _rejoin_tiles(
-            self, image_parts: Iterable[np.ndarray]) -> Iterator[np.ndarray]:
+    def _rejoin_tiles(self, image_parts: Iterable[Tile]) -> Iterator[Tile]:
         """Joins non-overlapping parts to tiles"""
-        assert self.overlap
+        assert self.m.overlap
+        overlap = self.m.overlap
         cells = np.pad(self.cells, [(0, 1), (0, 1)])
+        step = self.m.step
         row = defaultdict[int, np.ndarray]()
 
-        for (iy, ix), part in self.enumerate(image_parts):
+        for (iy, ix), _, part in image_parts:
             # Lazy init, first part is always whole
             if row.default_factory is None:
                 row.default_factory = partial(np.zeros, part.shape, part.dtype)
@@ -164,163 +344,83 @@ class _Tiler(_Sized):
             else:
                 tile = part
 
-            yield tile
+            yield Tile((iy, ix), (iy * step - overlap, ix * step - overlap),
+                       tile)
 
             if cells[iy, ix + 1]:
-                row[ix + 1][:, :self.overlap] = tile[:, -self.overlap:]
+                row[ix + 1][:, :overlap] = tile[:, -overlap:]
             if cells[iy + 1, ix]:
-                row[ix][:self.overlap, :] = tile[-self.overlap:, :]
+                row[ix][:overlap, :] = tile[-overlap:, :]
 
-    def _raw_iter(self) -> Iterator[np.ndarray]:
-        ys, xs = np.where(self.cells)
-        parts = map_n(self._get_tile, ys, xs, max_workers=self.max_workers)
-        return self._rejoin_tiles(parts) if self.overlap else iter(parts)
-
-    def _offset(self) -> Sequence[Vec]:
-        return (np.argwhere(self.cells) * self.step - self.overlap).tolist()
-
-    def __iter__(self) -> Iterator[tuple[Vec, np.ndarray]]:
+    def __iter__(self) -> Iterator[Tile]:
         """
         Yield complete tiles built from source image.
         Each tile will have size `(step + overlap)`
         """
-        return zip(self._offset(), self._raw_iter())
-
-    def apply(self,
-              func: Callable[[Iterable[np.ndarray]], list[np.ndarray]],
-              batch_size: int = 1,
-              max_workers: int = 1,
-              weighting: bool = True) -> _Merger:
-        """
-        Applies `func` to tiles in batched way.
-        Returns processed tiles with masked edge artifacts together with
-        *true* tile offsets.
-
-        `func` should be thread-safe, accept sequence of HWC-formatted
-        ndarrays, and return sequence of HWC-formatted ndarrays with
-        float dtype.
-
-        Parameters:
-        - batch_size - Batch size to use for grouping tiles for func.
-        - weighting - Whether to apply weight for each tile,
-          or don't when func already applies it.
-        """
-        weight = (
-            _get_weight(self.step, self.overlap)
-            if self.overlap and weighting else None)
-
-        image_parts = self._raw_iter()
-        chunks = chunked(image_parts, batch_size)
-        batches = map_n(func, chunks, max_workers=max_workers)
-        results = chain.from_iterable(batches)
-
-        return _Merger(self.step, self.overlap, self.shape, self.cells,
-                       zip(self._offset(), results), weight)
+        ys, xs = np.where(self.cells)
+        parts = map_n(self._get_tile, ys, xs, max_workers=self.max_workers)
+        return self._rejoin_tiles(parts) if self.m.overlap else iter(parts)
 
 
 @dataclass
-class _Merger(_Sized):
-    source: Iterable[tuple[Vec, np.ndarray]]
-    weight: np.ndarray | None
+class _UniqueTileView(_BaseView):
+    """
+    Applies weighted average over overlapping regions.
+    Yields tiles without overlaps, so their size can differ.
+    """
+    source: Iterable[Tile]
 
     _cells: np.ndarray = field(init=False, repr=False)
-    _row: dict[int, np.ndarray] = field(default_factory=dict, repr=False)
-    _carry: list[np.ndarray] = field(default_factory=list, repr=False)
+    _row: dict[int, np.ndarray] = field(init=False, repr=False)
+    _carry: list[np.ndarray] = field(init=False, repr=False)
 
     def __post_init__(self):
-        super().__post_init__()
         self._cells = np.pad(self.cells, [(0, 1), (0, 1)])
+        self._row = {}
+        self._carry = []
 
-    def _update(self, iy: int, ix: int, y: int, x: int,
-                tile: np.ndarray) -> tuple[Vec, np.ndarray]:
-        """Blends edges of overlapping tiles and returns non-overlapping
-        parts of it"""
-        if self.weight is not None:
-            assert tile.dtype.kind == 'f'
-            tile *= self.weight[:, None, None]
-            tile *= self.weight[None, :, None]
+    def _update(self, obj: Tile) -> Tile:
+        """
+        Blends edges of overlapping tiles and returns non-overlapping parts
+        """
+        (iy, ix), (y, x), tile = obj
+        overlap = self.m.overlap
+        step = self.m.step
 
         if iy and self._cells[iy - 1, ix]:  # TOP exists
             top = self._row.pop(ix)
-            tile[:self.overlap, self.step - top.shape[1]:self.step] += top
+            tile[:overlap, step - top.shape[1]:step] += top
         else:
-            tile = tile[self.overlap:]  # cut TOP
-            y += self.overlap
+            tile = tile[overlap:]  # cut TOP
+            y += overlap
 
         if ix and self._cells[iy, ix - 1]:  # LEFT exists
             left = self._carry.pop()
             if self._cells[iy + 1, [ix - 1, ix]].all():
-                tile[-left.shape[0]:, :self.overlap] += left
+                tile[-left.shape[0]:, :overlap] += left
             else:  # cut BOTTOM-LEFT
-                tile[-left.shape[0] -
-                     self.overlap:-self.overlap, :self.overlap] += left
+                tile[-left.shape[0] - overlap:-overlap, :overlap] += left
         else:
-            tile = tile[:, self.overlap:]  # cut LEFT
-            x += self.overlap
+            tile = tile[:, overlap:]  # cut LEFT
+            x += overlap
 
-        tile, right = np.split(tile, [-self.overlap], axis=1)
+        tile, right = np.split(tile, [-overlap], axis=1)
         if self._cells[iy, ix + 1]:  # RIGHT exists
             if not (iy and self._cells[iy - 1, [ix, ix + 1]].all()):
-                right = right[-self.step:]  # cut TOP-RIGHT
+                right = right[-step:]  # cut TOP-RIGHT
             if not self._cells[iy + 1, [ix, ix + 1]].all():
-                right = right[:-self.overlap]  # cut BOTTOM-RIGHT
+                right = right[:-overlap]  # cut BOTTOM-RIGHT
             self._carry.append(right)
 
-        tile, bottom = np.split(tile, [-self.overlap])
+        tile, bottom = np.split(tile, [-overlap])
         if self._cells[iy + 1, ix]:  # BOTTOM exists
             if not (ix and self._cells[[iy, iy + 1], ix - 1].all()):
                 # cut BOTTOM-LEFT
-                bottom = bottom[:, -(self.step - self.overlap):]
+                bottom = bottom[:, -(step - overlap):]
             self._row[ix] = bottom
 
-        return (y, x), tile
+        return Tile((iy, ix), (y, x), tile)
 
-    def _crop(
-        self, source: Iterable[tuple[Vec, np.ndarray]]
-    ) -> Iterator[tuple[Vec, np.ndarray]]:
-        h, w = self.shape
-        for (y, x), out in source:
-            yield (y, x), out[:h - y, :w - x]
-
-    def __iter__(self) -> Iterator[tuple[Vec, np.ndarray]]:
-        isource = self.source
-        if self.overlap:
-            isource = (self._update(*iyx, *yx, out)
-                       for iyx, (yx, out) in self.enumerate(isource))
-        return self._crop(isource)
-
-    def zip_with_view(
-            self, view: np.ndarray,
-            v_scale: int) -> Iterator[tuple[Vec, np.ndarray, np.ndarray]]:
-        """Extracts tiles from `view` simultaneously with tiles from self"""
-        assert v_scale >= 1
-        for (y, x), out in self:
-            tw, th = out.shape[:2]
-            v = view[y // v_scale:,
-                     x // v_scale:][:tw // v_scale, :th // v_scale]
-            yield (y, x), out, v
-
-    def fuse(self,
-             pool: int = 1,
-             status: Callable[[int, int], Any] | None = None) -> np.ndarray:
-        """
-        Merges tiles to image, with argmax(-1) as hue, and max(-1) as value.
-        Parameters:
-
-        - pool - scale to resize result down.
-        - status - optional callback accepting (index, total) to report status.
-        """
-        r = np.zeros((*(s // pool for s in self.shape), 3), dtype='u1')
-
-        total = len(self)
-        if status:
-            status(0, total)
-        for i, ((y, x), tile) in enumerate(self, 1):
-            h, w = (s // pool for s in tile.shape[:2])
-            im = tile[::pool, ::pool][:h, :w]
-            if im.size:
-                r[y // pool:, x // pool:][:h, :w] = _probs_to_hsv(im)
-            if status:
-                status(i, total)
-
-        return r
+    def __iter__(self) -> Iterator[Tile]:
+        assert self.m.overlap
+        return map(self._update, self.source)
