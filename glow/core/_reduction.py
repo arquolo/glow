@@ -12,7 +12,6 @@ import sys
 import tempfile
 import weakref
 from collections.abc import Callable
-from itertools import starmap
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from typing import Generic, TypeVar
@@ -48,24 +47,17 @@ def _get_shm_dir() -> Path:
 
 
 class _Proxy(Generic[_F]):
-    uid: int
+    call: _F
 
-    def get(self) -> _F:
-        raise NotImplementedError
-
-    def __call__(self, *chunk) -> list:
-        return list(starmap(self.get(), chunk))
+    def __call__(self, *args):
+        return self.call(*args)
 
 
 class _NullProxy(_Proxy[_F]):
-    __slots__ = ('obj', 'uid')
+    __slots__ = ('call', )
 
-    def __init__(self, obj: _F):
-        self.obj = obj
-        self.uid = id(obj)
-
-    def get(self) -> _F:
-        return self.obj
+    def __init__(self, call: _F):
+        self.call = call
 
 
 class _Mmap:
@@ -132,30 +124,40 @@ def _dumps(
     return fp.getvalue()
 
 
-class _MmapProxy(_Proxy[_F]):
-    __slots__ = ('uid', 'root', 'memos')
+def _mmap_reconstruct(data: bytes, memos: list[_Mmap]):
+    buffers = [m.buf for m in memos]
+    return pickle.loads(data, buffers=buffers)
 
-    def __init__(self, obj: _Proxy[_F]) -> None:
+
+class _MmapProxy(_Proxy[_F]):
+    __slots__ = ('uid', 'call', 'data', 'memos')
+
+    def __init__(self, call: _F) -> None:
         buffers: list[pickle.PickleBuffer] = []
-        self.uid = obj.uid
-        self.root = _dumps(obj, callback=buffers.append)
+        self.uid = id(call)
+        self.call = call
+        self.data = _dumps(call, callback=buffers.append)
         self.memos = []
         for i, buf in enumerate(buffers):
             with buf.raw() as m:
-                self.memos += [_Mmap.from_bytes(m, f'{obj.uid:x}-{i}')]
+                self.memos += [_Mmap.from_bytes(m, f'{self.uid:x}-{i}')]
 
-    def get(self) -> _F:
-        buffers = [m.buf for m in self.memos]
-        return pickle.loads(self.root, buffers=buffers)
+    def __reduce__(self) -> tuple:
+        return _mmap_reconstruct, (self.data, self.memos)
+
+
+def _shn_reconstruct(data: bytes, memos: list[tuple[SharedMemory, int]]):
+    buffers = [sm.buf[:size] for sm, size in memos]
+    return pickle.loads(data, buffers=buffers)
 
 
 class _ShmemProxy(_Proxy[_F]):
-    __slots__ = ('uid', 'root', 'memos')
+    __slots__ = ('call', 'data', 'memos')
 
-    def __init__(self, obj: _Proxy[_F]) -> None:
+    def __init__(self, call: _F) -> None:
         buffers: list[pickle.PickleBuffer] = []
-        self.uid = obj.uid
-        self.root = _dumps(obj, callback=buffers.append)
+        self.call = call
+        self.data = _dumps(call, callback=buffers.append)
         self.memos = []
         for buf in buffers:
             with buf.raw() as m:
@@ -163,11 +165,10 @@ class _ShmemProxy(_Proxy[_F]):
                 sm.buf[:] = m
                 self.memos.append((sm, sm.size))
 
-    def get(self) -> _F:
-        buffers = [sm.buf[:size] for sm, size in self.memos]
-        return pickle.loads(self.root, buffers=buffers)
+    def __reduce__(self) -> tuple:
+        return _shn_reconstruct, (self.data, self.memos)
 
 
-def move_to_shmem(fn: Callable[..., _T]) -> Callable[..., list[_T]]:
+def move_to_shmem(fn: Callable[..., _T]) -> Callable[..., _T]:
     return _NullProxy(fn)
     return _ShmemProxy(fn)

@@ -18,9 +18,9 @@ from itertools import chain, filterfalse, islice, starmap
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
-from queue import SimpleQueue
+from queue import Empty, SimpleQueue
 from threading import Lock
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Protocol, TypeVar, cast
 
 import loky
@@ -52,7 +52,7 @@ _empty = _Empty.token
 
 
 class _Queue(Protocol[_T]):
-    def get(self) -> _T:
+    def get(self, block: bool = ..., timeout: float | None = ...) -> _T:
         ...
 
     def put(self, item: _T) -> None:
@@ -99,6 +99,36 @@ def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
 
 def max_cpu_count(upper_bound: int = sys.maxsize, mp: bool = False) -> int:
     return min(_get_cpu_count_limits(upper_bound, mp))
+
+
+_PATIENCE = 0.01
+
+
+def _ki_call(fn: Callable[..., _T], *exc: type[BaseException]) -> _T:
+    # See issues
+    # https://bugs.python.org/issue29971
+    # https://github.com/dask/dask/pull/2144#issuecomment-290556996
+    # https://github.com/dask/dask/pull/2144/files
+    while True:
+        try:
+            return fn(timeout=_PATIENCE)
+        except exc:
+            sleep(0)  # Force switch to another thread to proceed
+
+
+if sys.platform == 'win32':
+    from concurrent.futures import TimeoutError as _TimeoutError
+
+    def _result(f: Future[_T]) -> _T:
+        return _ki_call(f.result, _TimeoutError)
+else:
+    _result = Future.result
+
+
+def _get_q_get(q: _Queue[_T]) -> Callable[[], _T]:
+    if sys.platform != 'win32':
+        return q.get
+    return partial(_ki_call, q.get, Empty)
 
 
 # ---------------------------- pool initialization ----------------------------
@@ -194,18 +224,18 @@ class buffered(Iterator[_T]):  # noqa: N801
         ev: _Event = mgr.Event()
         q: _Queue[_T | _Empty] = mgr.Queue(latency)
         self._task = executor.submit(_consume, iterable, q, ev)  # type: ignore
+        self._get = q_get = _get_q_get(q)
 
         # If main killed, wakes up consume to check ev
         # Otherwise collects 2nd _empty from q.
         # Called 2nd
-        s.callback(q.get)
+        s.callback(q_get)
 
         # If main killed, signals consume to stop.
         # If consume is already stopped (on error or not), does nothing.
         # Called 1st
         s.callback(ev.set)
 
-        self._get = q.get
         self.close = weakref.finalize(self, s.close)
 
     def __iter__(self) -> Iterator[_T]:
@@ -217,7 +247,7 @@ class buffered(Iterator[_T]):  # noqa: N801
                 return item
 
             self.close()
-            self._task.result()  # Throws exception if worker killed itself
+            _result(self._task)  # Throws exception if worker killed itself
 
         raise StopIteration
 
@@ -285,19 +315,20 @@ def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterator[tuple],
 
 
 def _get_unwrap_iter(s: ExitStack, todo: set[Future[_T]],
-                     q_get: Callable[[], Future[_T]],
+                     get_f: Callable[[], Future[_T]],
                      fs: Iterator[Future[_T]]) -> Iterator[_T]:
     with s:
         while todo:
-            f = q_get()
-            yield f.result()
+            f = get_f()
             todo.remove(f)
+
+            yield _result(f)  # wait with timeout
             todo.update(islice(fs, 1))
 
 
 def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
             order: bool) -> Iterator[_T]:
-    q = SimpleQueue[Future]()
+    q = SimpleQueue[Future[_T]]()
     q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
     # As q.put always gives falsy None, filterfalse to call it as a side effect
@@ -308,7 +339,11 @@ def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
         s.close()  # Unwind here on an error
         raise
     else:
-        return _get_unwrap_iter(s, todo, q.get, fs)
+        return _get_unwrap_iter(s, todo, _get_q_get(q), fs)
+
+
+def _batch_invoke(func: Callable[..., _T], *items: tuple) -> list[_T]:
+    return [*starmap(func, items)]
 
 
 def starmap_n(func: Callable[..., _T],
@@ -372,14 +407,19 @@ def starmap_n(func: Callable[..., _T],
     submit = s.enter_context(_get_executor(max_workers, mp)).submit
 
     if mp:
+        func = move_to_shmem(func)
+    else:
+        chunksize = chunksize or 1
+
+    if chunksize is None or chunksize > 1:
         submit_many = cast(
             Callable[..., Future[list[_T]]],
-            partial(submit, move_to_shmem(func)),
+            partial(submit, _batch_invoke, func),
         )
-        if chunksize is None:
+        if chunksize is None:  # Dynamic chunksize scaling
             fs = _schedule_auto(submit_many, it, max_workers)
         else:
-            fs = _schedule(submit_many, it, chunksize or 1)
+            fs = _schedule(submit_many, it, chunksize)
 
         chunks = _unwrap(s, fs, prefetch, order)
         return chain.from_iterable(chunks)
