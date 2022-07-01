@@ -39,7 +39,6 @@ _F = TypeVar('_F', bound=Future)
 _NUM_CPUS = os.cpu_count() or 0
 _NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
-_VMS_THRESHOLD = 2 << 30  # VMS size on Windows to start taking it into account
 
 
 class _Empty(enum.Enum):
@@ -90,9 +89,6 @@ def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
 
     # Overcommit on Windows is forbidden, thus VMS planning is necessary
     vms: int = psutil.Process().memory_info().vms
-    if vms < _VMS_THRESHOLD:
-        return
-
     free_vms: int = psutil.virtual_memory().free + psutil.swap_memory().free
     yield free_vms // vms
 
