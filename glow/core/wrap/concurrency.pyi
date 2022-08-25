@@ -27,8 +27,9 @@ def shared_call(fn: _F) -> _F:
 @overload
 def streaming(*,
               batch_size: int,
-              timeouts: tuple[float, float] = ...,
-              workers: int = ...) -> Callable[[_BatchedFn], _BatchedFn]:
+              timeout: float = ...,
+              workers: int = ...,
+              pool_timeout: float = ...) -> Callable[[_BatchedFn], _BatchedFn]:
     ...
 
 
@@ -36,6 +37,7 @@ def streaming(*,
 def streaming(func: _BatchedFn,
               *,
               batch_size: int,
-              timeouts: tuple[float, float] = ...,
-              workers: int = ...) -> _BatchedFn:
+              timeout: float = ...,
+              workers: int = ...,
+              pool_timeout: float = ...) -> _BatchedFn:
     ...

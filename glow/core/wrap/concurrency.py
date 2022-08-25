@@ -2,25 +2,27 @@ from __future__ import annotations
 
 __all__ = ['streaming', 'call_once', 'threadlocal', 'shared_call']
 
+import sys
 import threading
-from collections.abc import Callable, Hashable, Sequence
+from collections.abc import Callable, Hashable, Iterable, Sequence
 from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any, TypeVar, cast
 from weakref import WeakValueDictionary
 
-from .._thread_quota import ThreadQuota
 from .util import make_key
 
 _T = TypeVar('_T')
+_R = TypeVar('_R')
 _F = TypeVar('_F', bound=Callable)
-_Make = Callable[[], _T]
+_BatchFn = Callable[[list[_T]], Iterable[_R]]
 _ZeroArgsF = TypeVar('_ZeroArgsF', bound=Callable[[], Any])
 
+_PATIENCE = 0.01
 _unset = object()
 
 
@@ -89,72 +91,135 @@ def shared_call(fn: _F) -> _F:
     return cast(_F, update_wrapper(wrapper, fn))
 
 
+# ----------------------------- batch collation ------------------------------
+
+
 def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
                  timeout: float) -> list[_T]:
-    # Wait indefinitely for the first item
-    batch = [q.get()]
+    batch: list[_T] = []
 
-    # Waiting is limited only for the consecutive items
-    end = monotonic() + timeout
-    while len(batch) < batch_size and (left := end - monotonic()) > 0:
+    # Wait indefinitely until the first item is received
+    if sys.platform == 'win32':
+        # On Windows lock.acquire called without a timeout is not interruptible
+        # See:
+        # https://bugs.python.org/issue29971
+        # https://github.com/dask/dask/pull/2144#issuecomment-290556996
+        # https://github.com/dask/dask/pull/2144/files
+        while not batch:
+            try:
+                batch.append(q.get(timeout=_PATIENCE))
+            except Empty:
+                sleep(0)  # Allow other thread to fill the batch
+    else:
+        batch.append(q.get())
+
+    endtime = monotonic() + timeout
+    while len(batch) < batch_size and (waittime := endtime - monotonic()) > 0:
         try:
-            batch.append(q.get(timeout=left))
+            batch.append(q.get(timeout=waittime))
         except Empty:
             break
+
+    if len(batch) < batch_size:
+        print(f'timeout({len(batch)})')
     return batch
 
 
-def _batch_invoke(func: _Make[Sequence[_T]], futures: Sequence[Future[_T]]):
+def _batch_invoke(
+    func: _BatchFn[_T, _R],
+    batch: Sequence[tuple[Future[_R], _T]],
+):
+    batch = [(f, x) for f, x in batch if f.set_running_or_notify_cancel()]
+    if not batch:
+        return
+
     try:
-        results = func()
-        assert len(results) == len(futures)
+        *results, = func([x for _, x in batch])
+        assert len(results) == len(batch)
     except BaseException as exc:  # noqa: PIE786
-        for fut in futures:
-            fut.set_exception(exc)
+        for f, _ in batch:
+            f.set_exception(exc)
     else:
-        for fut, res in zip(futures, results):
-            fut.set_result(res)
+        # TODO: use zip(strict=True) for python3.10+
+        for (f, _), r in zip(batch, results):
+            f.set_result(r)
 
 
-def _compute(func, batch):
-    fs, items = zip(*batch)
-    _batch_invoke(partial(func, items), fs)
+def _start_fetch_compute(func, workers, batch_size, timeout):
+    q = SimpleQueue()
+    lock = Lock()
+
+    def loop():
+        while True:
+            # Because of lock, _fetch_batch could be inlined into wrapper,
+            # and dispatch to thread pool could be done from there,
+            # thus allowing usage of scalable ThreadPool
+            # TODO: implement above
+            with lock:  # Ensurance that none worker steals tasks from other
+                batch = _fetch_batch(q, batch_size, timeout)
+            if batch:
+                _batch_invoke(func, batch)
+            else:
+                sleep(0.001)
+
+    for _ in range(workers):
+        Thread(target=loop, daemon=True).start()
+    return q
 
 
-def streaming(func=None, *, batch_size, timeouts=(0.1, 20.), workers=1):
+def streaming(func=None,
+              /,
+              *,
+              batch_size,
+              timeout=0.1,
+              workers=1,
+              pool_timeout=20.):
     """
     Delays start of computation to until batch is collected.
     Accepts two timeouts (in seconds):
-    - first controls waiting of items from the consecutive calls.
-    - second is responsible for waiting of results.
+    - `timeout` is a time to wait till the batch is full, i.e. latency.
+    - `pool_timeout` is time to wait for results.
 
-    Simplified version of https://github.com/ShannonAI/service-streamer
+    Uses ideas from
+    - https://github.com/ShannonAI/service-streamer
+    - https://github.com/leon0707/batch_processor
+    - ray.serve.batch
+      https://github.com/ray-project/ray/blob/master/python/ray/serve/batching.py
 
     Note: currently supports only functions and bound methods.
+
+    Implementation details:
+    - constantly keeps alive N workers
+    - any caller enqueues jobs and starts waiting
+    - on any failure during waiting caller cancels all jobs it submitted
+    - single worker at a time fetches jobs from shared queue, resolves them,
+      and notifies all waiters
     """
     if func is None:
-        return partial(streaming, batch_size=batch_size, timeouts=timeouts)
+        return partial(
+            streaming,
+            batch_size=batch_size,
+            timeout=timeout,
+            workers=workers,
+            pool_timeout=pool_timeout)
 
     assert callable(func)
     assert workers >= 1
-    q = SimpleQueue()
-    batch_timeout, result_timeout = timeouts
-    executor = ThreadQuota(workers)
-
-    def _collect():
-        while True:
-            batch = _fetch_batch(q, batch_size, batch_timeout)
-            executor.submit(_compute, func, batch)
-
-    Thread(target=_collect, daemon=True).start()
+    q = _start_fetch_compute(func, workers, batch_size, timeout)
 
     def wrapper(items):
         fs = {Future(): item for item in items}
-        for f_x in fs.items():
-            q.put(f_x)
+        try:
+            for f_x in fs.items():
+                q.put(f_x)
+            if wait(fs, pool_timeout, return_when='FIRST_EXCEPTION').not_done:
+                raise TimeoutError
 
-        if wait(fs, result_timeout, return_when='FIRST_EXCEPTION').not_done:
-            raise TimeoutError
+        except BaseException:  # Cancel all not yet submitted futures
+            while fs:
+                fs.popitem()[0].cancel()
+            raise
+
         return [f.result() for f in fs]
 
     # TODO: if func is instance method - recreate wrapper per instance
