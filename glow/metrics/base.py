@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 __all__ = [
-    'Metric', 'Lambda', 'Scores', 'Staged', 'compose', 'to_index', 'to_prob'
+    'Metric', 'Lambda', 'Scores', 'Staged', 'compose', 'to_index',
+    'to_index_sparse', 'to_prob', 'to_prob_sparse'
 ]
 
-import itertools
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Sequence
 from dataclasses import dataclass, field
+from itertools import count
 from typing import Protocol, overload
 
 import torch
@@ -15,13 +16,13 @@ import torch
 from .. import coroutine
 
 
-@dataclass
+@dataclass(frozen=True)
 class Scores:
     scalars: dict[str, float | int] = field(default_factory=dict)
     tensors: dict[str, torch.Tensor] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, mapping: dict[str, torch.Tensor]) -> 'Scores':
+    def from_dict(cls, mapping: dict[str, torch.Tensor]) -> Scores:
         obj = cls()
         for k, v in mapping.items():
             if v.numel() == 1:
@@ -31,7 +32,7 @@ class Scores:
         return obj
 
 
-class _MetricFn(Protocol):
+class MetricFn(Protocol):
     def __call__(self, pred, true) -> torch.Tensor:
         ...
 
@@ -42,20 +43,21 @@ class Metric(ABC):
     def __call__(self, pred, true) -> torch.Tensor:
         raise NotImplementedError
 
-    def collect(self, state) -> dict[str, torch.Tensor]:
-        raise state
+    @abstractmethod
+    def collect(self, state: torch.Tensor) -> dict[str, torch.Tensor]:
+        raise NotImplementedError
 
 
 class Lambda(Metric):
     """Wraps arbitary loss function to metric"""
-    fn: _MetricFn
+    fn: MetricFn
 
     @overload
     def __init__(self, fn: Callable, name: str):
         ...
 
     @overload
-    def __init__(self, fn: _MetricFn, name: None = ...):
+    def __init__(self, fn: MetricFn, name: None = ...):
         ...
 
     def __init__(self, fn, name=None):
@@ -65,7 +67,7 @@ class Lambda(Metric):
     def __call__(self, pred, true) -> torch.Tensor:
         return self.fn(pred, true)
 
-    def collect(self, state):
+    def collect(self, state: torch.Tensor) -> dict[str, torch.Tensor]:
         return {self.name: state}
 
 
@@ -74,43 +76,74 @@ class Staged(Metric):
     def __init__(self, **funcs: Callable[[torch.Tensor], torch.Tensor]):
         self.funcs = funcs
 
-    def collect(self, state):
+    def collect(self, state: torch.Tensor) -> dict[str, torch.Tensor]:
         return {key: fn(state) for key, fn in self.funcs.items()}
 
 
-def to_index(pred, true) -> tuple[int, torch.LongTensor, torch.LongTensor]:
+def to_index(pred: torch.Tensor,
+             true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
     """
-    Convert `pred` of logits with shape [B, C, ...] to [B, ...] of indices.
-    Drop bad indices.
+    Convert `pred` of logits with shape [B, C, ...] to [B, ...] of indices,
+    i.e. tensors of long.
     """
+    assert pred.shape[0] == true.shape[0]
+    assert pred.shape[2:] == true.shape[1:]
+
     c = pred.shape[1]
     pred = pred.argmax(dim=1)
 
-    if true.min() < 0 or true.max() >= c:
-        mask = (true >= 0) & (true < c)
-        true = true[mask][None]
-        pred = pred[mask][None]
-
     return c, pred, true
 
 
-def to_prob(pred, true) -> tuple[int, torch.Tensor, torch.LongTensor]:
+def to_index_sparse(
+        pred: torch.Tensor,
+        true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
     """
-    Convert `pred` of logits with shape [B, C, ...] to probs.
-    Drop bad indices.
+    Convert `pred` of logits with shape [B, C, ...] to [B, ...] of indices,
+    i.e. tensors of long. Drops bad indices.
+    Result is flattened.
     """
-    b, c = pred.shape[:2]
+    c, pred, true = to_index(pred, true)
+
+    pred = pred.view(-1)
+    true = true.view(-1)
+
+    mask = (true >= 0) & (true < c)
+    return c, pred[mask], true[mask]
+
+
+def to_prob(pred: torch.Tensor,
+            true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
+    """
+    Convert `pred` of logits with shape [B, C, ...] to probs,
+    i.e. tensors of float.
+    """
+    assert pred.shape[0] == true.shape[0]
+    assert pred.shape[2:] == true.shape[1:]
+
+    c = pred.shape[2]
     pred = pred.softmax(dim=1)
 
-    if true.min() < 0 or true.max() >= c:
-        true = true.view(-1)
-        pred = pred.view(b, c, -1).permute(0, 2, 1).view(-1, c)
-
-        mask = (true >= 0) & (true < c)
-        true = true[mask]
-        pred = pred[mask]
-
     return c, pred, true
+
+
+def to_prob_sparse(
+        pred: torch.Tensor,
+        true: torch.Tensor) -> tuple[int, torch.Tensor, torch.Tensor]:
+    """
+    Convert `pred` of logits with shape [B, C, ...] to probs,
+    i.e. tensors of float.
+    Drops bad indices, i.e. those that are out of range(C).
+    Results have shape of [N, C] and [N].
+    """
+    c, pred, true = to_prob(pred, true)
+
+    b = true.shape[0]
+    true = true.view(-1)  # (b n)
+    pred = pred.view(b, c, -1).permute(0, 2, 1).view(-1, c)  # (b n) c
+
+    mask = (true >= 0) & (true < c)
+    return c, pred[mask], true[mask]
 
 
 @coroutine
@@ -119,16 +152,18 @@ def _batch_averaged(
 ) -> Generator[dict[str, torch.Tensor], Sequence[torch.Tensor], None]:
     assert isinstance(fn, Metric)
     args = yield {}
-    state = torch.as_tensor(fn(*args))
-    for step in itertools.count(2):
+    state = fn(*args)
+    for n in count(2):
         args = yield fn.collect(state)
-        state += (torch.as_tensor(fn(*args)) - state) / step
+        state.lerp_(fn(*args), 1 / n)
 
 
 @coroutine
 def compose(*fns: Metric) -> Generator[Scores, Sequence[torch.Tensor], None]:
-    updates = *map(_batch_averaged, fns),
+    updates = *(_batch_averaged(fn) for fn in fns),
     args = yield Scores()
     while True:
-        scores = {k: v for u in updates for k, v in u.send(args).items()}
+        scores: dict[str, torch.Tensor] = {}
+        for u in updates:
+            scores |= u.send(args)
         args = yield Scores.from_dict(scores)

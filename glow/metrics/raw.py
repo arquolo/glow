@@ -5,17 +5,19 @@ import torch
 from .base import to_index, to_prob
 
 
-def accuracy_(pred, true) -> torch.Tensor:
+def accuracy_(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     # TODO: Add docs
     _, pred, true = to_index(pred, true)
     return (true == pred).double().mean()
 
 
-def dice(pred, true, macro=True) -> torch.Tensor:
+def dice(pred: torch.Tensor,
+         true: torch.Tensor,
+         macro: bool = True) -> torch.Tensor:
     # TODO: Add docs
     c, pred, true = to_index(pred, true)
 
-    def _dice(pred, true) -> torch.Tensor:
+    def _dice(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
         true = true.view(-1)
         pred = pred.view(-1)
         tp, t, p = (
@@ -48,16 +50,19 @@ def _rankdata(ten: torch.Tensor) -> torch.Tensor:
 
 
 def _binary_metric(fn):
-    def call(pred, true, index: int = 0) -> torch.Tensor:
-        c, pred, true = to_prob(pred, true)
+    """Applies specified function only on probabilities of indexed class"""
+    def call(pred: torch.Tensor,
+             true: torch.Tensor,
+             index: int = 0) -> torch.Tensor:
+        c, probs, targets = to_prob(pred, true)
         assert 0 <= index < c
-        return fn(pred[:, index].view(-1), (true == index).view(-1))
+        return fn(probs[:, index].view(-1), (targets == index).view(-1))
 
     return call
 
 
 @_binary_metric
-def auroc(pred, true) -> torch.Tensor:
+def auroc(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     n = true.numel()
     n_pos = true.sum()
 
@@ -67,7 +72,7 @@ def auroc(pred, true) -> torch.Tensor:
 
 
 @_binary_metric
-def average_precision(pred, true) -> torch.Tensor:
+def average_precision(pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
     n = true.numel()
     n_pos = true.sum()
 
