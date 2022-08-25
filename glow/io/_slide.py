@@ -59,6 +59,9 @@ class Slide:
     image: np.ndarray = slide[:2048, :2048]
     ```
     """
+    # TODO: check if memory leak
+    # TODO: add __enter__/__exit__/close to make memory management explicit
+    # TODO: call .close in finalizer
     path: Path
     shape: tuple[int, ...]
     spacing: float | None
