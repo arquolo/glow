@@ -39,6 +39,7 @@ _F = TypeVar('_F', bound=Future)
 _NUM_CPUS = os.cpu_count() or 0
 _NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
+_GRANULAR_SCHEDULING = False  # TODO: investigate whether this improves load
 
 
 class _Empty(enum.Enum):
@@ -310,6 +311,16 @@ def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterator[tuple],
             yield f
 
 
+def _schedule_auto_v2(make_future: Callable[..., _F],
+                      args_zip: Iterator[tuple]) -> Iterator[_F]:
+    # Vary job size from future to future
+    size = _AutoSize()
+    while args := [*islice(args_zip, size.suggest())]:
+        f = make_future(*args)
+        f.add_done_callback(partial(size.update, perf_counter()))
+        yield f
+
+
 def _get_unwrap_iter(s: ExitStack, todo: set[Future[_T]],
                      get_f: Callable[[], Future[_T]],
                      fs: Iterator[Future[_T]]) -> Iterator[_T]:
@@ -412,10 +423,15 @@ def starmap_n(func: Callable[..., _T],
             Callable[..., Future[list[_T]]],
             partial(submit, _batch_invoke, func),
         )
-        if chunksize is None:  # Dynamic chunksize scaling
+        if chunksize is not None:
+            # Fixed chunksize
+            fs = _schedule(submit_many, it, chunksize)
+        elif not _GRANULAR_SCHEDULING:
+            # Dynamic chunksize scaling, submit tasks in waves
             fs = _schedule_auto(submit_many, it, max_workers)
         else:
-            fs = _schedule(submit_many, it, chunksize)
+            # Dynamic chunksize scaling
+            fs = _schedule_auto_v2(submit_many, it)
 
         chunks = _unwrap(s, fs, prefetch, order)
         return chain.from_iterable(chunks)
