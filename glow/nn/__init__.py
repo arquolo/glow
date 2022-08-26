@@ -2,7 +2,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 from ._loader import get_loader
-from ._stepper import Stepper
+from ._trainer import Trainer
 from .amp import get_grads
 from .modules import (Ensemble, Noise, Residual, SplitAttention,
                       SqueezeExcitation, Upscale2d)
@@ -12,7 +12,7 @@ from .util import (detach_, device, dump_to_onnx, eval_, frozen, inference,
 
 __all__ = [
     'AdamW', 'Ensemble', 'Noise', 'RAdam', 'Residual', 'SGDW',
-    'SplitAttention', 'SqueezeExcitation', 'Stepper', 'Upscale2d', 'detach_',
+    'SplitAttention', 'SqueezeExcitation', 'Trainer', 'Upscale2d', 'detach_',
     'device', 'dump_to_onnx', 'eval_', 'frozen', 'get_gpu_capability',
     'get_gpu_memory_info', 'get_grads', 'get_loader', 'inference',
     'param_count', 'plot_model', 'profile'
