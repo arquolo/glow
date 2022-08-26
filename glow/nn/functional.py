@@ -6,6 +6,8 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
+from torch import nn
+from torch.nn.utils import parametrize
 
 _size = Union[torch.Size, list[int], tuple[int, ...]]
 
@@ -32,3 +34,13 @@ def conv2d_ws(x: torch.Tensor,
               groups: int = 1):
     weight = F.layer_norm(weight, weight.shape[1:], eps=1e-5)
     return F.conv2d(x, weight, bias, stride, padding, dilation, groups)
+
+
+def standartize_conv_weights(model: nn.Module) -> None:
+    """Enforce weight standartization for all ConvNd modules"""
+    for m in model.modules():
+        if not isinstance(m, nn.modules.conv._ConvNd):
+            continue
+        shape = m.weight.shape
+        parametrize.register_parametrization(
+            m, 'weight', nn.LayerNorm(shape[1:], elementwise_affine=False))

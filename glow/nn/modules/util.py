@@ -1,4 +1,4 @@
-__all__ = ['NameMixin', 'ActivationFn', 'LazyConvFn', 'LazyNormFn']
+__all__ = ['NameMixin', 'ActivationFn', 'LazyConvFn', 'LazyNormFn', 'round8']
 
 from typing import Protocol, TypeVar, Union
 
@@ -42,3 +42,15 @@ class ActivationFn(Protocol):
 class LazyNormFn(Protocol):
     def __call__(self) -> nn.Module:
         ...
+
+
+def round8(v: float, divisor: int = 8) -> int:
+    """Ensure that number rounded to nearest 8, and error is less than 10%
+
+    This function is taken from the original tf repo.
+    It ensures that all layers have a channel number that is divisible by 8
+    It can be seen here:
+    https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet.py
+    """
+    n = v / divisor
+    return int(max(n + 0.5, n * 0.9 + 1)) * divisor

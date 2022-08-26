@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING
 from ._loader import get_loader
 from ._stepper import Stepper
 from .amp import get_amp_context
-from .modules import (Dropsample, Ensemble, Noise, SplitAttention,
+from .modules import (Ensemble, Noise, Residual, SplitAttention,
                       SqueezeExcitation, Upscale2d)
 from .optimizers import SGDW, AdamW, RAdam
 from .util import (detach_, device, dump_to_onnx, eval_, frozen, inference,
                    param_count, profile)
 
 __all__ = [
-    'AdamW', 'Dropsample', 'Ensemble', 'Noise', 'RAdam', 'SGDW',
+    'AdamW', 'Ensemble', 'Noise', 'RAdam', 'Residual', 'SGDW',
     'SplitAttention', 'SqueezeExcitation', 'Stepper', 'Upscale2d', 'detach_',
     'device', 'dump_to_onnx', 'eval_', 'frozen', 'get_gpu_capability',
     'get_gpu_memory_info', 'get_amp_context', 'get_loader', 'inference',
