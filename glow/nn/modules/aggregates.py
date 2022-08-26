@@ -26,16 +26,22 @@ class Ensemble(nn.ModuleList):
         super().__init__(modules)
         self.mode = mode
 
+    def _sum(self, xs: list[torch.Tensor]) -> torch.Tensor:
+        r = xs[0]
+        for x in xs[1:]:
+            r += x
+        return r
+
+    def _cat(self, xs: list[torch.Tensor]) -> torch.Tensor:
+        return torch.cat(xs, dim=1)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         ys: list[torch.Tensor] = [m(x) for m in self]
         if self.mode == 'sum':
-            r = ys[0]
-            for y in ys[1:]:
-                r += y
-            return r
+            return self._sum(ys)
 
         if self.mode == 'cat':
-            return torch.cat(ys, dim=1)
+            return self._cat(ys)
 
         raise NotImplementedError
 

@@ -7,6 +7,8 @@ from .. import functional as F
 
 
 class Noise(nn.Module):
+    __constants__ = ['std']
+
     def __init__(self, std: float):
         super().__init__()
         self.std = std
@@ -16,7 +18,7 @@ class Noise(nn.Module):
             return x
         return torch.empty_like(x).normal_(std=self.std).add_(x)
 
-    def extra_repr(self):
+    def extra_repr(self) -> str:
         return f'std={self.std}'
 
 
@@ -42,6 +44,8 @@ class Upscale2d(nn.Module):
 
     For comparison see [here](http://entropymine.com/imageworsener/matching).
     """
+    __constants__ = ['stride']
+
     def __init__(self, stride: int = 2):
         super().__init__()
         self.stride = stride
