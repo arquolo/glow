@@ -36,7 +36,7 @@ def _fp16_is_definitely_not_available() -> bool:
             return False
 
         # Rely on NVML driver
-        return max(get_gpu_capability(), default=0) < 7.0
+        return max(get_gpu_capability(), default=(0, 0)) < (7, 0)
 
     # CUDA is initialized already, no need to be careful
     devs = range(torch.cuda.device_count())
