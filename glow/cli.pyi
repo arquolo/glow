@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from argparse import ArgumentParser
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar, overload

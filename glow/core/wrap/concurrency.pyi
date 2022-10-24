@@ -2,13 +2,16 @@ from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from typing import TypeVar, overload
 
+from typing_extensions import ParamSpec
+
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
+_P = ParamSpec('_P')
 _BatchedFn = TypeVar('_BatchedFn', bound=Callable[[list], Iterable])
 
 
-def threadlocal(fn: Callable[..., _T], *args: object,
-                **kwargs: object) -> Callable[[], _T]:
+def threadlocal(fn: Callable[_P, _T], *args: _P.args,
+                **kwargs: _P.kwargs) -> Callable[[], _T]:
     ...
 
 

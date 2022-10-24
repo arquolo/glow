@@ -36,6 +36,7 @@ from ._thread_quota import ThreadQuota
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Future)
+
 _NUM_CPUS = os.cpu_count() or 0
 _NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
@@ -206,6 +207,8 @@ class buffered(Iterator[_T]):  # noqa: N801
 
     def __init__(self,
                  iterable: Iterable[_T],
+                 /,
+                 *,
                  latency: int = 2,
                  mp: bool | Executor = False):
         s = ExitStack()
@@ -295,13 +298,16 @@ class _AutoSize:
 # ---------------------- map iterable through function ----------------------
 
 
-def _schedule(make_future: Callable[..., _F], args_zip: Iterable[tuple],
+def _schedule(make_future: Callable[..., _F], args_zip: Iterable[Iterable],
               chunksize: int) -> Iterator[_F]:
     return starmap(make_future, chunked(args_zip, chunksize))
 
 
-def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterator[tuple],
-                   max_workers: int) -> Iterator[_F]:
+def _schedule_auto(
+    make_future: Callable[..., _F],
+    args_zip: Iterator[Iterable],
+    max_workers: int,
+) -> Iterator[_F]:
     # For the whole wave make futures with the same job size
     size = _AutoSize()
     while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
@@ -312,7 +318,7 @@ def _schedule_auto(make_future: Callable[..., _F], args_zip: Iterator[tuple],
 
 
 def _schedule_auto_v2(make_future: Callable[..., _F],
-                      args_zip: Iterator[tuple]) -> Iterator[_F]:
+                      args_zip: Iterator[Iterable]) -> Iterator[_F]:
     # Vary job size from future to future
     size = _AutoSize()
     while args := [*islice(args_zip, size.suggest())]:
@@ -354,7 +360,7 @@ def _batch_invoke(func: Callable[..., _T], *items: tuple) -> list[_T]:
 
 
 def starmap_n(func: Callable[..., _T],
-              iterable: Iterable[tuple],
+              iterable: Iterable[Iterable],
               /,
               *,
               max_workers: int | None = None,
