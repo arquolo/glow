@@ -21,6 +21,7 @@ from .convnets import mbconv
 from .util import NameMixin, round8
 
 _IS_TORCH_1_12 = LooseVersion(torch.__version__) >= LooseVersion('1.12')
+_TORCH_MHA_AUTOCAST = True
 
 
 class ReAttention(nn.Sequential):
@@ -91,10 +92,14 @@ class Attention(NameMixin, nn.Module):
                                         self.to_out[1].weight,
                                         self.to_out[1].bias)
             tensor_args = (x, in_w, in_b, out_w, out_b)
-            if (not torch.is_grad_enabled() or
-                    all([not t.requires_grad for t in tensor_args])):
+            if (_TORCH_MHA_AUTOCAST or not torch.is_autocast_enabled()) \
+                    and (not torch.is_grad_enabled() or
+                         all([not t.requires_grad for t in tensor_args])):
                 if torch.is_autocast_enabled():
-                    in_b = in_b.half()
+                    # torch uses slowpath, but this allows it go fast
+                    dtype = torch.get_autocast_gpu_dtype()
+                    if in_b.dtype != dtype:
+                        in_b = in_b.to(dtype)
                 out, _ = torch._native_multi_head_attention(
                     x, x, x, self.dim, self.heads, in_w, in_b, out_w, out_b,
                     None, False)

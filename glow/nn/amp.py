@@ -19,28 +19,40 @@ _MIN_SCALE = 2.0 ** -16
 _MAX_SCALE = 2.0 ** +16
 _PATIENCE = 2000
 
+_MIN_FP16_CUDA_CAPABILITY = (7, 0)
+
 
 def _fp16_is_definitely_not_available() -> bool:
     """
-    Checks if all GPUs are not CUDA 7.x+ capable. Doesn't trigger CUDA init.
+    Checks if all GPUs are not CUDA 7.x+ capable (to enable FP16).
+    Doesn't trigger CUDA init.
+
+    Possible results:
+    - CUDA capability <7.0 -> FP32 mode
+    - CUDA capability >=7.0,<8.0 -> FP32 mode, FP16 with scaler
+    - CUDA capability >=8.0 -> FP32/TF32/BF16 as is, FP16 with scaler
     """
     if not torch.cuda.is_available():
         # No CUDA, so definitely no FP16
         return True
 
     if not torch.cuda.is_initialized():
-        # Using Torch to check CUDA capability here causes CUDA init,
+        # Using Torch to check CUDA capability here triggers CUDA init,
+        # (what is heavy if done from Torch side due to lots of kernels)
         # but we have no NVML alternative,
         # so consider that *maybe* some of GPUs can FP16
         if get_gpu_capability is None:
             return False
 
         # Rely on NVML driver
-        return max(get_gpu_capability(), default=(0, 0)) < (7, 0)
+        caps = get_gpu_capability()
 
-    # CUDA is initialized already, no need to be careful
-    devs = range(torch.cuda.device_count())
-    return all(torch.cuda.get_device_capability(dev) < (7, ) for dev in devs)
+    else:
+        # CUDA is initialized already, no need to be careful
+        device_ids = range(torch.cuda.device_count())
+        caps = [torch.cuda.get_device_capability(dev) for dev in device_ids]
+
+    return all(cap < _MIN_FP16_CUDA_CAPABILITY for cap in caps)
 
 
 # ------------------------- basic context, no scaler -------------------------
@@ -313,12 +325,14 @@ class _GenericScalingGrads(Grads):
 
 def get_grads(opt: optim.Optimizer,
               sched: optim.lr_scheduler._LRScheduler | None = None,
-              fp16: bool | None = None,
+              dtype: torch.dtype | None = None,
               max_retries: int = 1) -> Grads:
     """Get gradients context with specified precision
 
     Parameters:
-    - fp16 - enables fp16 mode. By default determines whether to enable fp16
+    - dtype - dtype used for computation. If float16 used, uses GradScaler
+      to prevent nan/inf during backward passes.
+      By default determines whether to enable fp16
       depending on CUDA capability of available CUDA devices.
     - max_retries - number of additional attempts to use another scale
       for the same loss when backward() results to NaN/Inf. Only for fp16 mode.
@@ -330,11 +344,12 @@ def get_grads(opt: optim.Optimizer,
     optimizer = optim.SGD(model.parameters(), ...)
 
     # Enable amp
-    grads = gnn.get_grads(optimizer, fp16=True)
+    grads = gnn.get_grads(optimizer, dtype=torch.half)
+    autocast = torch.autocast(device.type, torch.half)
 
     with grads:
         for input, target in batches:
-            with torch.autocast(device.type):
+            with autocast:
                 output = model(input)
                 loss = loss_fn(output, target)
 
@@ -347,20 +362,20 @@ def get_grads(opt: optim.Optimizer,
     - never call model.half() as autocast doesn't need FP16 weights/buffers
       unless inference mode is needed.
     - for inference mode, do weight-norm fusion before using FP16
-    - by default torch (1.6-1.11) doesn't promote batchnorm/instancenorm to
+    - by default torch (1.6-1.12) doesn't promote batchnorm/instancenorm to
       FP32 (unlike layernorm/groupnorm), thus it may cause stability issues.
       Unless you'll find a way to register batchnorm as op promoting to FP32
       in autocast mode.
       https://pytorch.org/docs/stable/amp.html#ops-that-can-autocast-to-float32
     """
     if _fp16_is_definitely_not_available():  # None can FP16, disable it anyway
-        if fp16:
+        if dtype != torch.float:
             warnings.warn('Neither of active devices support FP16, disable it')
-        fp16 = False
-    elif fp16 is None:  # Some GPU's can do FP16, automatic choice, enable
-        fp16 = True
+        dtype = torch.float
+    elif dtype is None:  # Some GPU's can do FP16, automatic choice, enable
+        dtype = torch.half
 
-    if not fp16:
+    if dtype != torch.half:
         return Grads(opt, sched)
     if not max_retries:
         return _ScalingGrads(opt, sched)

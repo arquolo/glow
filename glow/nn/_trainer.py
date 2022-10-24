@@ -3,7 +3,9 @@ from __future__ import annotations
 __all__ = ['Trainer']
 
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import InitVar, dataclass
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -17,46 +19,49 @@ from .amp import Grads, get_grads
 from .util import eval_
 
 
+@dataclass
 class Stage:
+    net: nn.Module
+    device: torch.device
+    dtype: InitVar[torch.dtype | None]
+
+    def __post_init__(self, dtype: torch.dtype | None):
+        self._autocast: Any = (
+            torch.autocast(self.device.type, dtype)
+            if dtype in (torch.float16, torch.bfloat16) else nullcontext())
+
+    def _move(self, x: torch.Tensor) -> torch.Tensor:
+        return x.to(self.device, non_blocking=True)
+
     def __call__(self, loader: _Loader) -> Iterator[tuple[torch.Tensor, ...]]:
         raise NotImplementedError
 
 
-@dataclass(frozen=True)
+@dataclass
 class EvalStage(Stage):
-    net: nn.Module
-    device: torch.device
-    fp16: bool
-
-    def _infer(self, data: torch.Tensor,
-               target: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        with torch.autocast(self.device.type, enabled=self.fp16):
-            out = self.net(data.to(self.device, non_blocking=True))
+    def _step(self, data: torch.Tensor,
+              target: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        with self._autocast:
+            out = self.net(self._move(data))
 
         return out, target
 
     def __call__(self, loader: _Loader) -> Iterator[tuple[torch.Tensor, ...]]:
         with eval_(self.net), torch.inference_mode():
             for data, target in loader:
-                yield self._infer(
-                    data.to(self.device, non_blocking=True),
-                    target.to(self.device, non_blocking=True),
-                )
+                yield self._step(self._move(data), self._move(target))
 
 
-@dataclass(frozen=True)
+@dataclass
 class TrainStage(Stage):
-    net: nn.Module
-    device: torch.device
-    fp16: bool
     criterion: Callable[..., torch.Tensor]
     grads: Grads
-    grad_steps: int
+    grad_steps: int = 1
 
     def _step(self, data: torch.Tensor,
               target: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        with torch.autocast(self.device.type, enabled=self.fp16):
-            out = self.net(data.to(self.device, non_blocking=True))
+        with self._autocast:
+            out = self.net(self._move(data))
             loss = self.criterion(out, target)
 
         self.grads.backward(loss)
@@ -66,10 +71,7 @@ class TrainStage(Stage):
         for batches in ichunked(loader, self.grad_steps):
             with self.grads:
                 for data, target in batches:
-                    yield self._step(
-                        data.to(self.device, non_blocking=True),
-                        target.to(self.device, non_blocking=True),
-                    )
+                    yield self._step(self._move(data), self._move(target))
                 # Clip norm here if needed
 
 
@@ -81,13 +83,14 @@ class Trainer:
                  metrics: Iterable[m.Metric],
                  device: torch.device,
                  sched: torch.optim.lr_scheduler._LRScheduler | None = None,
-                 fp16: bool = False,
+                 dtype: torch.dtype | None = None,
                  grad_steps: int = 1) -> None:
-        self.metrics = [*metrics]
-        grads = get_grads(opt, sched, fp16=fp16, max_retries=0)
+        self.metrics = [m.Lambda(criterion, name='loss'), *metrics]
+
+        grads = get_grads(opt, sched, dtype, max_retries=0)
         self.stages = (
-            TrainStage(net, device, fp16, criterion, grads, grad_steps),
-            EvalStage(net, device, fp16),
+            TrainStage(net, device, dtype, criterion, grads, grad_steps),
+            EvalStage(net, device, dtype),
         )
 
     def _run(self, stage: Stage, loader: _Loader, pbar: tqdm) -> m.Scores:
