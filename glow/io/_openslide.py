@@ -151,7 +151,7 @@ class Openslide(Driver):
         # self.offset = *(int(self._tags.get(f'openslide.bounds-{ax}', 0))
         #                 for ax in 'yx'),
         # self.size = *(int(self._tags.get(f'openslide.bounds-{ax}', lim))
-        #               for ax, lim in zip(('height', 'width'), self.shape[:2])),
+        #               for ax, lim in zip(('height', 'width'), self.shape)),
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({addressof(self.ptr.contents):0x})'

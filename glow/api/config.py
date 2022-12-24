@@ -3,7 +3,6 @@ __all__ = ['env']
 from collections import ChainMap
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
 
 from ..core import repr_as_obj
 
@@ -29,7 +28,7 @@ class _Env(ChainMap):
 
     """
     @contextmanager
-    def __call__(self, **items: Any) -> Iterator[None]:
+    def __call__(self, **items) -> Iterator[None]:
         self.maps.append(items)
         try:
             yield

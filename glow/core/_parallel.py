@@ -139,7 +139,7 @@ def _mp_profile():
 
     def _finalize(lines=50):
         prof.disable()
-        with open(f'prof-{os.getpid()}.txt', 'w') as fp:
+        with open(f'prof-{os.getpid()}.txt', 'w') as fp:  # noqa: PL123
             Stats(prof, stream=fp).sort_stats('cumulative').print_stats(lines)
 
     atexit.register(_finalize)
@@ -177,7 +177,7 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
 
 
 def _get_manager(executor: Executor):
-    if isinstance(executor, loky.ProcessPoolExecutor):
+    if isinstance(executor, loky.ProcessPoolExecutor):  # noqa: R505
         return executor._context.Manager()
     else:
         from multiprocessing.dummy import Manager
@@ -345,7 +345,7 @@ def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
     q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
     # As q.put always gives falsy None, filterfalse to call it as a side effect
-    fs = filterfalse(q_put, fs)  # type: ignore
+    fs = filterfalse(q_put, fs)  # type: ignore[arg-type]
     try:
         todo = set(islice(fs, qsize))  # Prefetch
     except BaseException:
@@ -424,29 +424,29 @@ def starmap_n(func: Callable[..., _T],
     else:
         chunksize = chunksize or 1
 
-    if chunksize is None or chunksize > 1:
-        submit_many = cast(
-            Callable[..., Future[list[_T]]],
-            partial(submit, _batch_invoke, func),
-        )
-        if chunksize is not None:
-            # Fixed chunksize
-            fs = _schedule(submit_many, it, chunksize)
-        elif not _GRANULAR_SCHEDULING:
-            # Dynamic chunksize scaling, submit tasks in waves
-            fs = _schedule_auto(submit_many, it, max_workers)
-        else:
-            # Dynamic chunksize scaling
-            fs = _schedule_auto_v2(submit_many, it)
-
-        chunks = _unwrap(s, fs, prefetch, order)
-        return chain.from_iterable(chunks)
-    else:
+    if chunksize == 1:
         submit_one = cast(
             Callable[..., Future[_T]],
             partial(submit, func),
         )
         return _unwrap(s, starmap(submit_one, it), prefetch, order)
+
+    submit_many = cast(
+        Callable[..., Future[list[_T]]],
+        partial(submit, _batch_invoke, func),
+    )
+    if chunksize is not None:
+        # Fixed chunksize
+        fs = _schedule(submit_many, it, chunksize)
+    elif not _GRANULAR_SCHEDULING:
+        # Dynamic chunksize scaling, submit tasks in waves
+        fs = _schedule_auto(submit_many, it, max_workers)
+    else:
+        # Dynamic chunksize scaling
+        fs = _schedule_auto_v2(submit_many, it)
+
+    chunks = _unwrap(s, fs, prefetch, order)
+    return chain.from_iterable(chunks)
 
 
 def map_n(func: Callable[..., _T],

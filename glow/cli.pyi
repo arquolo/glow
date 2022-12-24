@@ -16,7 +16,7 @@ def arg(
         hash: bool = ...,  # noqa: A002
         help: str = ...,  # noqa: A002
         compare: bool = ...,
-        metadata: Mapping[str, Any] = ...) -> _T:
+        metadata: Mapping[str, object] = ...) -> _T:
     ...
 
 
@@ -30,7 +30,7 @@ def arg(
         hash: bool = ...,  # noqa: A002
         help: str = ...,  # noqa: A002
         compare: bool = ...,
-        metadata: Mapping[str, Any] = ...) -> _T:
+        metadata: Mapping[str, object] = ...) -> _T:
     ...
 
 
@@ -43,7 +43,7 @@ def arg(
         hash: bool = ...,  # noqa: A002
         help: str = ...,  # noqa: A002
         compare: bool = ...,
-        metadata: Mapping[str, Any] = ...) -> Any:
+        metadata: Mapping[str, object] = ...) -> Any:
     ...
 
 

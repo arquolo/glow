@@ -1,7 +1,5 @@
 __all__ = ['AdamW', 'RAdam', 'SGDW']
 
-from typing import Any, Tuple
-
 import torch
 from torch.optim import optimizer
 
@@ -30,7 +28,7 @@ class _OptimizerBase(optimizer.Optimizer):
 
         return loss  # noqa: R504
 
-    def _update_group(self, group) -> Tuple[Any, ...]:
+    def _update_group(self, group) -> tuple:
         return ()
 
     def _do_step(self, p, group, state, *args):

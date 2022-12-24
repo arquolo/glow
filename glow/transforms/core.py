@@ -68,7 +68,8 @@ class MaskTransform(_SingleTransform):
 class DualStageTransform(Transform):
     _keys = frozenset[str]({'image', 'mask'})
 
-    def prepare(self, rng: np.random.Generator, /, **data) -> dict[str, Any]:
+    def prepare(self, rng: np.random.Generator, /,
+                **data) -> dict[str, Any] | None:
         return {}
 
     def image(self, image: np.ndarray, **params) -> np.ndarray:
@@ -83,6 +84,8 @@ class DualStageTransform(Transform):
             raise ValueError(f'Got unknown keys in data: {unknown_keys}')
 
         params = self.prepare(rng, **data)
+        if params is None:
+            return data
         return {
             key: getattr(self, key)(value, **params)
             for key, value in data.items() if value is not None

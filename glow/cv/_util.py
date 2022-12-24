@@ -1,4 +1,4 @@
-__all__ = ['probs_to_hsv', 'get_trapz']
+__all__ = ['get_trapz', 'probs_to_hsv']
 
 import cv2
 import numpy as np

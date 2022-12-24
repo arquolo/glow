@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 __all__ = ['register_post_import_hook', 'when_imported']
 
 import sys
@@ -23,7 +25,7 @@ class _ImportHookChainedLoader:
 
         with _LOCK:
             name = getattr(module, '__name__', None)
-            if hooks := _HOOKS.get(name):
+            if hooks := _HOOKS.get(name):  # type: ignore[arg-type]
                 while hooks:
                     hooks.pop()(module)
 

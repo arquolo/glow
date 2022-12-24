@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['REGISTRY', 'Driver', 'Item', 'Lod']
+__all__ = ['Driver', 'Item', 'Lod', 'REGISTRY']
 
 from dataclasses import dataclass
 from pathlib import Path

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Lock
-from typing import Any, Iterator, NamedTuple, Protocol, TypeVar
+from typing import Iterator, NamedTuple, Protocol, TypeVar
 
 import cv2
 import imagecodecs
@@ -104,14 +104,14 @@ class SupportsArray(Protocol):
 
 
 class ImageArray(NamedTuple):
-    data: Any
+    data: object
 
     def __array__(self) -> np.ndarray:
         return imagecodecs.imread(self.data)
 
 
 class JpegArray(NamedTuple):
-    data: Any
+    data: object
     jpt: bytes
     colorspace: int
 
@@ -243,7 +243,7 @@ class Tiff(Driver):
         return f'{type(self).__name__}({addressof(self._ptr.contents):0x})'
 
     @contextmanager
-    def ifd(self, index: int) -> Iterator[Any]:
+    def ifd(self, index: int) -> Iterator:
         with self._lock:
             TIFF.TIFFSetDirectory(self._ptr, index)
             try:

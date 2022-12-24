@@ -50,8 +50,8 @@ class DdpSampler(Sampler[_T_co]):
         self.drop_last = drop_last
         self.seed = generate_seed()
 
-        if (isinstance(sampler, _TORCH_SAMPLERS) and
-                sampler.generator is None):
+        if (isinstance(sampler, _TORCH_SAMPLERS)
+                and sampler.generator is None):
             # Enforce to use local generator
             sampler.generator = torch.Generator()
 

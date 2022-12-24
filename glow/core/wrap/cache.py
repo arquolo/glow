@@ -195,7 +195,7 @@ def _memoize(cache: _DictMixin, key_fn: _KeyFn, fn: _F) -> _F:
         cache[key] = value = fn(*args, **kwargs)
         return value
 
-    wrapper.cache = cache  # type: ignore
+    wrapper.cache = cache  # type: ignore[attr-defined]
     return cast(_F, functools.update_wrapper(wrapper, fn))
 
 
@@ -207,8 +207,11 @@ class _Job(NamedTuple):
     future: asyncio.Future | cf.Future
 
 
-def _dispatch(fn: Callable[[list], Iterable], cache: dict[Hashable, Any],
-              queue: dict[Hashable, _Job]) -> None:
+def _dispatch(
+    fn: Callable[[list], Iterable],
+    evict: Callable[[Hashable], object],
+    queue: dict[Hashable, _Job],
+):
     jobs = {**queue}
     queue.clear()
 
@@ -221,7 +224,7 @@ def _dispatch(fn: Callable[[list], Iterable], cache: dict[Hashable, Any],
 
     except BaseException as exc:  # noqa: PIE786
         for key, job in jobs.items():
-            cache.pop(key)
+            evict(key)
             job.future.set_exception(exc)
 
 
@@ -251,7 +254,7 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
         coro = _load_many(tokens)
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
-    wrapper.cache = cache  # type: ignore
+    wrapper.cache = cache  # type: ignore[attr-defined]
     return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
@@ -261,16 +264,16 @@ def _memoize_batched(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
     cache: dict[Hashable, cf.Future] = {}
     queue: dict[Hashable, _Job] = {}
 
-    def _load(stack: ExitStack, token: Any) -> cf.Future:
+    def _load(stack: ExitStack, token: object) -> cf.Future:
         key = key_fn(token)
         with lock:
             if result := cache.get(key):
                 return result
 
-            cache[key] = future = cf.Future()  # type: ignore
+            cache[key] = future = cf.Future()  # type: ignore[var-annotated]
             queue[key] = _Job(token, future)
             if len(queue) == 1:
-                stack.callback(_dispatch, fn, cache, queue)
+                stack.callback(_dispatch, fn, cache.pop, queue)
 
         return future
 
@@ -280,7 +283,7 @@ def _memoize_batched(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
             futs += [_load(stack, token) for token in tokens]
         return [fut.result() for fut in futs]
 
-    wrapper.cache = cache  # type: ignore
+    wrapper.cache = cache  # type: ignore[attr-defined]
     return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 

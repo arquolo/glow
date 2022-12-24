@@ -318,8 +318,10 @@ class _TiledArrayView(_View):
 
     def _get_tile(self, iy: int, ix: int) -> Tile:
         """Read non-overlapping tile of source image"""
-        (y0, y1), (x0, x1) = ((self.m.step * i - self.m.overlap,
-                               self.m.step * (i + 1)) for i in (iy, ix))
+        (y0, y1), (x0, x1) = ((
+            self.m.step * i - self.m.overlap,
+            self.m.step * (i + 1),
+        ) for i in (iy, ix))
         if iy and self.cells[iy - 1, ix]:
             y0 += self.m.overlap
         if ix and self.cells[iy, ix - 1]:

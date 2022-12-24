@@ -11,12 +11,12 @@ from .wrap import (Reusable, call_once, memoize, shared_call, streaming,
                    threadlocal)
 
 __all__ = [
-    'as_iter', 'as_actor', 'buffered', 'call_once', 'chunked', 'coroutine',
-    'countable', 'eat', 'ichunked', 'lock_seed', 'mangle', 'map_n', 'memoize',
-    'memprof', 'repr_as_obj', 'Reusable', 'roundrobin', 'shared_call', 'si',
-    'si_bin', 'sizeof', 'starmap_n', 'streaming', 'summary', 'threadlocal',
-    'time_this', 'timer', 'trace_module', 'trace', 'Uid', 'whereami',
-    'windowed'
+    'Reusable', 'Uid', 'as_actor', 'as_iter', 'buffered', 'call_once',
+    'chunked', 'coroutine', 'countable', 'eat', 'ichunked', 'lock_seed',
+    'mangle', 'map_n', 'memoize', 'memprof', 'repr_as_obj', 'roundrobin',
+    'shared_call', 'si', 'si_bin', 'sizeof', 'starmap_n', 'streaming',
+    'summary', 'threadlocal', 'time_this', 'timer', 'trace', 'trace_module',
+    'whereami', 'windowed'
 ]
 
 _patch_print.apply()

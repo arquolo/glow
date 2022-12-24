@@ -62,8 +62,8 @@ def true_vars(obj) -> dict[str, object] | None:
     if hasattr(obj, '__dict__'):
         for cls in tp.__mro__:
             if (attr := vars(cls).get('__dict__')) is not None:
-                return (vars(obj) if (isgetsetdescriptor(attr) or
-                                      ismemberdescriptor(attr)) else None)
+                return (vars(obj) if (isgetsetdescriptor(attr)
+                                      or ismemberdescriptor(attr)) else None)
     return None
 
 

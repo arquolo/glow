@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['streaming', 'call_once', 'threadlocal', 'shared_call']
+__all__ = ['call_once', 'shared_call', 'streaming', 'threadlocal']
 
 import sys
 import threading
@@ -11,7 +11,7 @@ from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Any, TypeVar, cast
+from typing import TypeVar, cast
 from weakref import WeakValueDictionary
 
 from .util import make_key
@@ -20,7 +20,7 @@ _T = TypeVar('_T')
 _R = TypeVar('_R')
 _F = TypeVar('_F', bound=Callable)
 _BatchFn = Callable[[list[_T]], Iterable[_R]]
-_ZeroArgsF = TypeVar('_ZeroArgsF', bound=Callable[[], Any])
+_ZeroArgsF = TypeVar('_ZeroArgsF', bound=Callable[[], object])
 
 _PATIENCE = 0.01
 _unset = object()
@@ -43,9 +43,9 @@ def threadlocal(fn: Callable[..., _T], *args: object,
 
 @dataclass
 class _UFuture:
-    _fn: Callable[[], Any]
+    _fn: Callable[[], object]
     _lock: Lock = field(default_factory=Lock)
-    _result: Any = _unset
+    _result: object = _unset
     _exception: BaseException | None = None
 
     def result(self):
@@ -69,7 +69,7 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
     def wrapper():
         return f.result()
 
-    fn._future = f = _UFuture(fn)  # type: ignore
+    fn._future = f = _UFuture(fn)  # type: ignore[attr-defined]
     return cast(_ZeroArgsF, update_wrapper(wrapper, fn))
 
 

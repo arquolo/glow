@@ -59,12 +59,12 @@ for _tp in _transparent_types:
 
 
 def _are_definitely_independent(iters):
-    return (len({id(it) for it in iters}) == len(iters) and
-            all(isinstance(it, _transparent_types) for it in iters))
+    return (len({id(it) for it in iters}) == len(iters)
+            and all(isinstance(it, _transparent_types) for it in iters))
 
 
 @len_hint.register(zip)
-def _len_zip(x):  # type: ignore
+def _len_zip(x):  # type: ignore[misc]
     _, iters = x.__reduce__()
     if not iters:
         return 0
@@ -81,7 +81,7 @@ def _len_zip(x):  # type: ignore
 
 
 @len_hint.register(map)
-def _len_map(x):  # type: ignore
+def _len_map(x):  # type: ignore[misc]
     _, (__fn, *iters) = x.__reduce__()
     if len(iters) == 1:
         return len(iters[0])
@@ -97,12 +97,12 @@ def _len_map(x):  # type: ignore
 
 
 @len_hint.register(count)
-def _len_count(_):  # type: ignore
+def _len_count(_):  # type: ignore[misc]
     return _INF
 
 
 @len_hint.register(cycle)
-def _len_cycle(x):  # type: ignore
+def _len_cycle(x):  # type: ignore[misc]
     _, [iterable], (buf, pos) = x.__reduce__()
     if buf or len(iterable):
         return _INF
@@ -110,7 +110,7 @@ def _len_cycle(x):  # type: ignore
 
 
 @len_hint.register(repeat)
-def _len_repeat(x):  # type: ignore
+def _len_repeat(x):  # type: ignore[misc]
     _, (obj, *left) = x.__reduce__()
     return left[0] if left else _INF
 
@@ -119,7 +119,7 @@ def _len_repeat(x):  # type: ignore
 
 
 @len_hint.register(accumulate)
-def _len_accumulate(x):  # type: ignore
+def _len_accumulate(x):  # type: ignore[misc]
     _, (seq, _fn), _total = x.__reduce__()
     return len(seq)
 
@@ -128,7 +128,7 @@ def _len_accumulate(x):  # type: ignore
 
 
 @len_hint.register(islice)
-def _len_islice(x):  # type: ignore
+def _len_islice(x):  # type: ignore[misc]
     _, (it, start, *stop_step), done = x.__reduce__()
     if not stop_step:
         return 0
@@ -142,20 +142,20 @@ def _len_islice(x):  # type: ignore
 
 
 @len_hint.register(starmap)
-def _len_starmap(x):  # type: ignore
+def _len_starmap(x):  # type: ignore[misc]
     _, (_fn, seq) = x.__reduce__()
     return len(seq)
 
 
 @len_hint.register(_tee)
-def _len_tee(x):  # type: ignore
+def _len_tee(x):
     _, [empty_tuple], (dataobject, pos) = x.__reduce__()
     _, (src, buf, none) = dataobject.__reduce__()
     return len(src) + len(buf) - pos
 
 
 @len_hint.register(zip_longest)
-def _len_zip_longest(x):  # type: ignore
+def _len_zip_longest(x):  # type: ignore[misc]
     _, iters, _pad = x.__reduce__()
     if _are_definitely_independent(iters):
         return max(map(len, iters))
@@ -166,7 +166,7 @@ def _len_zip_longest(x):  # type: ignore
 
 
 @len_hint.register(product)
-def _len_product(x):  # type: ignore
+def _len_product(x):  # type: ignore[misc]
     _, seqs, *pos = x.__reduce__()
 
     # Greedy caches all input iterables, no need to check interference

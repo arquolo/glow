@@ -81,7 +81,7 @@ def as_actor(
     # shortcuts
     buf_append, gen_next = buf.append, gen.__next__
 
-    x = yield  # type: ignore  # preseed coroutine
+    x = yield  # type: ignore[misc]  # preseed coroutine
     while True:
         buf_append(x)
         x = yield gen_next()

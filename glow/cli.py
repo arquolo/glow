@@ -55,9 +55,9 @@ from typing import (Any, Literal, TypeVar, Union, get_args, get_origin,
                     get_type_hints)
 
 _T = TypeVar('_T')
-_Node = Union[str, tuple[str, type[Any], list['_Node']]]  # type: ignore
+_Node = Union[str, tuple[str, type, list['_Node']]]
 _NoneType = type(None)
-_UNION_TYPES = [Union]
+_UNION_TYPES: list = [Union]
 
 if sys.version_info >= (3, 10):
     _UNION_TYPES += [types.UnionType]
@@ -81,7 +81,7 @@ def arg(
     for k, v in {'flag': flag, 'help': help}.items():
         if v:
             metadata = metadata | {k: v}
-    return field(  # type: ignore
+    return field(  # type: ignore[call-overload]
         default=default,
         default_factory=factory,
         init=init,
@@ -164,10 +164,10 @@ def _visit_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
 
     for name, usages in seen.items():
         if len(usages) > 1:
-            raise ValueError(f'Field name "{name}" occured multiple times: ' +
-                             ', '.join(f'{c.__module__}.{c.__qualname__}'
-                                       for c in usages) +
-                             '. All field names should be unique')
+            raise ValueError(f'Field name "{name}" occured multiple times: '
+                             + ', '.join(f'{c.__module__}.{c.__qualname__}'
+                                         for c in usages)
+                             + '. All field names should be unique')
     return nodes
 
 
@@ -231,7 +231,7 @@ def parse_args(fn: Callable[..., _T],
                args: Sequence[str] | None = None,
                prog: str | None = None) -> tuple[_T, ArgumentParser]:
     """Create parser from type hints of callable, parse args and do call"""
-    # TODO: Rename to `exec_cli`
+    # TODO: Rename to `run`
     parser = ArgumentParser(prog)
     nodes = _visit_nested(parser, fn, {})
 

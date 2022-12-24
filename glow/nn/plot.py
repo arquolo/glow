@@ -100,7 +100,9 @@ class Builder:
         tensors = *(v for v in tensors if isinstance(v, torch.Tensor)),
         if not tensors:
             return
-        with self.stack[-1].subgraph() as s:  # type: ignore
+        s_ctx = self.stack[-1].subgraph()
+        assert s_ctx is not None
+        with s_ctx as s:
             s.attr(rank='same')
             for var in tensors:
                 var_id = id_(var)
@@ -142,7 +144,9 @@ class Builder:
 
             name = self.params.get(next_id)
             if self.nesting and name and name.rpartition('.')[0] == head:
-                with root.subgraph() as s:  # type: ignore
+                s_ctx = root.subgraph()
+                assert s_ctx is not None
+                with s_ctx as s:
                     s.attr(rank='same')
                     s.edge(next_id, grad_id)  # same module, same rank
             else:
@@ -152,7 +156,7 @@ class Builder:
         edges = []
         for t in flatten(ts):
             if t.grad_fn is not None:
-                self._shapes[t.grad_fn] = t.shape
+                self._shapes[t.grad_fn] = t.shape  # type: ignore[assignment]
                 edges += self._traverse(t.grad_fn)
         if not edges:
             return

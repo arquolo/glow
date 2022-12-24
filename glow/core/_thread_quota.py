@@ -125,6 +125,6 @@ class ThreadQuota(Executor):
 
             if not _TIMEOUT:
                 # Keep at most 25% of workers idle
-                while (len(_idle) > max(len(_workers) / 4, _MIN_IDLE) and
-                       (q := _safe_call(_idle.popleft))):
+                while (len(_idle) > max(len(_workers) / 4, _MIN_IDLE)
+                       and (q := _safe_call(_idle.popleft))):
                     q.put(None)

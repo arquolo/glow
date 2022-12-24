@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 __all__ = [
-    'ChannelMix', 'ChannelShuffle', 'CutOut', 'BitFlipNoise', 'Elastic',
-    'LumaJitter', 'DegradeJpeg', 'DegradeQuality', 'FlipAxis', 'HsvShift',
+    'BitFlipNoise', 'ChannelMix', 'ChannelShuffle', 'CutOut', 'DegradeJpeg',
+    'DegradeQuality', 'Elastic', 'FlipAxis', 'HsvShift', 'LumaJitter',
     'MaskDropout', 'MultiNoise', 'WarpAffine'
 ]
 
@@ -125,7 +125,7 @@ class ChannelMix(ImageTransform):
 
         image = image @ ((np.eye(num_channels) - lumat) @ mat + lumat)
 
-        return image.clip(0, 255).astype('u1')  # type: ignore
+        return image.clip(0, 255).astype('u1')
 
 
 @dataclass
@@ -157,7 +157,7 @@ class GammaJitter(_LutTransform):
         lut **= rng.uniform(1 / max_gamma, max_gamma)
         lut *= 255
 
-        return lut.clip(0, 255).astype('u1')  # type: ignore
+        return lut.clip(0, 255).astype('u1')
 
 
 @dataclass
@@ -300,8 +300,13 @@ class Elastic(DualStageTransform):
     def __post_init__(self, inter: str):
         self._inter = getattr(cv2, f'INTER_{inter}')
 
-    def prepare(self, rng: np.random.Generator, /, image: np.ndarray,
-                **_) -> dict[str, Any]:
+    def prepare(self,
+                rng: np.random.Generator,
+                /,
+                image: np.ndarray | None = None,
+                **_) -> dict[str, Any] | None:
+        if image is None:
+            return None
         offsets = rng.random((2, *image.shape[:2]), dtype='f4')
         offsets *= self.scale * 2
         offsets -= self.scale

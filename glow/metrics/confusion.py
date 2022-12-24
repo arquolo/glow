@@ -7,7 +7,7 @@ import torch
 
 from .base import Staged, to_index_sparse, to_prob_sparse
 
-_EPS = torch.finfo(torch.float).eps  # type: ignore
+_EPS = torch.finfo(torch.float).eps
 
 
 class Confusion(Staged):

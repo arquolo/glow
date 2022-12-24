@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 __all__ = [
-    'Metric', 'Lambda', 'Scores', 'Staged', 'compose', 'to_index',
+    'Lambda', 'Metric', 'Scores', 'Staged', 'compose', 'to_index',
     'to_index_sparse', 'to_prob', 'to_prob_sparse'
 ]
 
@@ -62,7 +62,7 @@ class Lambda(Metric):
 
     def __init__(self, fn, name=None):
         self.fn = fn
-        self.name = fn.__name__ if name is None else name  # type: ignore
+        self.name = fn.__name__ if name is None else name
 
     def __call__(self, pred, true) -> torch.Tensor:
         return self.fn(pred, true)

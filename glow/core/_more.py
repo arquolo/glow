@@ -32,8 +32,8 @@ def as_iter(obj: Iterable[_T] | _T, limit: int | None = None) -> Iterator[_T]:
 
 
 def _dispatch(fallback_fn, fn, it, *args):
-    if (not isinstance(it, Sized) or not hasattr(it, '__getitem__') or
-            isinstance(it, Mapping)):
+    if (not isinstance(it, Sized) or not hasattr(it, '__getitem__')
+            or isinstance(it, Mapping)):
         return fallback_fn(it, *args)
 
     r = fn(it, *args)

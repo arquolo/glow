@@ -36,7 +36,8 @@ def _patch_handler_and_load_scipy() -> None:
     if not ok or (addr := ptr.value) is None:
         return
 
-    code: bytearray = (ctypes.c_char * 3).from_address(addr)  # type: ignore
+    code: bytearray = (ctypes.c_char * 3).from_address(
+        addr)  # type: ignore[assignment]
     if not code:
         return
 
@@ -50,9 +51,9 @@ def _patch_handler_and_load_scipy() -> None:
 
 
 def apply() -> None:
-    if (sys.platform != 'win32' or
-            _FORTRAN_FLAG in os.environ or  # Patch is already applied
-            not [*_get_conda_libs()]):  # Onle Anaconda's SciPy is affected
+    if (sys.platform != 'win32'
+            or _FORTRAN_FLAG in os.environ  # Patch is already applied
+            or not [*_get_conda_libs()]):  # Only Anaconda's SciPy is affected
         return
 
     os.environ[_FORTRAN_FLAG] = '1'  # Child will inherit this, and work fine

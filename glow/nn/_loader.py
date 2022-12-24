@@ -185,7 +185,7 @@ class _Worker:
     seed: int | None = None
 
     def __iter__(self) -> Iterator:
-        torch_worker._worker_info = self
+        torch_worker._worker_info = self  # type: ignore[assignment]
         try:
             yield from self.dataset
         finally:
@@ -249,7 +249,7 @@ def get_loader(dataset: Dataset,
     if max_workers is None:
         max_workers = max_cpu_count(_NUM_CPUS, mp)
 
-    if isinstance(dataset, IterableDataset):
+    if isinstance(dataset, IterableDataset):  # noqa: R505
         if not mp and max_workers != 0:
             warnings.warn(
                 'For iterable-style datasets multithreading is not supported. '

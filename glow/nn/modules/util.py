@@ -1,13 +1,15 @@
-__all__ = ['NameMixin', 'ActivationFn', 'LazyConvFn', 'LazyNormFn', 'round8']
+from __future__ import annotations
 
-from typing import Protocol, TypeVar, Union
+__all__ = ['ActivationFn', 'LazyConvFn', 'LazyNormFn', 'NameMixin', 'round8']
+
+from typing import Protocol, TypeVar
 
 from torch import nn
 
 _T = TypeVar('_T')
 
 
-def pair(t: Union[_T, tuple[_T, ...]]) -> tuple[_T, ...]:
+def pair(t: _T | tuple[_T, ...]) -> tuple[_T, ...]:
     return t if isinstance(t, tuple) else (t, t)
 
 

@@ -123,7 +123,7 @@ def gamma_dq(arr: np.ndarray,
     lut **= y
     lut *= peak  # Increase precision
     lut = lut.astype('u2')
-    lut = lut.clip(0, peak - 1)  # type: ignore  # Remove overshoot
+    lut = lut.clip(0, peak - 1)  # Remove overshoot
 
     arr = rng.integers(lut[arr], lut[1:][arr], dtype='u2', endpoint=True)
     arr >>= qbits  # Round to 8 bits

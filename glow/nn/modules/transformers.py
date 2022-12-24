@@ -2,10 +2,10 @@ from __future__ import annotations
 
 __all__ = [
     'Attention',
-    'MultiAxisAttention',
     'FeedForward',
-    'VitBlock',
     'MaxVitBlock',
+    'MultiAxisAttention',
+    'VitBlock',
 ]
 
 from distutils.version import LooseVersion
@@ -92,9 +92,10 @@ class Attention(NameMixin, nn.Module):
                                         self.to_out[1].weight,
                                         self.to_out[1].bias)
             tensor_args = (x, in_w, in_b, out_w, out_b)
-            if (_TORCH_MHA_AUTOCAST or not torch.is_autocast_enabled()) \
-                    and (not torch.is_grad_enabled() or
-                         all([not t.requires_grad for t in tensor_args])):
+            if ((_TORCH_MHA_AUTOCAST or not torch.is_autocast_enabled())
+                    and not (torch.is_grad_enabled() and any([  # noqa: PIE802
+                        t.requires_grad for t in tensor_args
+                    ]))):
                 if torch.is_autocast_enabled():
                     # torch uses slowpath, but this allows it go fast
                     dtype = torch.get_autocast_gpu_dtype()
@@ -133,8 +134,8 @@ class _RelativePositionalBias(nn.Module):
         axis = torch.arange(window_size)
         grid = torch.stack(torch.meshgrid(axis, axis, indexing='ij'), -1)
         pos = (
-            rearrange(grid, 'i j c -> (i j) 1 c') -
-            rearrange(grid, 'i j c -> 1 (i j) c'))
+            rearrange(grid, 'i j c -> (i j) 1 c')
+            - rearrange(grid, 'i j c -> 1 (i j) c'))
         pos -= pos.min()
         indices = pos @ torch.tensor([wdiff, 1])
         self.register_buffer('indices', indices, persistent=False)

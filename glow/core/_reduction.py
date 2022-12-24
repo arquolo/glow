@@ -119,7 +119,7 @@ def _dumps(
 ) -> bytes:
     fp = io.BytesIO()
     p = pickle.Pickler(fp, -1, buffer_callback=callback)
-    p.dispatch_table = copyreg.dispatch_table | reducers  # type: ignore
+    p.dispatch_table = copyreg.dispatch_table | reducers
     p.dump(obj)
     return fp.getvalue()
 

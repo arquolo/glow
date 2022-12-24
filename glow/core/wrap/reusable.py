@@ -9,13 +9,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
 from threading import Thread
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from .concurrency import call_once
 
 _T = TypeVar('_T')
 _Make = Callable[[], _T]
-_Callback = Callable[[_T], Any]
+_Callback = Callable[[_T], object]
 
 
 @call_once

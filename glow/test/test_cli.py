@@ -122,7 +122,7 @@ def _kwarg(a: int = 4):
     return a
 
 
-def _kwarg_opt(a: int = None):
+def _kwarg_opt(a: int = None):  # type: ignore[assignment]
     return a
 
 
@@ -134,11 +134,11 @@ def _kwarg_bool(a: bool = False):
     return a
 
 
-def _kwarg_list(a: list[int] = []):
+def _kwarg_list(a: list[int] = []):  # noqa: B006
     return a
 
 
-def _kwarg_opt_list(a: list[int] = None):
+def _kwarg_opt_list(a: list[int] = None):  # type: ignore[assignment]
     return a
 
 

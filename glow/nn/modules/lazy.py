@@ -51,7 +51,7 @@ class _LazyBase(_LazyModuleMixinV2):
         if not self.has_uninitialized_params():  # type: ignore
             super().reset_parameters()  # type: ignore
 
-    def initialize_parameters(self, x: torch.Tensor) -> None:  # type: ignore
+    def initialize_parameters(self, x: torch.Tensor) -> None:
         if self.has_uninitialized_params():  # type: ignore
             self.materialize(x.shape)
             self.reset_parameters()
@@ -114,7 +114,7 @@ class LazyConv2dWs(nn.LazyConv2d):
 class LazyBlurPool2d(_LazyBase, BlurPool2d):
     cls_to_become = BlurPool2d  # type: ignore
 
-    weight: UninitializedBuffer  # type: ignore
+    weight: UninitializedBuffer
 
     def __init__(self,
                  kernel: int = 4,

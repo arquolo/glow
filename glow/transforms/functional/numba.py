@@ -64,4 +64,4 @@ def dither(image: np.ndarray,
     quant = max_value / 2 ** bits
 
     image = _dither(image, mat, quant)
-    return image.clip(0, max_value - quant).astype(dtype)  # type: ignore
+    return image.clip(0, max_value - quant).astype(dtype)
