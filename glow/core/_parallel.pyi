@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Executor
 from typing import Generic, Protocol, TypeVar, overload
 
@@ -41,47 +41,7 @@ def buffered(__iter: Iterable[_T],
     ...
 
 
-@overload
-def starmap_n(__func: _Callable1[_T1_ctr, _R_co],
-              __iter: Iterable[tuple[_T1_ctr]],
-              /,
-              *,
-              max_workers: int | None = ...,
-              prefetch: int | None = ...,
-              mp: bool = ...,
-              chunksize: int | None = ...,
-              order: bool = ...) -> Iterator[_R_co]:
-    ...
-
-
-@overload
-def starmap_n(__func: _Callable2[_T1_ctr, _T2_ctr, _R_co],
-              __iter: Iterable[tuple[_T1_ctr, _T2_ctr]],
-              /,
-              *,
-              max_workers: int | None = ...,
-              prefetch: int | None = ...,
-              mp: bool = ...,
-              chunksize: int | None = ...,
-              order: bool = ...) -> Iterator[_R_co]:
-    ...
-
-
-@overload
-def starmap_n(__func: _Callable3[_T1_ctr, _T2_ctr, _T3_ctr, _R_co],
-              __iter: Iterable[tuple[_T1_ctr, _T2_ctr, _T3_ctr]],
-              /,
-              *,
-              max_workers: int | None = ...,
-              prefetch: int | None = ...,
-              mp: bool = ...,
-              chunksize: int | None = ...,
-              order: bool = ...) -> Iterator[_R_co]:
-    ...
-
-
-@overload
-def starmap_n(__func: _Callable4[_R_co],
+def starmap_n(__func: Callable[..., _R_co],
               __iter: Iterable[Iterable],
               /,
               *,

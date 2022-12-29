@@ -401,6 +401,7 @@ def starmap_n(func: Callable[..., _T],
       prefetch=None and order=False, so choose wisely.
     - Setting order to False makes no use of prefetch more than 0.
 
+    TODO: replace `order=True` with `heap=False`
     """
     if max_workers is None:
         max_workers = max_cpu_count(_NUM_CPUS, mp)
