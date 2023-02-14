@@ -4,6 +4,8 @@ __all__ = [
 ]
 
 import torch
+import torch.distributed as dist
+from torch.distributed import nn
 
 from .base import Staged, to_index_sparse, to_prob_sparse
 
@@ -14,8 +16,10 @@ class Confusion(Staged):
     """Confusion Matrix. Returns 2d tensor"""
     def __call__(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
         c, pred, true = to_index_sparse(pred, true)
+
         mat = torch.zeros(c, c, dtype=torch.long)
-        mat = mat.index_put_((true, pred), torch.tensor(1), accumulate=True)
+        mat.index_put_((true, pred), torch.tensor(1), accumulate=True)
+
         return mat.double() / mat.sum()
 
     def collect(self, mat: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -27,12 +31,17 @@ class ConfusionGrad(Confusion):
     """Confusion Matrix which can be used for loss functions"""
     def __call__(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
         c, pred, true = to_prob_sparse(pred, true)
-        mat = torch.zeros(c, c, dtype=pred.dtype).index_add(0, true, pred)
+
+        assert pred.dtype == torch.float32
+        mat = pred.new_zeros(c, c).index_add(0, true, pred)
+
+        if dist.is_initialized() and dist.get_world_size() > 1:
+            mat = nn.all_reduce(mat)
         return mat.double() / mat.sum()
 
 
 def accuracy(mat: torch.Tensor) -> torch.Tensor:
-    return mat.diag().sum() / mat.sum().clamp(_EPS)
+    return mat.trace() / mat.sum().clamp(_EPS)
 
 
 def accuracy_balanced(mat: torch.Tensor) -> torch.Tensor:
@@ -41,7 +50,7 @@ def accuracy_balanced(mat: torch.Tensor) -> torch.Tensor:
 
 def kappa(mat: torch.Tensor) -> torch.Tensor:
     expected = mat.sum(0) @ mat.sum(1)
-    observed = mat.diag().sum()
+    observed = mat.trace()
     return 1 - (1 - observed) / (1 - expected).clamp(_EPS)
 
 
