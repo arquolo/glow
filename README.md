@@ -37,19 +37,6 @@ Tested on ArchLinux, Ubuntu 18.04/20.04, Windows 10/11.
 
 ## IO features
 
-### `glow.io.Slide` - ndarray-like reader for multiscale images (svs, tiff, etc...)
-<details>
-
-```python
-from glow.io import Slide
-
-slide = Slide.open('test.svs')
-shape: tuple[int, ...] = slide.shape
-scales: tuple[int, ...] = slide.scales
-image: np.ndarray = slide[:2048, :2048]  # Get numpy.ndarray
-```
-</details>
-
 ### `glow.io.Sound` - playable sound wrapper
 <details>
 
