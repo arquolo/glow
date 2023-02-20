@@ -122,8 +122,14 @@ class Conv2dWs(nn.Conv2d):
 def _pascal_triangle(n: int) -> list[int]:
     values = [1]
     for _ in range(n - 1):
-        values = [a + b for a, b in zip(values + [0], [0] + values)]
+        values = [a + b for a, b in zip([*values, 0], [0, *values])]
     return values[:n]
+
+
+def _outer_mul(*ts: torch.Tensor) -> torch.Tensor:
+    assert all(t.ndim == 1 for t in ts)
+    letters = ascii_lowercase[:len(ts)]
+    return torch.einsum(','.join(letters) + ' -> ' + letters, *ts)
 
 
 class BlurPool2d(nn.Conv2d):
@@ -148,8 +154,7 @@ class BlurPool2d(nn.Conv2d):
             torch.as_tensor(_pascal_triangle(k)).float()
             for k in self.kernel_size
         ]
-        letters = ascii_lowercase[:len(weights)]
-        weight = torch.einsum(','.join(letters) + ' -> ' + letters, *weights)
+        weight = _outer_mul(*weights)
         weight /= weight.sum()
 
         self.weight.copy_(weight, non_blocking=True)

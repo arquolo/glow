@@ -107,7 +107,7 @@ class Cat(_Sequential):
             # checkpoint fails with JIT
             return self.cat(xs)
 
-        if len(self) and any([x.requires_grad for x in xs]):  # noqa: PIE802
+        if len(self) and any([x.requires_grad for x in xs]):
             return self._cp_proxy(xs)
 
         return self.cat(xs)

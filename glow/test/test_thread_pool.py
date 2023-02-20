@@ -12,7 +12,7 @@ NUM_STEPS = 10
 DTYPE = np.dtype(np.float32)
 
 MAX_PROCS = 8
-NUM_PROCS = max_cpu_count(MAX_PROCS, True)
+NUM_PROCS = max_cpu_count(MAX_PROCS, mp=True)
 
 
 def _make_array(n):

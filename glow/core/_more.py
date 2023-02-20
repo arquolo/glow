@@ -43,10 +43,10 @@ def _dispatch(fallback_fn, fn, it, *args):
     try:
         # Ensure that slice is supported by prefetching 1st item
         first_or_none = *islice(r, 1),
-        return chain(first_or_none, r)
-
     except TypeError:
         return fallback_fn(it, *args)
+    else:
+        return chain(first_or_none, r)
 
 
 # ----------------------------------------------------------------------------

@@ -17,7 +17,7 @@ class Arg:
 
 
 @dataclass
-class List_:
+class List_:  # noqa: N801
     args: list[str]
 
 
@@ -43,11 +43,11 @@ class Boolean:
 
 @dataclass
 class Nullable:
-    param: Optional[str] = None
+    param: Optional[str] = None  # noqa: UP007
 
 
 @dataclass
-class Optional_:
+class Optional_:  # noqa: N801
     param: str = 'hello'
 
 

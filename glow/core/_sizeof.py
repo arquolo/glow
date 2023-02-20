@@ -88,7 +88,7 @@ def _sizeof(obj, seen: set[int]) -> int:
         return size
 
     if issubclass(tp, dict):
-        size += sum(_sizeof(k, seen) for k in obj.keys())
+        size += sum(_sizeof(k, seen) for k in obj)
         size += sum(_sizeof(v, seen) for v in obj.values())
     elif issubclass(tp, abc.Collection):
         size += sum(_sizeof(item, seen) for item in obj)

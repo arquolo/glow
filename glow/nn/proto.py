@@ -7,8 +7,8 @@ from itertools import accumulate
 from typing import Literal
 
 import torch
-import torch.nn as nn
 from einops.layers.torch import Rearrange, Reduce
+from torch import nn
 
 from .modules import (ConvCtx, DenseBlock, DenseDelta, Encoder, Ensemble,
                       LazyBias2d, MaxVitBlock, VitBlock)

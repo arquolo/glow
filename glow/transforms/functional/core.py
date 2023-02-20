@@ -69,7 +69,7 @@ def affine(image: np.ndarray,
         image, mat, image.shape[:2], flags=flags, borderMode=border)
 
 
-def flip(image: np.ndarray, ud: bool, lr: bool, rot90: bool) -> np.ndarray:
+def flip(image: np.ndarray, *, ud: bool, lr: bool, rot90: bool) -> np.ndarray:
     if ud:
         image = image[::-1, :]
     if lr:

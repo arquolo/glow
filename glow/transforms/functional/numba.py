@@ -50,10 +50,10 @@ def dither(image: np.ndarray,
     assert image.dtype == 'u1'
     if image.ndim == 3:
         mat = mat[..., None]
-        channel_pad = [(0, 0)]
+        channel_pad = [[0, 0]]
     else:
         channel_pad = []
-    image = np.pad(image, [(0, 2), (2, 2)] + channel_pad, mode='constant')
+    image = np.pad(image, [[0, 2], [2, 2], *channel_pad])
 
     dtype = image.dtype
     if dtype == 'uint8':

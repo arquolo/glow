@@ -64,7 +64,7 @@ class _Event(Protocol):
     def is_set(self) -> bool:
         ...
 
-    def set(self) -> None:  # noqa: A003
+    def set(self) -> None:
         ...
 
 
@@ -139,7 +139,7 @@ def _mp_profile():
 
     def _finalize(lines=50):
         prof.disable()
-        with open(f'prof-{os.getpid()}.txt', 'w') as fp:  # noqa: PL123
+        with open(f'prof-{os.getpid()}.txt', 'w') as fp:
             Stats(prof, stream=fp).sort_stats('cumulative').print_stats(lines)
 
     atexit.register(_finalize)
@@ -177,9 +177,10 @@ def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
 
 
 def _get_manager(executor: Executor):
-    if isinstance(executor, loky.ProcessPoolExecutor):  # noqa: R505
+    if isinstance(executor, loky.ProcessPoolExecutor):
         return executor._context.Manager()
-    else:
+
+    else:  # noqa: RET505
         from multiprocessing.dummy import Manager
         return Manager()
 
@@ -285,7 +286,7 @@ class _AutoSize:
 
         try:
             r = fut.result()  # Do not disturb Future._condition for nothing
-        except BaseException:  # noqa: PIE786
+        except BaseException:  # noqa: BLE001
             return
 
         with self.lock:

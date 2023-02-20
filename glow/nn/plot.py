@@ -46,6 +46,7 @@ class Builder:
     def __init__(self,
                  inputs: set[str],
                  params: dict[str, str],
+                 *,
                  nesting: bool = True,
                  variables: bool = True):
         self.inputs = inputs

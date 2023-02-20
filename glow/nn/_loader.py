@@ -249,7 +249,7 @@ def get_loader(dataset: Dataset,
     if max_workers is None:
         max_workers = max_cpu_count(_NUM_CPUS, mp)
 
-    if isinstance(dataset, IterableDataset):  # noqa: R505
+    if isinstance(dataset, IterableDataset):
         if not mp and max_workers != 0:
             warnings.warn(
                 'For iterable-style datasets multithreading is not supported. '
@@ -265,7 +265,7 @@ def get_loader(dataset: Dataset,
             return _IterableLoader(dataset)
         return _IterableMultiLoader(dataset, max_workers)
 
-    else:
+    else:  # noqa; RET505
         if not isinstance(dataset, Sized):
             raise TypeError("dataset should be sized when it's not iterable")
 

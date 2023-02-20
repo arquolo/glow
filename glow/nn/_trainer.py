@@ -8,8 +8,8 @@ from dataclasses import InitVar, dataclass
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.optim
+from torch import nn
 from tqdm.auto import tqdm
 
 from .. import ichunked

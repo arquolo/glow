@@ -57,10 +57,10 @@ class _UFuture:
 
             try:
                 self._result = r = self._fn()
-                return r
             except BaseException as e:
                 self._exception = e
                 raise
+            return r
 
 
 def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
@@ -136,7 +136,7 @@ def _batch_invoke(
     try:
         *results, = func([x for _, x in batch])
         assert len(results) == len(batch)
-    except BaseException as exc:  # noqa: PIE786
+    except BaseException as exc:  # noqa: BLE001
         for f, _ in batch:
             f.set_exception(exc)
     else:

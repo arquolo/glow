@@ -26,7 +26,7 @@ class _OptimizerBase(optimizer.Optimizer):
                 with torch.no_grad():
                     self._do_step(p, group, self.state[p], *args)
 
-        return loss  # noqa: R504
+        return loss
 
     def _update_group(self, group) -> tuple:
         return ()
@@ -105,8 +105,8 @@ class AdamW(_OptimizerBase):
                  eps=1e-8,
                  weight_decay=1e-2,
                  amsgrad=False) -> None:
-        assert 0.0 <= lr
-        assert 0.0 <= eps
+        assert lr >= 0.0
+        assert eps >= 0.0
         for i, beta in enumerate(betas):
             assert 0.0 <= beta < 1.0, f'Invalid beta at index {i}: {betas}'
         defaults = {

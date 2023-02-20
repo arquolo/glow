@@ -222,7 +222,7 @@ def _dispatch(
         for job, value in zip(jobs.values(), values):
             job.future.set_result(value)
 
-    except BaseException as exc:  # noqa: PIE786
+    except BaseException as exc:  # noqa: BLE001
         for key, job in jobs.items():
             evict(key)
             job.future.set_exception(exc)

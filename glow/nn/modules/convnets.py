@@ -283,7 +283,7 @@ class SplitAttention(NameMixin, nn.Module):
     Split-Attention (aka Splat) block from ResNeSt.
     If radix == 1, equals to SqueezeExitation block from SENet.
     """
-    __constants__ = NameMixin.__constants__ + ['radix']
+    __constants__ = [*NameMixin.__constants__, 'radix']
 
     def __init__(self,
                  dim: int,

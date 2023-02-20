@@ -72,7 +72,7 @@ def _find_prefix(value: float | int, base: int,
     origin = prefixes.find(' ') + 1
     value *= base ** origin
 
-    for prefix in prefixes:  # noqa: B007
+    for prefix in prefixes:
         value /= base
         if -threshold < value < threshold:
             return value, prefix

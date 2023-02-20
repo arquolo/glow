@@ -65,7 +65,7 @@ class _Mmap:
     _shm_root = _get_shm_dir()
 
     @classmethod
-    def from_bytes(cls, data: memoryview, tag: str) -> '_Mmap':
+    def from_bytes(cls, data: memoryview, tag: str) -> _Mmap:
         mv = cls(data.nbytes, f'shm-{os.getpid()}-{tag}', create=True)
         mv.buf[:] = data
         return mv
@@ -115,7 +115,7 @@ def _torch_hook(torch):
 
 def _dumps(
     obj: object,
-    callback: Callable[[pickle.PickleBuffer], object] | None = None
+    callback: Callable[[pickle.PickleBuffer], object] | None = None,
 ) -> bytes:
     fp = io.BytesIO()
     p = pickle.Pickler(fp, -1, buffer_callback=callback)

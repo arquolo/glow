@@ -75,7 +75,7 @@ def _worker(q: _Pipe) -> None:
             if _shutdown:
                 return
 
-    except BaseException:  # noqa: PIE786
+    except BaseException:  # noqa: BLE001
         LOGGER.critical('Exception in worker', exc_info=True)
     finally:
         if _TIMEOUT:

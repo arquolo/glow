@@ -71,8 +71,8 @@ class Uid(UUID):
         from int()-compatible type
         """
         if not isinstance(obj, (str, SupportsInt)):
-            raise ValueError('Either int, string or UUID required. '
-                             f'Got {type(obj)}')
+            raise TypeError('Either int, string or UUID required. '
+                            f'Got {type(obj)}')
 
         value = base57_decode(obj) if isinstance(obj, str) else int(obj)
         super().__init__(int=value)

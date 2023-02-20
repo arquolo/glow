@@ -42,9 +42,9 @@ class _ImportHookFinder(abc.MetaPathFinder, set):
             try:
                 if (spec := util.find_spec(fullname)) and spec.loader:
                     return _ImportHookChainedLoader(spec.loader)
-                return None
             finally:
                 self.remove(fullname)
+            return None
 
 
 def register_post_import_hook(hook: _Hook, name: str) -> None:
