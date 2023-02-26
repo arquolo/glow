@@ -164,5 +164,3 @@ split_before_dict_set_generator = false
 split_before_dot = true
 split_before_expression_after_opening_paren = true
 split_before_logical_operator = true
-
-# Sync
