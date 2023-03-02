@@ -1,9 +1,10 @@
-from typing import NamedTuple
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
 import glow
+from glow import eat
 from glow.core._parallel import max_cpu_count
 
 DEATH_RATE = 0
@@ -30,7 +31,8 @@ class AsInit:
         assert np.mean(self.data) == mean
 
 
-class AsArg(NamedTuple):
+@dataclass(frozen=True)
+class AsArg:
     n: int
 
     def args(self):
@@ -48,7 +50,8 @@ class AsArgRepeated(AsArg):
         return [[*args]] * NUM_STEPS
 
 
-class AsResult(NamedTuple):
+@dataclass(frozen=True)
+class AsResult:
     n: int
 
     def args(self):
@@ -81,7 +84,7 @@ def bench_ipc_speed(order=25, steps=100):
     to_bytes = DTYPE.itemsize * 2  # x2, because copy+read
 
     fig = plt.figure(figsize=(10, 4))
-    workers = [AsInit, AsArgRepeated, AsArg, AsResult]
+    workers = (AsInit, AsArgRepeated, AsArg, AsResult)
     for i, worker in enumerate(workers, 1):
         ax = fig.add_subplot(
             1,
@@ -95,12 +98,12 @@ def bench_ipc_speed(order=25, steps=100):
             title=worker.__name__)
         for runner in [run_glow, run_joblib, run_joblib_mp]:
             label = f'{worker.__name__}-{runner.__name__}'
-            times = []
+            times: list[int] = []
             for size in sizes:
                 task = worker(size)
-                args = zip(*task.args())
+                args = zip(*task.args())  # type: ignore[attr-defined]
                 with glow.timer(times.append):
-                    [*runner(task, *args)]
+                    eat(runner(task, *args))
 
             bps = to_bytes * NUM_STEPS * sizes / np.asarray(times)
             print(f'max {glow.si_bin(bps.max())}/s - {label}')

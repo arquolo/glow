@@ -28,6 +28,7 @@ def base57_encode(number: int) -> str:
     return out.translate(_TABLE).decode('ascii')
 
 
+@lru_cache  # Small performance optimization
 def base57_decode(shortuuid: str) -> int:
     if not _REGEX.fullmatch(shortuuid):
         raise ValueError('invalid shortuuid format')

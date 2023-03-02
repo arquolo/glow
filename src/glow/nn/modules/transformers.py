@@ -8,11 +8,10 @@ __all__ = [
     'VitBlock',
 ]
 
-from distutils.version import LooseVersion
-
 import torch
 from einops import rearrange
 from einops.layers.torch import Rearrange
+from packaging.version import Version
 from torch import nn
 
 from .aggregates import pre_norm
@@ -20,7 +19,7 @@ from .context import ConvCtx
 from .convnets import mbconv
 from .util import NameMixin, round8
 
-_IS_TORCH_1_12 = LooseVersion(torch.__version__) >= LooseVersion('1.12')
+_IS_TORCH_1_12 = Version(torch.__version__) >= Version('1.12')
 _TORCH_MHA_AUTOCAST = True
 
 

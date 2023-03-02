@@ -96,7 +96,7 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
                 with suppress(AttributeError):
                     decorated.__module__ = m.__module__
                     break
-            else:  # noqa: PLW0120
+            else:  # noqa: PLW0120, RUF100
                 decorated.__module__ = getattr(module, '__name__', '')
             setattr(obj, name, decorated)
             print(f'wraps "{module.__name__}:{obj.__qualname__}.{name}"')

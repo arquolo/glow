@@ -313,7 +313,7 @@ class Elastic(DualStageTransform):
 
         for dim, (off, size) in enumerate(zip(offsets, image.shape[:2])):
             shape = np.where(np.arange(2) == dim, size, 1)
-            off += np.arange(size).reshape(shape)
+            off += np.arange(size).reshape(shape)  # noqa: PLW2901
             cv2.GaussianBlur(off, (17, 17), self.sigma, dst=off)
         return {'offsets': offsets[::-1]}
 

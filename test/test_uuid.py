@@ -42,13 +42,10 @@ def test_stability():
     assert u == Uid(u)
     assert u == Uid(str(u))
 
-    with pytest.raises(ValueError):
-        Uid('0')
-
 
 def test_consistency():
     num_iterations = 1000
-    lengths = Counter()
+    lengths = Counter[int]()
 
     for _ in range(num_iterations):
         uid = Uid.v4()
@@ -65,10 +62,13 @@ def test_consistency():
     assert count == num_iterations
 
 
-def test_edge_cases():
+@pytest.mark.parametrize('x', [[], {}, ()])
+def test_badtype(x):
+    with pytest.raises(TypeError):
+        Uid(x)
+
+
+@pytest.mark.parametrize('x', ['', '0'])
+def test_badvalue(x):
     with pytest.raises(ValueError):
-        Uid([])
-    with pytest.raises(ValueError):
-        Uid({})
-    with pytest.raises(ValueError):
-        Uid((2, ))
+        Uid(x)
