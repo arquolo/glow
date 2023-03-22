@@ -68,7 +68,7 @@ class Grads:
         self._sched = sched
 
     def zero_grad(self) -> None:
-        self._opt.zero_grad(set_to_none=True)
+        self._opt.zero_grad()
 
     def backward(self, tensor: torch.Tensor):
         tensor.backward()
