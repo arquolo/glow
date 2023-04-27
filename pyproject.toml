@@ -7,7 +7,7 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.12.2"
+version = "0.12.3"
 description = "Functional Python tools with a PyTorch flavour"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -65,7 +65,7 @@ dev-core = [
     "mypy~=1.1.1",
     "pytest~=6.0",
     "ruff",
-    "yapf[pyproject]==0.32.0",
+    "yapf[pyproject]==0.33.0",
     "toml; python_version>='3.11'",  # See: https://github.com/google/yapf/pull/1040. Drop for yapf~=0.33
 ]
 dev = [

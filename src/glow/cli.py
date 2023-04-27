@@ -97,13 +97,14 @@ def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
 
     origin = get_origin(tp)
     *args, = get_args(tp)
-    if not origin or not args:
+    if not origin or not args:  # Not a generic type
         return tp, {'type': tp}
 
-    if origin is list:
+    if origin is list:  # `List[T]`
         cls, opts = _unwrap_type(args[0])
         return cls, opts | {'nargs': argparse.ZERO_OR_MORE}
 
+    # `Optional[T]` or `T | None`
     if origin in _UNION_TYPES and len(args) == 2 and _NoneType in args:
         args.remove(_NoneType)
         cls, opts = _unwrap_type(args[0])
@@ -111,7 +112,7 @@ def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
             return cls, opts
         return cls, opts | {'nargs': argparse.OPTIONAL}
 
-    if origin is Literal:
+    if origin is Literal:  # `Literal[x, y]`
         choices = get_args(tp)
         if len(tps := {type(c) for c in choices}) != 1:
             raise ValueError('Literal parameters should have '
@@ -196,11 +197,13 @@ def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
             default=fd.default,
             help=help_)
 
-    elif fd.default is not MISSING:  # Generic optional
+    # Generic optional
+    elif fd.default is not MISSING or fd.default_factory is not MISSING:
         if opts.get('nargs') == argparse.OPTIONAL:
             del opts['nargs']
+        default = fd.default_factory() if fd.default is MISSING else fd.default
         parser.add_argument(
-            f'--{snake}', *flags, **opts, default=fd.default, help=help_)
+            f'--{snake}', *flags, **opts, default=default, help=help_)
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
         if flags:
