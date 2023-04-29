@@ -124,7 +124,7 @@ def vit(num_classes: int,
     transformer = nn.Sequential(
         # Operates in (b n d) domain
         nn.Identity() if pool == 'mean' else CatToken(dim),
-        nn.Dropout(dropout_emb),
+        nn.Dropout(dropout_emb, inplace=True),
         *(VitBlock(dim, dim_head, mlp_ratio, dropout, qkv_bias, reattn)
           for _ in range(depth)),
         Reduce('b n d -> b d', 'mean') if pool == 'mean' else PopToken(),

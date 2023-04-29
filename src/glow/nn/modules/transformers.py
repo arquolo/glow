@@ -63,7 +63,10 @@ class Attention(NameMixin, nn.Module):
         )
         nn.init.normal_(fc.weight, 0, (2 / (dim + dim_head)) ** .5)
 
-        self.attend = nn.Sequential(nn.Softmax(-1), nn.Dropout(dropout))
+        self.attend = nn.Sequential(
+            nn.Softmax(-1),
+            nn.Dropout(dropout, inplace=True),
+        )
         self.reattention = reattention
         if reattention:
             self.attend.append(ReAttention(heads))
@@ -71,7 +74,7 @@ class Attention(NameMixin, nn.Module):
         self.to_out = nn.Sequential(
             Rearrange('b h n d -> b n (h d)'),
             fc := nn.Linear(dim, dim),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout, inplace=True),
         )
         nn.init.xavier_normal_(fc.weight)
 
@@ -166,12 +169,12 @@ class MultiAxisAttention(NameMixin, nn.Module):
 
         self.attend = nn.Sequential(
             nn.Softmax(-1),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout, inplace=True),
         )
         self.to_out = nn.Sequential(
             Rearrange('... h i d -> ... i (h d)'),
             nn.Linear(dim, dim, bias=False),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout, inplace=True),
         )
         self.name = f'{dim}, {heads=}, {window_size=}'
         if qkv_bias:
@@ -200,9 +203,9 @@ class FeedForward(NameMixin, nn.Sequential):
         super().__init__(
             nn.Linear(dim, dim_inner),
             nn.GELU(),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout, inplace=True),
             nn.Linear(dim_inner, dim),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout, inplace=True),
         )
         self.name = f'{dim}, {dim_inner=}'
         if dropout:
