@@ -123,12 +123,13 @@ class _Stat:
         if not (n := next(self.calls)):
             return None
         w = self.nlwp.max()
-        t = self.cpu_ns.total() / 1e9
-        a = self.all_ns.total() / 1e9
+        t_ns = self.cpu_ns.total()  # CPU
+        i_ns = self.all_ns.total() - t_ns  # idle = total - CPU
+        t, i = t_ns / 1e9, i_ns / 1e9
 
         tail = (f'{n} x {si(t / n)}s' +
                 (f' @ {w}T' if w > 1 else '')) if n > 1 else ''
-        return t, (a - t), tail
+        return t, i, tail
 
 
 class _Proxy(ObjectProxy):
