@@ -9,6 +9,7 @@ __all__ = [
 ]
 
 import torch
+import torch.nn.functional as F
 from einops import rearrange
 from einops.layers.torch import Rearrange
 from packaging.version import Version
@@ -19,7 +20,8 @@ from .context import ConvCtx
 from .convnets import mbconv
 from .util import NameMixin, round8
 
-_IS_TORCH_1_12 = Version(torch.__version__) >= Version('1.12')
+_IS_TORCH_1_12 = Version('1.12') <= Version(torch.__version__) < Version('2.0')
+_IS_TORCH_2X = Version(torch.__version__) >= Version('2.0')
 _TORCH_MHA_AUTOCAST = True
 
 
@@ -56,6 +58,7 @@ class Attention(NameMixin, nn.Module):
         self.dim = dim
         self.heads = heads = dim // dim_head
         self.scale = dim_head ** -0.5
+        self.dropout = dropout
 
         self.to_qkv = nn.Sequential(
             fc := nn.Linear(dim, 3 * dim, bias=qkv_bias),
@@ -111,12 +114,20 @@ class Attention(NameMixin, nn.Module):
         qkv = self.to_qkv(x)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy
 
-        # Compute weights for each token
-        dots = torch.einsum('bhid,bhjd -> bhij', q, k)
-        attn = self.attend(dots * self.scale)
+        # Use FLASH-attention (https://arxiv.org/abs/2205.14135)
+        # and Memory-Efficient attention from XFormers
+        # for PyTorch 2.x
+        if _IS_TORCH_2X and not self.reattention:
+            dropout = self.droupout if self.is_train else 0
+            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout)
 
-        # Remix tokens using weights
-        out = torch.einsum('bhij,bhjd -> bhid', attn, v)
+        else:
+            # Compute weights for each token
+            dots = torch.einsum('bhid,bhjd -> bhij', q, k)
+            attn = self.attend(dots * self.scale)
+
+            # Remix tokens using weights
+            out = torch.einsum('bhij,bhjd -> bhid', attn, v)
 
         # Restore shape, b h n d -> b n (h d)
         return self.to_out(out)
