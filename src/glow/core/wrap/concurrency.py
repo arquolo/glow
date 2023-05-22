@@ -119,9 +119,6 @@ def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
             batch.append(q.get(timeout=waittime))
         except Empty:
             break
-
-    if len(batch) < batch_size:
-        print(f'timeout({len(batch)})')
     return batch
 
 
