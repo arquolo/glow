@@ -253,7 +253,8 @@ def get_loader(dataset: Dataset,
         if not mp and max_workers != 0:
             warnings.warn(
                 'For iterable-style datasets multithreading is not supported. '
-                'Setting max_workers to 0')
+                'Setting max_workers to 0',
+                stacklevel=2)
             max_workers = 0
 
         if (ddp := get_ddp_info()) and ddp.world > 1:

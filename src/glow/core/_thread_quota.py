@@ -14,7 +14,8 @@ from concurrent.futures import Executor, Future
 from concurrent.futures._base import LOGGER
 from concurrent.futures.thread import _WorkItem
 from queue import Empty, SimpleQueue
-from threading import Lock, Thread, _register_atexit
+from threading import _register_atexit  # type: ignore[attr-defined]
+from threading import Lock, Thread
 from typing import TypeVar
 from weakref import WeakKeyDictionary, WeakSet
 
@@ -46,7 +47,7 @@ _idle = deque[_Pipe]()
 
 
 def _python_exit():
-    global _shutdown
+    global _shutdown  # noqa: PLW0603
     with _shutdown_lock:
         _shutdown = True
 
@@ -100,7 +101,7 @@ class ThreadQuota(Executor):
             if self._shutdown or _shutdown:
                 raise RuntimeError('cannot schedule futures after shutdown')
 
-            f = Future()
+            f = Future()  # type: ignore[var-annotated]
             self._work_queue.append(_WorkItem(f, fn, args, kwargs))
 
             if _safe_call(self._idle.pop):  # Pool is not maximized yet

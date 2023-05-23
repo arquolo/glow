@@ -57,7 +57,7 @@ def register_post_import_hook(hook: _Hook, name: str) -> None:
     Simplified version of wrapt.register_post_import_hook.
     """
     with _LOCK:
-        global _INITIALIZED
+        global _INITIALIZED  # noqa: PLW0603
         if not _INITIALIZED:
             _INITIALIZED = True
             sys.meta_path.insert(0, _ImportHookFinder())

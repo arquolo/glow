@@ -28,7 +28,7 @@ _THIS = None
 @contextmanager
 def memprof(name_or_callback: str | Callable[[float], object] | None = None,
             /) -> Iterator[None]:
-    global _THIS
+    global _THIS  # noqa: PLW0603
     if _THIS is None:
         import psutil
         _THIS = psutil.Process()

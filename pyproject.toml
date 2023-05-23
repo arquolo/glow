@@ -7,7 +7,7 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.12.4"
+version = "0.12.5"
 description = "Functional Python tools with a PyTorch flavour"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -64,7 +64,7 @@ dev-core = [
     "isort",
     "mypy~=1.1.1",
     "pytest~=6.0",
-    "ruff",
+    "ruff~=0.0.269",
     "yapf==0.33.0",
 ]
 dev = [

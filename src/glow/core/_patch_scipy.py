@@ -58,10 +58,13 @@ def apply() -> None:
 
     os.environ[_FORTRAN_FLAG] = '1'  # Child will inherit this, and work fine
 
-    warnings.warn('Ctrl-C on Windows is broken when scipy is from conda. '
-                  'Please use scipy from PyPI')
+    msg = ('Ctrl-C on Windows is broken when scipy is from conda. '
+           'Please use scipy from PyPI')
+    warnings.warn(msg, stacklevel=2)
+
     if 'scipy.stats' in sys.modules:
-        warnings.warn('Cannot fix handling of Ctrl-C in current process. '
-                      'Import glow before scipy.stats to fix this.')
+        msg2 = ('Cannot fix handling of Ctrl-C in current process. '
+                'Import glow before scipy.stats to fix this.')
+        warnings.warn(msg2, stacklevel=2)
     else:
         _patch_handler_and_load_scipy()

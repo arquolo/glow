@@ -67,9 +67,9 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
     """Makes `fn()` callable a singleton.
     DO NOT USE with recursive functions"""
     def wrapper():
-        return f.result()
+        return uf.result()
 
-    fn._future = f = _UFuture(fn)  # type: ignore[attr-defined]
+    fn._future = uf = _UFuture(fn)  # type: ignore[attr-defined]
     return cast(_ZeroArgsF, update_wrapper(wrapper, fn))
 
 
@@ -83,10 +83,10 @@ def shared_call(fn: _F) -> _F:
         key = make_key(*args, **kwargs)
 
         with lock:  # Create only one task per args-kwargs set
-            if not (f := fs.get(key)):
-                fs[key] = f = _UFuture(partial(fn, *args, **kwargs))
+            if not (uf := fs.get(key)):
+                fs[key] = uf = _UFuture(partial(fn, *args, **kwargs))
 
-        return f.result()
+        return uf.result()
 
     return cast(_F, update_wrapper(wrapper, fn))
 
@@ -137,13 +137,13 @@ def _batch_invoke(
         for f, _ in batch:
             f.set_exception(exc)
     else:
-        # TODO: use zip(strict=True) for python3.10+
+        # TODO: use zip(strict=True) for python3.10+ when 3.9 is EOL
         for (f, _), r in zip(batch, results):
             f.set_result(r)
 
 
 def _start_fetch_compute(func, workers, batch_size, timeout):
-    q = SimpleQueue()
+    q = SimpleQueue()  # type: ignore[var-annotated]
     lock = Lock()
 
     def loop():
@@ -205,19 +205,20 @@ def streaming(func=None,
     q = _start_fetch_compute(func, workers, batch_size, timeout)
 
     def wrapper(items):
-        fs = {Future(): item for item in items}
+        fs = {Future(): item for item in items}  # type: ignore[var-annotated]
         try:
             for f_x in fs.items():
-                q.put(f_x)
-            if wait(fs, pool_timeout, return_when='FIRST_EXCEPTION').not_done:
-                raise TimeoutError
+                q.put(f_x)  # Schedule task
+            dnd = wait(fs, pool_timeout, return_when='FIRST_EXCEPTION')
 
-        except BaseException:  # Cancel all not yet submitted futures
-            while fs:
-                fs.popitem()[0].cancel()
-            raise
+        finally:  # Cancel all not-yet-running tasks, we're beyond deadline
+            for f in fs:
+                f.cancel()
 
-        return [f.result() for f in fs]
+        if dnd.not_done:  # Some tasks timed out
+            del dnd, fs  # ? Break reference cycle
+            raise TimeoutError
+        return [f.result() for f in fs]  # Cannot time out - all are done
 
     # TODO: if func is instance method - recreate wrapper per instance
     # TODO: find how to distinguish between

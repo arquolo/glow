@@ -11,10 +11,11 @@ import warnings
 import weakref
 from collections.abc import Callable, Iterable, Iterator, Sized
 from concurrent.futures import Executor, Future
+from concurrent.futures import TimeoutError as _TimeoutError
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
-from itertools import chain, filterfalse, islice, starmap
+from itertools import chain, islice, starmap
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
@@ -84,9 +85,11 @@ def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
         return
 
     if psutil is None:
-        warnings.warn('Max process count may be calculated incorrectly, '
-                      'leading to application crash or even BSOD. '
-                      'Install psutil to avoid that')
+        warnings.warn(
+            'Max process count may be calculated incorrectly, '
+            'leading to application crash or even BSOD. '
+            'Install psutil to avoid that',
+            stacklevel=3)
         return
 
     # Overcommit on Windows is forbidden, thus VMS planning is necessary
@@ -102,7 +105,7 @@ def max_cpu_count(upper_bound: int = sys.maxsize, mp: bool = False) -> int:
 _PATIENCE = 0.01
 
 
-def _ki_call(fn: Callable[..., _T], *exc: type[BaseException]) -> _T:
+def _retry_call(fn: Callable[..., _T], *exc: type[BaseException]) -> _T:
     # See issues
     # https://bugs.python.org/issue29971
     # https://github.com/dask/dask/pull/2144#issuecomment-290556996
@@ -115,18 +118,27 @@ def _ki_call(fn: Callable[..., _T], *exc: type[BaseException]) -> _T:
 
 
 if sys.platform == 'win32':
-    from concurrent.futures import TimeoutError as _TimeoutError
 
     def _result(f: Future[_T]) -> _T:
-        return _ki_call(f.result, _TimeoutError)
+        return _retry_call(f.result, _TimeoutError)
 else:
     _result = Future.result
 
 
-def _get_q_get(q: _Queue[_T]) -> Callable[[], _T]:
+def _result_or_cancel(f: Future[_T]) -> _T:
+    try:
+        try:
+            return _result(f)
+        finally:
+            f.cancel()
+    finally:
+        del f
+
+
+def _q_get_fn(q: _Queue[_T]) -> Callable[[], _T]:
     if sys.platform != 'win32':
         return q.get
-    return partial(_ki_call, q.get, Empty)
+    return partial(_retry_call, q.get, Empty)
 
 
 # ---------------------------- pool initialization ----------------------------
@@ -225,7 +237,7 @@ class buffered(Iterator[_T]):  # noqa: N801
         ev: _Event = mgr.Event()
         q: _Queue[_T | _Empty] = mgr.Queue(latency)
         self._task = executor.submit(_consume, iterable, q, ev)  # type: ignore
-        self._get = q_get = _get_q_get(q)
+        self._get = q_get = _q_get_fn(q)
 
         # If main killed, wakes up consume to check ev
         # Otherwise collects 2nd _empty from q.
@@ -285,7 +297,9 @@ class _AutoSize:
         duration = perf_counter() - start_time
 
         try:
-            r = fut.result()  # Do not disturb Future._condition for nothing
+            # Cannot time out, as future is always completed at this point.
+            # Though it's unknown whether it succeeded or not, so use EAFP
+            r = fut.result()
         except BaseException:  # noqa: BLE001
             return
 
@@ -328,32 +342,41 @@ def _schedule_auto_v2(make_future: Callable[..., _F],
         yield f
 
 
-def _get_unwrap_iter(s: ExitStack, todo: set[Future[_T]],
-                     get_f: Callable[[], Future[_T]],
-                     fs: Iterator[Future[_T]]) -> Iterator[_T]:
+def _get_unwrap_iter(s: ExitStack, qsize: int,
+                     get_done_f: Callable[[], Future[_T]],
+                     fs_scheduler: Iterator) -> Iterator[_T]:
     with s:
-        while todo:
-            f = get_f()
-            todo.remove(f)
+        if not qsize:  # No tasks to do
+            return
 
-            yield _result(f)  # wait with timeout
-            todo.update(islice(fs, 1))
+        # Unwrap 1st / schedule `N-qsize` / unwrap `qsize-1`
+        for _ in chain([None], fs_scheduler, range(qsize - 1)):
+
+            # Retrieve done task, exactly `N` calls
+            yield _result_or_cancel(get_done_f())
 
 
 def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
             order: bool) -> Iterator[_T]:
     q = SimpleQueue[Future[_T]]()
+
+    # If `order`, then `q` has "PENDING"/"RUNNING"/"DONE" tasks,
+    # otherwise it only has "DONE" tasks.
     q_put = q.put if order else methodcaller('add_done_callback', q.put)
 
-    # As q.put always gives falsy None, filterfalse to call it as a side effect
-    fs = filterfalse(q_put, fs)  # type: ignore[arg-type]
+    # On each `next()` schedules new task
+    fs_scheduler = map(q_put, fs)  # type: ignore[call-overload]
     try:
-        todo = set(islice(fs, qsize))  # Prefetch
+        # Fetch up to `qsize` tasks to pre-fill `q`
+        qsize = sum(1 for _ in islice(fs_scheduler, qsize))
+
     except BaseException:
-        s.close()  # Unwind here on an error
+        # Unwind stack here on an error
+        s.close()
         raise
+
     else:
-        return _get_unwrap_iter(s, todo, _get_q_get(q), fs)
+        return _get_unwrap_iter(s, qsize, _q_get_fn(q), fs_scheduler)
 
 
 def _batch_invoke(func: Callable[..., _T], *items: tuple) -> list[_T]:
@@ -415,7 +438,7 @@ def starmap_n(func: Callable[..., _T],
                          'must be not None')
 
     if prefetch is not None:
-        prefetch += max_workers
+        prefetch = max(prefetch + max_workers, 1)
 
     it = iter(iterable)
     s = ExitStack()

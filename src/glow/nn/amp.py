@@ -370,7 +370,7 @@ def get_grads(opt: optim.Optimizer,
     """
     if _fp16_is_definitely_not_available():  # None can FP16, disable it anyway
         if dtype != torch.float:
-            warnings.warn('Neither of active devices support FP16, disable it')
+            warnings.warn('CUDA cannot FP16, fallback to FP32', stacklevel=2)
         dtype = torch.float
     elif dtype is None:  # Some GPU's can do FP16, automatic choice, enable
         dtype = torch.half

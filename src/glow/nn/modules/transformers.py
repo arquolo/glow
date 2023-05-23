@@ -98,8 +98,9 @@ class Attention(NameMixin, nn.Module):
                                         self.to_out[1].bias)
             tensor_args = (x, in_w, in_b, out_w, out_b)
             if ((_TORCH_MHA_AUTOCAST or not torch.is_autocast_enabled())
-                    and not (torch.is_grad_enabled()
-                             and any([t.requires_grad for t in tensor_args]))):
+                    and not (torch.is_grad_enabled() and any([  # noqa: C419
+                        t.requires_grad for t in tensor_args
+                    ]))):
                 if torch.is_autocast_enabled():
                     # torch uses slowpath, but this allows it go fast
                     dtype = torch.get_autocast_gpu_dtype()

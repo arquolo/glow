@@ -99,7 +99,8 @@ class ConvCtx:
             kernel = self._get_k(stride, overlap)
 
         elif stride == 1 and kernel % 2 == 0:
-            warnings.warn(f'Parity is altered because of {kernel=}')
+            warnings.warn(
+                f'Parity is altered because of {kernel=}', stacklevel=2)
 
         elif stride != 1 and kernel != self.parity:
             raise ValueError(f'Used kernel does not match used parity '
