@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Executor
 from typing import Generic, Protocol, TypeVar, overload
 
@@ -6,6 +6,7 @@ _T = TypeVar('_T')
 _T1_ctr = TypeVar('_T1_ctr', contravariant=True)
 _T2_ctr = TypeVar('_T2_ctr', contravariant=True)
 _T3_ctr = TypeVar('_T3_ctr', contravariant=True)
+_K_co = TypeVar('_K_co', covariant=True)
 _R_co = TypeVar('_R_co', covariant=True)
 
 
@@ -108,4 +109,15 @@ def map_n(__func: _Callable4[_R_co],
           mp: bool = ...,
           chunksize: int | None = ...,
           order: bool = ...) -> Iterator[_R_co]:
+    ...
+
+
+def map_n_dict(func: Callable[[_T1_ctr], _R_co],
+               obj: Mapping[_K_co, _T1_ctr],
+               /,
+               *,
+               max_workers: int | None = None,
+               prefetch: int | None = 2,
+               mp: bool = False,
+               chunksize: int | None = None) -> dict[_K_co, _R_co]:
     ...

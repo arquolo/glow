@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['buffered', 'map_n', 'starmap_n']
+__all__ = ['buffered', 'map_n', 'map_n_dict', 'starmap_n']
 
 import atexit
 import enum
@@ -9,7 +9,7 @@ import signal
 import sys
 import warnings
 import weakref
-from collections.abc import Callable, Iterable, Iterator, Sized
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sized
 from concurrent.futures import Executor, Future
 from concurrent.futures import TimeoutError as _TimeoutError
 from contextlib import ExitStack, contextmanager
@@ -36,6 +36,8 @@ from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
 
 _T = TypeVar('_T')
+_T_ctr = TypeVar('_T_ctr', contravariant=True)
+_K = TypeVar('_K')
 _F = TypeVar('_F', bound=Future)
 
 _NUM_CPUS = os.cpu_count() or 0
@@ -498,3 +500,25 @@ def map_n(func: Callable[..., _T],
         mp=mp,
         chunksize=chunksize,
         order=order)
+
+
+def map_n_dict(func: Callable[[_T_ctr], _T],
+               obj: Mapping[_K, _T_ctr],
+               /,
+               *,
+               max_workers: int | None = None,
+               prefetch: int | None = 2,
+               mp: bool = False,
+               chunksize: int | None = None) -> dict[_K, _T]:
+    """
+    Apply `func` to each value in a mapping in parallel way.
+    For extra options, see starmap_n, which is used under hood.
+    """
+    iter_values = map_n(
+        func,
+        obj.values(),
+        max_workers=max_workers,
+        prefetch=prefetch,
+        mp=mp,
+        chunksize=chunksize)
+    return dict(zip(obj.keys(), iter_values))
