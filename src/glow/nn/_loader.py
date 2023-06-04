@@ -3,12 +3,15 @@ from __future__ import annotations
 __all__ = ['get_loader']
 
 import os
+import re
 import warnings
-from collections.abc import Iterator, Sequence, Sized
+from collections.abc import Callable, Iterator, Mapping, Sequence, Sized
 from dataclasses import dataclass, replace
+from functools import partial
 from itertools import islice
 from typing import Any, Protocol
 
+import numpy as np
 import torch
 from torch.utils.data import (Dataset, IterableDataset, RandomSampler, Sampler,
                               SequentialSampler)
@@ -67,13 +70,8 @@ class _PinnableLoader(_Loader):
 
 
 class _CollateFn(Protocol):
-    def __call__(self, __items: Sequence) -> Any:
+    def __call__(self, __items: tuple) -> Any:
         ...
-
-
-def default_collate(batch: Sequence[tuple]) -> Any:
-    return *(torch.stack([torch.as_tensor(item) for item in row])
-             for row in zip(*batch)),
 
 
 @dataclass(frozen=True)
@@ -82,6 +80,7 @@ class _BatchedLoader(_PinnableLoader):
     batch_size: int
     collate_fn: _CollateFn
     drop_last: bool
+    workers: int
 
     def __iter__(self) -> Iterator:
         it = iter(self.base)
@@ -91,7 +90,7 @@ class _BatchedLoader(_PinnableLoader):
             it = islice(it, total)
 
         batches = chunked(it, self.batch_size)
-        return map(self.collate_fn, batches)
+        return map_n(self.collate_fn, batches, max_workers=self.workers)
 
     def __len__(self) -> int:
         len_ = len(self.base)
@@ -105,8 +104,9 @@ class _BatchedLoader(_PinnableLoader):
 class _BatchableLoader(_PinnableLoader):
     def batch(self,
               batch_size: int,
-              collate_fn: _CollateFn = default_collate,
-              drop_last: bool = False) -> _BatchedLoader:
+              collate_fn: _CollateFn | None = None,
+              drop_last: bool = False,
+              daemon: bool = False) -> _BatchedLoader:
         """
         Groups data into batches.
 
@@ -117,8 +117,16 @@ class _BatchableLoader(_PinnableLoader):
         - drop_last - Set to `True` to drop the last incomplete batch,
           if size of underlying loader is not divisible by the batch size.
           Otherwise the last batch can be smaller than others.
+        - daemon - Set to do batching in background thread.
         """
-        return _BatchedLoader(self, batch_size, collate_fn, drop_last)
+        if collate_fn is None:
+            collate_fn = collate
+        # TODO: return _BatchedLoader(
+        #   replace(self, finalize=None),
+        #   batch_size, collate_fn, drop_last,
+        # )
+        return _BatchedLoader(self, batch_size, collate_fn, drop_last,
+                              int(daemon))
 
     def shuffle(self,
                 sampler: Sampler | SamplerLike | None) -> _BatchableLoader:
@@ -147,8 +155,12 @@ class _MapLoader(_BatchableLoader):
         assert isinstance(self.sampler, Sized)
         return len(self.sampler)
 
-    def shuffle(self, sampler: Sampler | SamplerLike | None) -> _MapLoader:
-        if sampler is None:
+    def shuffle(self,
+                sampler: Sampler | SamplerLike | bool | None) -> _MapLoader:
+        if not sampler:
+            return self
+
+        if sampler is True:
             assert isinstance(self.dataset, Sized)
             sampler = RandomSampler(self.dataset)
 
@@ -275,3 +287,107 @@ def get_loader(dataset: Dataset,
         if not max_workers:
             return _MapLoader(dataset, DdpSampler(sampler))
         return _MapMultiLoader(dataset, DdpSampler(sampler), max_workers, mp)
+
+
+# ---------------- convert & collate. forked from pytorch 2.0 ----------------
+
+# TODO: split `collate` to `convert` (within worker) + `collate` (in main)
+# TODO: i.e. "Loader".tensors [alters workers] .batch() [adds collation]
+
+
+def convert(x):  # noqa: PLR0911
+    tp = type(x)
+    if isinstance(x, torch.Tensor):
+        return x
+
+    if tp.__module__ == 'numpy' and not isinstance(x, np.str_ | np.bytes_):
+        if (isinstance(x, np.ndarray)
+                and _NP_STR_DTYPE_PATTERN.search(x.dtype.str)):
+            return x
+        return torch.as_tensor(x)
+
+    if isinstance(x, Mapping):
+        return _apply_type(tp, {k: convert(v) for k, v in x.items()})
+
+    if isinstance(x, Sequence) and not isinstance(x, str | bytes):
+        list_ = [convert(xx) for xx in x]
+
+        if isinstance(x, tuple) and hasattr(x, '_fields'):  # namedtuple
+            return tp(*list_)
+        return _apply_type(tp, list_)
+
+    return x
+
+
+def collate(batch):
+    x0 = batch[0]
+    tp = type(x0)
+
+    if _HINT is not None:  # Fast alternative to functools.singledispatch
+        fn = _HINT.get(tp) or next(
+            (fn for tp_, fn in _HINT.items() if isinstance(x0, tp_)), None)
+        if fn is not None:
+            return fn(batch)
+
+    if isinstance(x0, Mapping):
+        return _apply_type(tp, {k: collate([x[k] for x in batch]) for k in x0})
+
+    if isinstance(x0, Sequence):
+        assert len({len(x) for x in batch}) <= 1  # py3.10+: zip(strict=True)
+        list_ = [collate(samples) for samples in zip(*batch)]
+
+        if isinstance(x0, tuple) and hasattr(x0, '_fields'):  # namedtuple
+            return tp(*list_)
+        return _apply_type(tp, list_)
+
+    raise TypeError(_COLLATE_ERROR_MSG.format(tp))
+
+
+def _apply_type(tp, x):
+    try:
+        return tp(x)
+    except TypeError:
+        return x
+
+
+def _collate_tensor(batch: Sequence[torch.Tensor]):
+    x = batch[0]
+    out = None
+    if torch_worker.get_worker_info() is not None:
+        # If we're in a background process, concatenate directly into a
+        # shared memory tensor to avoid an extra copy
+        numel = sum(x.numel() for x in batch)
+        storage = x._typed_storage()._new_shared(numel, device=x.device)
+        out = x.new(storage).resize_(len(batch), *x.shape)
+
+    return torch.stack([*batch], out=out)
+
+
+def _collate_ndarray(batch: Sequence[np.ndarray]):
+    x = batch[0]
+    if _NP_STR_DTYPE_PATTERN.search(x.dtype.str):
+        raise TypeError(_COLLATE_ERROR_MSG.format(x.dtype))
+
+    return collate([torch.as_tensor(x) for x in batch])
+
+
+def _nop(batch):
+    return batch
+
+
+_HINT: dict[type | tuple[type, ...], Callable] = {
+    torch.Tensor: _collate_tensor,
+    np.ndarray: _collate_ndarray,  # For both ndarray and memmap
+    # Skip strings
+    bytes: _nop,
+    str: _nop,
+    # Tensorify scalars
+    (np.bool_, np.number, np.object_): torch.as_tensor,  # py3.10: UnionType
+    float: partial(torch.tensor, dtype=torch.float64),
+    int: torch.tensor,
+}
+
+_NP_STR_DTYPE_PATTERN = re.compile('[SOUa]')
+_COLLATE_ERROR_MSG = (
+    'default_collate: batch must contain tensors, numpy arrays, numbers, '
+    'dicts or lists; found {}')
