@@ -31,7 +31,7 @@ try:
 except ImportError:
     psutil = None
 
-from ._more import chunked
+from ._more import chunked, ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
 
@@ -110,6 +110,7 @@ _PATIENCE = 0.01
 def _retry_call(fn: Callable[..., _T], *exc: type[BaseException]) -> _T:
     # See issues
     # https://bugs.python.org/issue29971
+    # https://github.com/python/cpython/issues/74157
     # https://github.com/dask/dask/pull/2144#issuecomment-290556996
     # https://github.com/dask/dask/pull/2144/files
     while True:
@@ -121,7 +122,7 @@ def _retry_call(fn: Callable[..., _T], *exc: type[BaseException]) -> _T:
 
 if sys.platform == 'win32':
 
-    def _result(f: Future[_T]) -> _T:
+    def _result(f: Future[_T], /) -> _T:
         return _retry_call(f.result, _TimeoutError)
 else:
     _result = Future.result
@@ -364,13 +365,15 @@ def _unwrap(s: ExitStack, fs: Iterable[Future[_T]], qsize: int | None,
 
     # If `order`, then `q` has "PENDING"/"RUNNING"/"DONE" tasks,
     # otherwise it only has "DONE" tasks.
-    q_put = q.put if order else methodcaller('add_done_callback', q.put)
+    # FIXME: order=False -> random freezes (in q.get -> Empty)
+    q_put = cast(Callable[[Future[_T]], None],
+                 q.put if order else methodcaller('add_done_callback', q.put))
 
     # On each `next()` schedules new task
-    fs_scheduler = map(q_put, fs)  # type: ignore[call-overload]
+    fs_scheduler = map(q_put, fs)
     try:
         # Fetch up to `qsize` tasks to pre-fill `q`
-        qsize = sum(1 for _ in islice(fs_scheduler, qsize))
+        qsize = ilen(islice(fs_scheduler, qsize))
 
     except BaseException:
         # Unwind stack here on an error

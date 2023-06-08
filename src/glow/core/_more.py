@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-__all__ = ['as_iter', 'chunked', 'eat', 'ichunked', 'roundrobin', 'windowed']
+__all__ = [
+    'as_iter', 'chunked', 'eat', 'ichunked', 'ilen', 'roundrobin', 'windowed'
+]
 
 import threading
 from collections import deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence, Sized
 from functools import partial
-from itertools import chain, cycle, islice, repeat
+from itertools import chain, count, cycle, islice, repeat
 from typing import Protocol, TypeVar, overload
 
 _T = TypeVar('_T')
@@ -88,6 +90,7 @@ def _chunked(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
 
+    # TODO: python 3.12 - `itertools.batched(it, size)`
     fetch_chunk = partial(islice, iter(it), size)
     chunks = iter(fetch_chunk, None)
     return iter(map(tuple, chunks).__next__, ())  # type: ignore[arg-type]
@@ -190,12 +193,23 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
 # ----------------------------------------------------------------------------
 
 
+def ilen(iterable: Iterable) -> int:
+    """Return number of items in *iterable*.
+
+    This consumes iterable, so handle with care.
+    See `more_itertools.ilen`.
+    """
+    counter = count()
+    deque(zip(iterable, counter), maxlen=0)
+    return next(counter)
+
+
 def eat(iterable: Iterable, daemon: bool = False) -> None:
     """Consume iterable, daemonize if needed (move to background thread)"""
     if daemon:
         threading.Thread(target=deque, args=(iterable, 0), daemon=True).start()
     else:
-        deque(iterable, 0)
+        deque(iterable, 0)  # Same as `more_itertools.consume(..., n=None)`
 
 
 def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
