@@ -2,8 +2,6 @@ from __future__ import annotations
 
 __all__ = ['memoize']
 
-# TODO: add case capacity=None for unbound cache
-
 import argparse
 import asyncio
 import concurrent.futures as cf
@@ -35,6 +33,10 @@ _BatchedFn = TypeVar('_BatchedFn', bound=Callable[[list], Iterable])
 _Policy = Literal['raw', 'lru', 'mru']
 _KeyFn = Callable[..., Hashable]
 _empty = _Empty.token
+
+
+def _unit_size(x):
+    return 1
 
 
 @dataclass(repr=False)
@@ -69,20 +71,21 @@ class _IStore(Generic[_T]):
     def store_set(self, key: Hashable, node: _Node[_T]) -> None:
         raise NotImplementedError
 
-    def can_swap(self, size: int) -> bool:
+    def can_shrink_for(self, size: int) -> bool:
         raise NotImplementedError
 
 
 @dataclass(repr=False)
 class _InitializedStore:
     capacity: int
-    size: int = 0
-    stats: Stats = field(default_factory=Stats)
+    size_fn: Callable[[object], int]
+    size: int = field(default=0, init=False)
+    stats: Stats = field(default_factory=Stats, init=False)
 
 
 @dataclass(repr=False)
 class _DictMixin(_InitializedStore, _IStore[_T]):
-    lock: RLock = field(default_factory=RLock)
+    lock: RLock = field(default_factory=RLock, init=False)
 
     def clear(self):
         with self.lock:
@@ -102,8 +105,10 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
     def __setitem__(self, key: Hashable, value: _T) -> None:
         with self.lock:
             self.stats.misses += 1
-            size = int(sizeof(value))
-            if (self.size + size <= self.capacity) or self.can_swap(size):
+            size = int(self.size_fn(value))
+            if (self.capacity < 0  # is unbound
+                    or self.size + size <= self.capacity  # has free place
+                    or (size < self.capacity and self.can_shrink_for(size))):
                 self.store_set(key, _Node(value, size))
                 self.size += size
 
@@ -152,7 +157,7 @@ class _Store(_ReprMixin[_T], _DictMixin[_T]):
 
 
 class _HeapCache(_Store[_T]):
-    def can_swap(self, size: int) -> bool:
+    def can_shrink_for(self, size: int) -> bool:
         return False
 
 
@@ -165,11 +170,9 @@ class _LruCache(_Store[_T]):
             return node
         return None
 
-    def can_swap(self, size: int) -> bool:
-        if size > self.capacity:
-            return False
-
-        while self.size + size > self.capacity:
+    def can_shrink_for(self, size: int) -> bool:
+        size = 0
+        while self.store and self.size + size > self.capacity:
             if self.drop_recent:
                 self.size -= self.store.popitem()[1].size
             else:
@@ -192,6 +195,7 @@ def _memoize(cache: _DictMixin, key_fn: _KeyFn, fn: _F) -> _F:
         if (value := cache[key]) is not _empty:
             return value
 
+        # NOTE: fn() is not within lock
         cache[key] = value = fn(*args, **kwargs)
         return value
 
@@ -291,21 +295,24 @@ def _memoize_batched(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
 
 
 def memoize(
-    capacity: SupportsInt,
+    capacity: SupportsInt | None,
     *,
     batched: bool = False,
     policy: _Policy = 'raw',
     key_fn: _KeyFn = make_key,
+    bytesize: bool = True,
 ) -> Callable[[_F], _F] | Callable[[_BatchedFn], _BatchedFn]:
     """Returns dict-cache decorator.
 
     Parameters:
-    - capacity - size in bytes.
+    - capacity - max size in bytes if `bytesize` is set, otherwise objects.
+      Cache is unbound if None set.
     - policy - eviction policy, either "raw" (no eviction), or "lru"
       (evict oldest), or "mru" (evict most recent).
+    - bytesize - if set limits bytes, not objects.
     """
-    capacity = int(capacity)
-    if not capacity:
+    capacity = int(capacity) if capacity is not None else -1
+    if capacity == 0:
         return lambda fn: fn
 
     caches: dict[str, type[_Store]] = {
@@ -313,9 +320,14 @@ def memoize(
         'lru': _LruCache,
         'mru': _MruCache,
     }
+    size_fn = sizeof if bytesize else _unit_size
+
     if (cache_cls := caches.get(policy)) is not None:
         if batched:
             return functools.partial(_memoize_batched, key_fn)
-        return functools.partial(_memoize, cache_cls(capacity), key_fn)
+        if capacity < 0:
+            cache_cls = _HeapCache
+        return functools.partial(_memoize, cache_cls(capacity, size_fn),
+                                 key_fn)
     raise ValueError(f'Unknown policy: "{policy}". '
                      f'Only "{set(caches)}" are available')
