@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-__all__ = ['call_once', 'shared_call', 'streaming', 'threadlocal']
+__all__ = [
+    'call_once', 'shared_call', 'streaming', 'threadlocal', 'weak_memoize'
+]
 
 import sys
 import threading
@@ -11,7 +13,7 @@ from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 from weakref import WeakValueDictionary
 
 from .util import make_key
@@ -64,7 +66,8 @@ class _UFuture:
 
 
 def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
-    """Makes `fn()` callable a singleton.
+    """Makes callable a singleton.
+
     DO NOT USE with recursive functions"""
     def wrapper():
         return uf.result()
@@ -73,8 +76,9 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
     return cast(_ZeroArgsF, update_wrapper(wrapper, fn))
 
 
-def shared_call(fn: _F) -> _F:
-    """Merges concurrent calls to `fn` with the same `args` to single one.
+def shared_call(fn: _F, /) -> _F:
+    """Merges duplicate parallel invocations of callable to a single one.
+
     DO NOT USE with recursive functions"""
     fs = WeakValueDictionary[Hashable, _UFuture]()
     lock = Lock()
@@ -87,6 +91,27 @@ def shared_call(fn: _F) -> _F:
                 fs[key] = uf = _UFuture(partial(fn, *args, **kwargs))
 
         return uf.result()
+
+    return cast(_F, update_wrapper(wrapper, fn))
+
+
+def weak_memoize(fn: _F, /) -> _F:
+    """Preserves each result of each call until they are garbage collected."""
+    rs = WeakValueDictionary[Hashable, Any]()
+    lock = Lock()
+
+    def wrapper(*args, **kwargs):
+        key = make_key(*args, **kwargs)
+
+        with lock:
+            if (r := rs.get(key, _unset)) is not _unset:
+                return r
+
+        r = fn(*args, **kwargs)
+
+        with lock:
+            rs[key] = r
+        return r
 
     return cast(_F, update_wrapper(wrapper, fn))
 

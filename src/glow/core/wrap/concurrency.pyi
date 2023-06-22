@@ -19,11 +19,15 @@ def interpreter_lock(timeout: float = ...) -> AbstractContextManager[None]:
     ...
 
 
-def call_once(fn: _F) -> _F:
+def call_once(fn: _F, /) -> _F:
     ...
 
 
-def shared_call(fn: _F) -> _F:
+def shared_call(fn: _F, /) -> _F:
+    ...
+
+
+def weak_memoize(fn: _F, /) -> _F:
     ...
 
 

@@ -8,7 +8,7 @@ from ._sizeof import sizeof
 from ._uuid import Uid
 from .debug import lock_seed, trace, trace_module, whereami
 from .wrap import (Reusable, call_once, memoize, shared_call, streaming,
-                   threadlocal)
+                   threadlocal, weak_memoize)
 
 __all__ = [
     'Reusable', 'Uid', 'as_actor', 'as_iter', 'buffered', 'call_once',
@@ -16,7 +16,7 @@ __all__ = [
     'lock_seed', 'mangle', 'map_n', 'map_n_dict', 'memoize', 'memprof',
     'repr_as_obj', 'roundrobin', 'shared_call', 'si', 'si_bin', 'sizeof',
     'starmap_n', 'streaming', 'summary', 'threadlocal', 'time_this', 'timer',
-    'trace', 'trace_module', 'whereami', 'windowed'
+    'trace', 'trace_module', 'weak_memoize', 'whereami', 'windowed'
 ]
 
 _patch_print.apply()
