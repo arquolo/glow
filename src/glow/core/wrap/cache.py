@@ -234,20 +234,20 @@ def _dispatch(
 
 def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
     assert callable(fn)
-    cache: dict[Hashable, asyncio.Future] = {}
+    futs: dict[Hashable, asyncio.Future] = {}
     queue: dict[Hashable, _Job] = {}
     loop = make_loop()
 
     def _load(token) -> asyncio.Future:
         key = key_fn(token)
-        if result := cache.get(key):
+        if result := futs.get(key):
             return result
 
         loop = asyncio.get_running_loop()
-        cache[key] = future = loop.create_future()
+        futs[key] = future = loop.create_future()
         queue[key] = _Job(token, future)
         if len(queue) == 1:
-            loop.call_soon(_dispatch, fn, cache, queue)
+            loop.call_soon(_dispatch, fn, futs.pop, queue)
 
         return future
 
@@ -258,36 +258,55 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
         coro = _load_many(tokens)
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
-    wrapper.cache = cache  # type: ignore[attr-defined]
+    wrapper.stage = futs  # type: ignore[attr-defined]
     return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
-def _memoize_batched(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
+def _memoize_batched(cache: _DictMixin, key_fn: _KeyFn,
+                     fn: _BatchedFn) -> _BatchedFn:
     assert callable(fn)
     lock = RLock()
-    cache: dict[Hashable, cf.Future] = {}
+    futs = WeakValueDictionary[Hashable, cf.Future]()
     queue: dict[Hashable, _Job] = {}
 
-    def _load(stack: ExitStack, token: object) -> cf.Future:
-        key = key_fn(token)
+    def _load(stack: ExitStack, key: Hashable, token: object) -> cf.Future:
         with lock:
-            if result := cache.get(key):
+            if result := futs.get(key):
                 return result
 
-            cache[key] = future = cf.Future()  # type: ignore[var-annotated]
+            futs[key] = future = cf.Future()  # type: ignore[var-annotated]
             queue[key] = _Job(token, future)
             if len(queue) == 1:
-                stack.callback(_dispatch, fn, cache.pop, queue)
+                stack.callback(_dispatch, fn, futs.pop, queue)
 
         return future
 
     def wrapper(tokens: Iterable) -> list:
-        futs = []
+        keyed_tokens = [(key_fn(t), t) for t in tokens]
+
+        # Try to hit
+        misses = {}
+        hits = {}
+        with cache.lock:
+            for k, t in dict(keyed_tokens).items():
+                if (r := cache[k]) is not _empty:
+                    hits[k] = r
+                else:
+                    misses[k] = t
+
+        futs: dict[Hashable, cf.Future] = {}
         with ExitStack() as stack:
-            futs += [_load(stack, token) for token in tokens]
-        return [fut.result() for fut in futs]
+            futs |= {k: _load(stack, k, t) for k, t in misses.items()}
+        cf.wait(futs.values(), return_when='FIRST_EXCEPTION')
+
+        # Process misses
+        with cache.lock:
+            for k, f in futs.items():
+                hits[k] = cache[k] = f.result()
+        return [hits[k] for k, _ in keyed_tokens]
 
     wrapper.cache = cache  # type: ignore[attr-defined]
+    wrapper.stage = futs  # type: ignore[attr-defined]
     return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
@@ -323,11 +342,11 @@ def memoize(
     size_fn = sizeof if bytesize else _unit_size
 
     if (cache_cls := caches.get(policy)) is not None:
-        if batched:
-            return functools.partial(_memoize_batched, key_fn)
         if capacity < 0:
             cache_cls = _HeapCache
-        return functools.partial(_memoize, cache_cls(capacity, size_fn),
-                                 key_fn)
+        cache = cache_cls(capacity, size_fn)
+        if batched:
+            return functools.partial(_memoize_batched, cache, key_fn)
+        return functools.partial(_memoize, cache, key_fn)
     raise ValueError(f'Unknown policy: "{policy}". '
                      f'Only "{set(caches)}" are available')

@@ -11,7 +11,8 @@ _KeyFn: TypeAlias = Callable[..., Hashable]
 def memoize(capacity: int,
             *,
             policy: _Policy = ...,
-            key_fn: _KeyFn = ...) -> Callable[[_F], _F]:
+            key_fn: _KeyFn = ...,
+            bytesize: bool = ...) -> Callable[[_F], _F]:
     ...
 
 
@@ -20,5 +21,6 @@ def memoize(capacity: int,
             *,
             batched: Literal[True],
             policy: _Policy = ...,
-            key_fn: _KeyFn = ...) -> Callable[[_BatchedFn], _BatchedFn]:
+            key_fn: _KeyFn = ...,
+            bytesize: bool = ...) -> Callable[[_BatchedFn], _BatchedFn]:
     ...
