@@ -16,35 +16,51 @@ _LOCK = RLock()
 _HOOKS: dict[str, list[_Hook]] = {}
 
 
-class _ImportHookChainedLoader:
+class _ImportHookChainedLoader(abc.Loader):
     def __init__(self, loader):
         self.loader = loader
 
-    def load_module(self, fullname):
-        module = self.loader.load_module(fullname)
+    def _set_loader(self, module):
+        undefined = object()
+        if getattr(module, '__loader__', undefined) in (None, self):
+            try:
+                module.__loader__ = self.loader
+            except AttributeError:
+                pass
 
+        if ((spec := getattr(module, '__spec__', None)) is not None
+                and getattr(spec, 'loader', None) is self):
+            spec.loader = self.loader
+
+    def create_module(self, spec):
+        return self.loader.create_module(spec)
+
+    def exec_module(self, module):
+        self._set_loader(module)
+        self.loader.exec_module(module)
+
+        name: str | None = getattr(module, '__name__', None)
         with _LOCK:
-            name = getattr(module, '__name__', None)
-            if hooks := _HOOKS.get(name):  # type: ignore[arg-type]
-                while hooks:
-                    hooks.pop()(module)
-
-        return module
+            hooks = _HOOKS.pop(name, [])  # type: ignore[arg-type]
+        for hook in hooks:
+            hook(module)
 
 
-class _ImportHookFinder(abc.MetaPathFinder, set):
-    def find_module(self, fullname, path=None):
+class _ImportHookFinder(abc.MetaPathFinder, set[str]):
+    def find_spec(self, fullname: str, path, target=None):
         with _LOCK:
             if fullname not in _HOOKS or fullname in self:
                 return None
 
-            self.add(fullname)
-            try:
-                if (spec := util.find_spec(fullname)) and spec.loader:
-                    return _ImportHookChainedLoader(spec.loader)
-            finally:
-                self.remove(fullname)
-            return None
+        self.add(fullname)
+        try:
+            if ((spec := util.find_spec(fullname)) and (loader := spec.loader)
+                    and not isinstance(loader, _ImportHookChainedLoader)):
+                spec.loader = _ImportHookChainedLoader(loader)
+                return spec
+        finally:
+            self.remove(fullname)
+        return None
 
 
 def register_post_import_hook(hook: _Hook, name: str) -> None:

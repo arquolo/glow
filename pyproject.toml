@@ -32,7 +32,7 @@ dependencies = [
     "lxml",
     "numpy~=1.21",
     "tqdm",
-    "wrapt",
+    "wrapt~=1.15",
 ]
 
 [project.urls]
