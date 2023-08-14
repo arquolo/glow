@@ -22,7 +22,7 @@ _Scalar = TypeVar('_Scalar', bound=np.generic, covariant=True)
 def _play(arr: np.ndarray,
           rate: int,
           blocksize: int = 1024,
-          bufsize: int = 20):
+          bufsize: int = 20) -> None:
     """Plays audio from array. Supports interruption via Crtl-C."""
     import sounddevice as sd
 
@@ -90,9 +90,17 @@ class Sound(Generic[_Scalar]):
     rate: int = 44_100
 
     def __post_init__(self):
-        assert self.data.ndim == 2
-        assert self.data.shape[-1] in (1, 2)
-        assert self.data.dtype in ('i1', 'i2', 'i4', 'f4')
+        if self.data.ndim not in (1, 2):
+            raise ValueError('Sound must be 1d (mono) or 2d array, '
+                             f'got {self.data.shape}')
+        if self.data.ndim == 1:
+            object.__setattr__(self, 'data', self.data[:, None])
+        if self.data.shape[-1] not in (1, 2):
+            raise ValueError('Only mono/stereo is supported, '
+                             f'got {self.channels} channels')
+        if self.data.dtype not in ('i1', 'i2', 'i4', 'f4'):
+            raise ValueError('Only int8/int16/int32/float32 sound dtype '
+                             f'is supported. Got {self.data.dtype}')
 
     @property
     def channels(self) -> int:
@@ -117,9 +125,20 @@ class Sound(Generic[_Scalar]):
 
     @classmethod
     def load(cls, path: Path | str) -> Sound:
-        spath = str(path)
-        assert spath.endswith('.flac')
+        _check_fmt(path)
         import soundfile
 
-        data, rate = soundfile.read(spath)
+        data, rate = soundfile.read(path)
         return cls(data.astype('f4'), rate)
+
+    def save(self, path: Path | str) -> None:
+        _check_fmt(path)
+        import soundfile
+
+        soundfile.write(path, self.data, self.rate)
+
+
+def _check_fmt(path: Path | str):
+    fmt = Path(path).suffix.lower()
+    if fmt not in ('.flac', '.wav'):
+        raise ValueError(f'Only FLAC/WAV is supported, got {fmt}')
