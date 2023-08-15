@@ -221,7 +221,12 @@ def _dispatch(
 
     try:
         *values, = fn([job.token for job in jobs.values()])
-        assert len(values) == len(jobs)
+
+        # py3.10: zip(..., strict=True)
+        if len(values) != len(jobs):
+            raise RuntimeError(  # noqa: TRY301
+                'Input batch size is not equal to output: '
+                f'{len(values)} != {len(jobs)}')
 
         for job, value in zip(jobs.values(), values):
             job.future.set_result(value)

@@ -157,10 +157,15 @@ def _batch_invoke(
 
     try:
         *results, = func([x for _, x in batch])
-        assert len(results) == len(batch)
+        if len(results) != len(batch):
+            raise RuntimeError(  # noqa: TRY301
+                'Input batch size is not equal to output: '
+                f'{len(results)} != {len(batch)}')
+
     except BaseException as exc:  # noqa: BLE001
         for f, _ in batch:
             f.set_exception(exc)
+
     else:
         # TODO: use zip(strict=True) for python3.10+ when 3.9 is EOL
         for (f, _), r in zip(batch, results):
