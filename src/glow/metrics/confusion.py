@@ -67,3 +67,7 @@ def kappa_quadratic_weighted(mat: torch.Tensor) -> torch.Tensor:
 
 def iou(mat: torch.Tensor) -> torch.Tensor:
     return mat.diag() / (mat.sum(0) + mat.sum(1) - mat.diag()).clamp(_EPS)
+
+
+def dice(mat: torch.Tensor) -> torch.Tensor:
+    return 2 * mat.diag() / (mat.sum(0) + mat.sum(1)).clamp(_EPS)
