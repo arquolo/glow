@@ -140,6 +140,7 @@ max-complexity = 10
 sqlite_cache = true
 check_untyped_defs = true
 ignore_missing_imports = true
+ignore_missing_imports_per_module = true
 no_implicit_optional = true
 show_error_codes = true
 warn_unused_ignores = true
