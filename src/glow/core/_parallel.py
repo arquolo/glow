@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['buffered', 'map_n', 'map_n_dict', 'starmap_n']
+__all__ = ['buffered', 'get_executor', 'map_n', 'map_n_dict', 'starmap_n']
 
 import atexit
 import enum
@@ -167,7 +167,7 @@ def _initializer():
 
 
 @contextmanager
-def _get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
+def get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
     if mp:
         processes: loky.ProcessPoolExecutor = loky.get_reusable_executor(
             max_workers,
@@ -230,7 +230,7 @@ class buffered(Iterator[_T]):  # noqa: N801
         if isinstance(mp, Executor):
             executor = mp
         else:
-            executor = s.enter_context(_get_executor(1, mp))
+            executor = s.enter_context(get_executor(1, mp))
 
         mgr = _get_manager(executor)
         if isinstance(mgr, BaseManager):
@@ -446,7 +446,7 @@ def starmap_n(func: Callable[..., _T],
 
     it = iter(iterable)
     s = ExitStack()
-    submit = s.enter_context(_get_executor(max_workers, mp)).submit
+    submit = s.enter_context(get_executor(max_workers, mp)).submit
 
     if mp:
         func = move_to_shmem(func)
