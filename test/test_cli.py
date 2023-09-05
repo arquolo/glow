@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, Optional, TypeVar
+from typing import Any, Literal, TypeVar
 
 import pytest
 
@@ -43,7 +41,7 @@ class Boolean:
 
 @dataclass
 class Nullable:
-    param: Optional[str] = None  # noqa: UP007
+    param: str | None = None
 
 
 @dataclass
@@ -122,7 +120,7 @@ def _kwarg(a: int = 4):
     return a
 
 
-def _kwarg_opt(a: int = None):  # type: ignore[assignment]
+def _kwarg_opt(a: int = None):  # type: ignore[assignment]  # noqa: RUF013
     return a
 
 
@@ -138,7 +136,8 @@ def _kwarg_list(a: list[int] = []):  # noqa: B006
     return a
 
 
-def _kwarg_opt_list(a: list[int] = None):  # type: ignore[assignment]
+def _kwarg_opt_list(
+        a: list[int] = None):  # type: ignore[assignment]  # noqa: RUF013
     return a
 
 

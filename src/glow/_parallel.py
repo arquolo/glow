@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = [
     'buffered', 'get_executor', 'map_n', 'map_n_dict', 'max_cpu_count',
     'starmap_n'

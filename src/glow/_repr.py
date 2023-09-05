@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['countable', 'mangle', 'repr_as_obj', 'si', 'si_bin']
 
 from collections import Counter

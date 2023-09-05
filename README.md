@@ -19,8 +19,8 @@ pip install glow[io]  # For I/O extras
 pip install glow[all]  # For all
 ```
 </details>
-Glow is compatible with: Python 3.9+, PyTorch 1.11+.
-Tested on ArchLinux, Ubuntu 18.04/20.04, Windows 10/11.
+Glow is compatible with: Python 3.10+.
+Tested on ArchLinux, Ubuntu 20.04/22.04, Windows 10/11.
 
 ## Structure
 - `glow.*` - Core parts, available out the box

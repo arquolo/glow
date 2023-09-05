@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['memoize']
 
 import argparse
@@ -118,7 +116,7 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
 
 @dataclass(repr=False)
 class _ReprMixin(_InitializedStore, _IStore[_T]):
-    refs: ClassVar[MutableMapping[int, _ReprMixin]] = WeakValueDictionary()
+    refs: ClassVar[MutableMapping[int, '_ReprMixin']] = WeakValueDictionary()
 
     def __post_init__(self) -> None:
         self.refs[id(self)] = self
@@ -225,19 +223,19 @@ def _dispatch(
     try:
         *values, = fn([job.token for job in jobs.values()])
 
-        # py3.10: zip(..., strict=True)
         if len(values) != len(jobs):
             raise RuntimeError(  # noqa: TRY301
                 'Input batch size is not equal to output: '
                 f'{len(values)} != {len(jobs)}')
 
-        for job, value in zip(jobs.values(), values):
-            job.future.set_result(value)
-
     except BaseException as exc:  # noqa: BLE001
         for key, job in jobs.items():
             evict(key)
             job.future.set_exception(exc)
+
+    else:
+        for job, value in zip(jobs.values(), values):
+            job.future.set_result(value)
 
 
 def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:

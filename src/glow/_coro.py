@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['as_actor', 'coroutine']
 
 from collections import Counter, deque

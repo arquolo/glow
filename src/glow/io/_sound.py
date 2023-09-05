@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Sound']
 
 from contextlib import ExitStack
@@ -124,7 +122,7 @@ class Sound(Generic[_Scalar_co]):
         _play(self.data, self.rate, blocksize=blocksize)
 
     @classmethod
-    def load(cls, path: Path | str) -> Sound:
+    def load(cls, path: Path | str) -> 'Sound':
         _check_fmt(path)
         import soundfile
 

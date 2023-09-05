@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = [
     'call_once', 'shared_call', 'streaming', 'threadlocal', 'weak_memoize'
 ]
@@ -171,7 +169,6 @@ def _batch_invoke(
             f.set_exception(exc)
 
     else:
-        # TODO: use zip(strict=True) for python3.10+ when 3.9 is EOL
         for (f, _), r in zip(batch, results):
             f.set_result(r)
 

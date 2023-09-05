@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = [
     'as_iter', 'chunked', 'eat', 'ichunked', 'ilen', 'roundrobin', 'windowed'
 ]

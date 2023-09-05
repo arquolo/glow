@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['register_post_import_hook', 'when_imported']
 
 import sys

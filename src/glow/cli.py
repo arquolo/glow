@@ -40,12 +40,9 @@ Reasons not to use alternatives:
     (https://github.com/tiangolo/typer/issues/197).
 """
 
-from __future__ import annotations
-
 __all__ = ['arg', 'parse_args']
 
 import argparse
-import sys
 import types
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
 from collections.abc import Callable, Collection, Iterator, Sequence
@@ -55,12 +52,9 @@ from typing import (Any, Literal, TypeVar, Union, get_args, get_origin,
                     get_type_hints)
 
 _T = TypeVar('_T')
-_Node = Union[str, tuple[str, type, list['_Node']]]
+_Node = str | tuple[str, type, list['_Node']]
 _NoneType = type(None)
-_UNION_TYPES: list = [Union]
-
-if sys.version_info >= (3, 10):
-    _UNION_TYPES += [types.UnionType]
+_UNION_TYPES: list = [Union, types.UnionType]
 
 
 def arg(

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['Uid']
 
 import math
@@ -8,6 +6,8 @@ import string
 from functools import lru_cache
 from typing import SupportsInt
 from uuid import UUID, uuid4
+
+from typing_extensions import Self
 
 ALPHABET = string.digits + string.ascii_letters
 ALPHABET = ''.join(sorted({*ALPHABET} - {*'0O1Il'}))
@@ -71,7 +71,7 @@ class Uid(UUID):
         Creates Uid either from str (parsing it as short-uuid) or
         from int()-compatible type
         """
-        if not isinstance(obj, (str, SupportsInt)):
+        if not isinstance(obj, str | SupportsInt):
             raise TypeError('Either int, string or UUID required. '
                             f'Got {type(obj)}')
 
@@ -95,6 +95,6 @@ class Uid(UUID):
         )
 
     @classmethod
-    def v4(cls) -> Uid:
+    def v4(cls) -> Self:
         """Alias for Uid(uuid.uuid4())"""
         return cls(uuid4())

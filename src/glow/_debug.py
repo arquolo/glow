@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['lock_seed', 'trace', 'trace_module', 'whereami']
 
 import gc

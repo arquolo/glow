@@ -1,9 +1,6 @@
-from __future__ import annotations
-
 __all__ = ['Reusable']
 
 import asyncio
-import sys
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -43,18 +40,7 @@ class Reusable(Generic[_T]):
     _loop: asyncio.AbstractEventLoop = field(default_factory=make_loop)
     _deleter: asyncio.TimerHandle | None = None
     _box: list[_T] = field(default_factory=list)
-
-    if sys.version_info >= (3, 10):
-        _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    else:
-        _lock: asyncio.Lock = field(init=False)
-
-        def __post_init__(self):
-            self._lock = asyncio.run_coroutine_threadsafe(
-                _await(asyncio.Lock),
-                self._loop,
-            ).result()
-            assert self._lock._loop is self._loop
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def __call__(self) -> _T:
         """Returns inner object, or recreates it"""

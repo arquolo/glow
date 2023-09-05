@@ -18,7 +18,7 @@ class _HashedSeq(list):  # List is mutable, that's why not NamedTuple
 
 def make_key(*args, **kwargs) -> Hashable:
     """Copied from functools._make_key, as private function"""
-    if len(args) == 1 and isinstance(args[0], (int, str)):
+    if len(args) == 1 and isinstance(args[0], int | str):
         return args[0]
     if kwargs:
         args = sum(kwargs.items(), (*args, _KWD_MARK))

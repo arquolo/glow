@@ -4,8 +4,6 @@
 + Idle threads are stopped on _TIMEOUT.
 ? Most recently used threads used first (a.k.a. stack, more dropout).
 """
-from __future__ import annotations
-
 __all__ = ['ThreadQuota']
 
 from collections import deque

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 __all__ = ['move_to_shmem']
 
 import copyreg
@@ -65,7 +63,7 @@ class _Mmap:
     _shm_root = _get_shm_dir()
 
     @classmethod
-    def from_bytes(cls, data: memoryview, tag: str) -> _Mmap:
+    def from_bytes(cls, data: memoryview, tag: str) -> '_Mmap':
         mv = cls(data.nbytes, f'shm-{os.getpid()}-{tag}', create=True)
         mv.buf[:] = data
         return mv
