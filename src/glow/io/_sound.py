@@ -16,7 +16,7 @@ from tqdm.auto import tqdm
 
 from .. import chunked
 
-_Scalar = TypeVar('_Scalar', bound=np.generic, covariant=True)
+_Scalar_co = TypeVar('_Scalar_co', bound=np.generic, covariant=True)
 
 
 def _play(arr: np.ndarray,
@@ -56,7 +56,7 @@ def _play(arr: np.ndarray,
 
 
 @dataclass(repr=False, frozen=True)
-class Sound(Generic[_Scalar]):
+class Sound(Generic[_Scalar_co]):
     """Wraps numpy.array to be playable as sound
 
     Parameters:
@@ -86,7 +86,7 @@ class Sound(Generic[_Scalar]):
     raw = np.array(sound)
     ```
     """
-    data: npt.NDArray[_Scalar]
+    data: npt.NDArray[_Scalar_co]
     rate: int = 44_100
 
     def __post_init__(self):
@@ -116,7 +116,7 @@ class Sound(Generic[_Scalar]):
         dtype = self.data.dtype
         return f'{type(self).__name__}({duration=!s}, {channels=}, {dtype=!s})'
 
-    def __array__(self) -> npt.NDArray[_Scalar]:
+    def __array__(self) -> npt.NDArray[_Scalar_co]:
         return self.data
 
     def play(self, blocksize=1024) -> None:

@@ -19,6 +19,7 @@ from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
 from itertools import chain, islice, starmap
+from logging import getLogger
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
@@ -39,7 +40,7 @@ from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
 
 _T = TypeVar('_T')
-_T_ctr = TypeVar('_T_ctr', contravariant=True)
+_T_contra = TypeVar('_T_contra', contravariant=True)
 _K = TypeVar('_K')
 _F = TypeVar('_F', bound=Future)
 
@@ -47,6 +48,7 @@ _NUM_CPUS = os.cpu_count() or 0
 _NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
 _IDLE_WORKER_TIMEOUT = 10
 _GRANULAR_SCHEDULING = False  # TODO: investigate whether this improves load
+_LOGGER = getLogger(__name__)
 
 
 class _Empty(enum.Enum):
@@ -287,6 +289,7 @@ class _AutoSize:
             if 0 < self.duration < self.MIN_DURATION:
                 self.size *= 2
                 self.duration = 0.0
+                _LOGGER.debug('Doubling batch size to %d', self.size)
 
             elif self.duration > self.MAX_DURATION:
                 size = int(2 * self.size * self.MIN_DURATION / self.duration)
@@ -294,6 +297,7 @@ class _AutoSize:
                 if self.size != size:
                     self.duration = 0.0
                     self.size = size
+                    _LOGGER.debug('Reducing batch size to %d', self.size)
 
             return self.size
 
@@ -507,8 +511,8 @@ def map_n(func: Callable[..., _T],
         order=order)
 
 
-def map_n_dict(func: Callable[[_T_ctr], _T],
-               obj: Mapping[_K, _T_ctr],
+def map_n_dict(func: Callable[[_T_contra], _T],
+               obj: Mapping[_K, _T_contra],
                /,
                *,
                max_workers: int | None = None,

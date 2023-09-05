@@ -4,11 +4,7 @@
 
 ### `__init__`
 
-- Add explicit imports from `core.*`
-
-## `core` contents
-
-### `{map,starmap}_n` (from `.core._parallel`)
+### `{map,starmap}_n` (from `._parallel`)
 
 Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Windows, and tmpfs mmap on Linux.
 
@@ -16,11 +12,11 @@ Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Win
 - `child` -> `parent` = keep in shared if already there, otherwise move as usual.
 - Drop shared data at pool shutdown.
 
-### `core.{wrap -> cache}`
+### `.wrap -> .cache`
 
 Add case `capacity=None` for unbound cache like in `functools`.
 
-Use `evict: _Eviction` instead of `polycy` argument.
+Use `evict: _Eviction` instead of `policy` argument.
 
 Combine all underlying modules to single module one, or find a better split.
 
@@ -41,14 +37,14 @@ Improve test coverage.
 - Improve function signature to show/hide stack frames from `site` modules.
   If 100% detection of foreign functions is not possible, skip only stdlib ones.
 
-### `core._patch_len`
+### `._patch_len`
 
 - `len_hint(_object: Any) -> int: ...`
 - Keep signature of wrapped function
 - Make `len()` patching optional
 - Add wrapper for `tqdm` to use there `len_hint(...)` instead of `total=len(...)`
 
-### `core._repr._Si`
+### `._repr._Si`
 
 Add proper string formatting using `format_spec`
 

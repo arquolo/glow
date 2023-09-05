@@ -3,25 +3,26 @@ from concurrent.futures import Executor
 from typing import Generic, Protocol, TypeVar, overload
 
 _T = TypeVar('_T')
-_T1_ctr = TypeVar('_T1_ctr', contravariant=True)
-_T2_ctr = TypeVar('_T2_ctr', contravariant=True)
-_T3_ctr = TypeVar('_T3_ctr', contravariant=True)
+_T1_contra = TypeVar('_T1_contra', contravariant=True)
+_T2_contra = TypeVar('_T2_contra', contravariant=True)
+_T3_contra = TypeVar('_T3_contra', contravariant=True)
 _K_co = TypeVar('_K_co', covariant=True)
 _R_co = TypeVar('_R_co', covariant=True)
 
 
-class _Callable1(Generic[_T1_ctr, _R_co], Protocol):
-    def __call__(self, __1: _T1_ctr, /) -> _R_co:
+class _Callable1(Generic[_T1_contra, _R_co], Protocol):
+    def __call__(self, __1: _T1_contra, /) -> _R_co:
         ...
 
 
-class _Callable2(Generic[_T1_ctr, _T2_ctr, _R_co], Protocol):
-    def __call__(self, __1: _T1_ctr, __2: _T2_ctr, /) -> _R_co:
+class _Callable2(Generic[_T1_contra, _T2_contra, _R_co], Protocol):
+    def __call__(self, __1: _T1_contra, __2: _T2_contra, /) -> _R_co:
         ...
 
 
-class _Callable3(Generic[_T1_ctr, _T2_ctr, _T3_ctr, _R_co], Protocol):
-    def __call__(self, __1: _T1_ctr, __2: _T2_ctr, __3: _T3_ctr, /) -> _R_co:
+class _Callable3(Generic[_T1_contra, _T2_contra, _T3_contra, _R_co], Protocol):
+    def __call__(self, __1: _T1_contra, __2: _T2_contra, __3: _T3_contra,
+                 /) -> _R_co:
         ...
 
 
@@ -55,8 +56,8 @@ def starmap_n(__func: Callable[..., _R_co],
 
 
 @overload
-def map_n(__func: _Callable1[_T1_ctr, _R_co],
-          __iter1: Iterable[_T1_ctr],
+def map_n(__func: _Callable1[_T1_contra, _R_co],
+          __iter1: Iterable[_T1_contra],
           /,
           *,
           max_workers: int | None = ...,
@@ -68,9 +69,9 @@ def map_n(__func: _Callable1[_T1_ctr, _R_co],
 
 
 @overload
-def map_n(__f: _Callable2[_T1_ctr, _T2_ctr, _R_co],
-          __iter1: Iterable[_T1_ctr],
-          __iter2: Iterable[_T2_ctr],
+def map_n(__f: _Callable2[_T1_contra, _T2_contra, _R_co],
+          __iter1: Iterable[_T1_contra],
+          __iter2: Iterable[_T2_contra],
           /,
           *,
           max_workers: int | None = ...,
@@ -82,10 +83,10 @@ def map_n(__f: _Callable2[_T1_ctr, _T2_ctr, _R_co],
 
 
 @overload
-def map_n(__f: _Callable3[_T1_ctr, _T2_ctr, _T3_ctr, _R_co],
-          __iter1: Iterable[_T1_ctr],
-          __iter2: Iterable[_T2_ctr],
-          __iter3: Iterable[_T3_ctr],
+def map_n(__f: _Callable3[_T1_contra, _T2_contra, _T3_contra, _R_co],
+          __iter1: Iterable[_T1_contra],
+          __iter2: Iterable[_T2_contra],
+          __iter3: Iterable[_T3_contra],
           /,
           *,
           max_workers: int | None = ...,
@@ -112,8 +113,8 @@ def map_n(__func: _Callable4[_R_co],
     ...
 
 
-def map_n_dict(func: Callable[[_T1_ctr], _R_co],
-               obj: Mapping[_K_co, _T1_ctr],
+def map_n_dict(func: Callable[[_T1_contra], _R_co],
+               obj: Mapping[_K_co, _T1_contra],
                /,
                *,
                max_workers: int | None = None,

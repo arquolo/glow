@@ -187,21 +187,24 @@ def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
     snake = fd.name.replace('_', '-')
     flags = [f] if (f := fd.metadata.get('flag')) else []
 
+    default = (
+        fd.default_factory()
+        if fd.default_factory is not MISSING else fd.default)
+
     if cls is bool:  # Optional
-        if fd.default is MISSING:
+        if default is MISSING:
             raise ValueError(f'Boolean field "{fd.name}" should have default')
         parser.add_argument(
             f'--{snake}',
             *flags,
             action=BooleanOptionalAction,
-            default=fd.default,
+            default=default,
             help=help_)
 
     # Generic optional
-    elif fd.default is not MISSING or fd.default_factory is not MISSING:
+    elif default is not MISSING:
         if opts.get('nargs') == argparse.OPTIONAL:
             del opts['nargs']
-        default = fd.default_factory() if fd.default is MISSING else fd.default
         parser.add_argument(
             f'--{snake}', *flags, **opts, default=default, help=help_)
 

@@ -4,7 +4,7 @@ from collections import ChainMap
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from ..core import repr_as_obj
+from .. import repr_as_obj
 
 
 class _Env(ChainMap):

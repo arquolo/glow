@@ -8,7 +8,7 @@ import concurrent.futures as cf
 import enum
 import functools
 from collections import Counter
-from collections.abc import (Callable, Hashable, Iterable, KeysView,
+from collections.abc import (Callable, Hashable, Iterable, Iterator, KeysView,
                              MutableMapping)
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -94,6 +94,9 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
 
     def keys(self) -> KeysView:
         raise NotImplementedError
+
+    def __iter__(self) -> Iterator:
+        return iter(self.keys())
 
     def __getitem__(self, key: Hashable) -> _T | _Empty:
         with self.lock:
