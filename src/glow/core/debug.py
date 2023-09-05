@@ -117,8 +117,8 @@ def lock_seed(seed: int) -> None:
     np.random.seed(seed)
 
     def _torch_seed(torch):
-        import torch  # type: ignore[no-redef]
-        import torch.backends.cudnn  # type: ignore[no-redef]
+        import torch
+        import torch.backends.cudnn
 
         torch.manual_seed(seed)
         torch.backends.cudnn.deterministic = True

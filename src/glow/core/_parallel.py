@@ -80,8 +80,7 @@ def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
     if not mp or sys.platform != 'win32' or 'torch' not in sys.modules:
         return
 
-    import torch
-    if torch.version.cuda and torch.version.cuda >= '11.7.0':
+    if (sys.modules['torch'].version.cuda or '') >= '11.7.0':
         # It's expected that torch will fix .nv_fatb readonly flag in its DLLs
         # See https://stackoverflow.com/a/69489193/9868257
         return

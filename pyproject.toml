@@ -7,8 +7,8 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.12.9"
-description = "Functional Python tools with a PyTorch flavour"
+version = "0.13.0"
+description = "Functional Python tools"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
@@ -40,21 +40,8 @@ homepage = "https://github.com/arquolo/glow"
 
 [project.optional-dependencies]
 memprof = ["psutil"]
-cv = ["opencv-python~=4.0", "scipy"]
-cv-dither = ["glow[cv]", "numba"]
-io = ["sounddevice", "soundfile"]
-nn = [
-    "graphviz",
-    "einops",
-    "packaging",
-    "pynvml~=11.4",
-    "torch~=2.0",
-    "torchvision~=0.15",
-    # --extra-index-url https://download.pytorch.org/whl/cu118
-    # "torch-tensorrt~=1.3; platform_system=='Linux'",  # TODO: upd for torch 2.x
-    # -f https://github.com/NVIDIA/Torch-TensorRT/releases
-]
-all = ["glow[cv,io,nn]", "matplotlib"]
+io = ["opencv-python-headless~=4.0", "sounddevice", "soundfile"]
+all = ["glow[io]", "matplotlib"]
 dev-core = [
     "flake8~=6.0.0",
     "flake8-pie",

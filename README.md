@@ -1,5 +1,5 @@
 # Glow Library
-Collection of tools for easier prototyping with deep learning extensions (PyTorch framework)
+Set of functional tools for easier prototyping
 
 ## Overview
 ...
@@ -15,7 +15,6 @@ pip install glow
 <summary>Specific versions with additional requirements</summary>
 
 ```bash
-pip install glow[nn]  # For cv/neural network extras
 pip install glow[io]  # For I/O extras
 pip install glow[all]  # For all
 ```
@@ -25,11 +24,7 @@ Tested on ArchLinux, Ubuntu 18.04/20.04, Windows 10/11.
 
 ## Structure
 - `glow.*` - Core parts, available out the box
-- `glow.cv.*` - Tools for computer vision tasks
 - `glow.io.*` - I/O wrappers to access data in convenient formats
-- `glow.transforms` - Some custom-made augmentations for data
-- `glow.nn` - Neural nets and building blocks for them
-- `glow.metrics` - Metric to use while training your neural network
 
 ## Core features
 - `glow.mapped` - convenient tool to parallelize computations
