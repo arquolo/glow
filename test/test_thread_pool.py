@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 
 import glow
-from glow import eat
-from glow.core._parallel import max_cpu_count
+from glow import eat, max_cpu_count
 
 DEATH_RATE = 0
 SIZE = 100

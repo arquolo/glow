@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 
 from wrapt import ObjectProxy
 
+from ._debug import whereami
 from ._repr import si, si_bin
-from .debug import whereami
 
 if TYPE_CHECKING:
     import psutil
