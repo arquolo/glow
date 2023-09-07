@@ -1,14 +1,17 @@
 __all__ = [
-    'as_iter', 'chunked', 'eat', 'ichunked', 'ilen', 'roundrobin', 'windowed'
+    'as_iter', 'chunked', 'eat', 'groupby', 'ichunked', 'ilen', 'roundrobin',
+    'windowed'
 ]
 
 import threading
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping, Sequence, Sized
+from collections.abc import (Callable, Hashable, Iterable, Iterator, Mapping,
+                             Sequence, Sized)
 from functools import partial
 from itertools import chain, count, cycle, islice, repeat
 from typing import Protocol, TypeVar, overload
 
+_K = TypeVar('_K', bound=Hashable)
 _T = TypeVar('_T')
 _T_co = TypeVar('_T_co', covariant=True)
 
@@ -216,3 +219,20 @@ def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
     for pending in range(len(iterables) - 1, -1, -1):
         yield from map(next, iters)
         iters = cycle(islice(iters, pending))
+
+
+# ----------------------------------------------------------------------------
+
+
+def groupby(iterable: Iterable[_T_co], key: Callable[[_T_co], _K],
+            /) -> dict[_K, list[_T_co]]:
+    """Group items from iterable by key.
+
+    >>> groupby([True, (), 1, 0], bool)
+    {True: [True, 1], False: [(), 0]}
+
+    """
+    r: dict[_K, list[_T_co]] = {}
+    for x in iterable:
+        r.setdefault(key(x), []).append(x)
+    return r
