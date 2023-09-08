@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Executor
+from contextlib import AbstractContextManager
 from typing import Generic, Protocol, TypeVar, overload
 
 _T = TypeVar('_T')
@@ -32,6 +33,11 @@ class _Callable4(Generic[_R_co], Protocol):
 
 
 def max_cpu_count(upper_bound: int = ..., mp: bool = ...) -> int:
+    ...
+
+
+def get_executor(max_workers: int,
+                 mp: bool) -> AbstractContextManager[Executor]:
     ...
 
 
