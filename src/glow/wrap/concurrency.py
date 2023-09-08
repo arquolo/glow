@@ -8,7 +8,6 @@ from collections.abc import Callable, Hashable, Iterable, Sequence
 from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from functools import partial, update_wrapper
-from logging import getLogger
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
@@ -23,7 +22,6 @@ _F = TypeVar('_F', bound=Callable)
 _BatchFn = Callable[[list[_T]], Iterable[_R]]
 _ZeroArgsF = TypeVar('_ZeroArgsF', bound=Callable[[], object])
 
-_LOGGER = getLogger(__name__)
 _PATIENCE = 0.01
 _unset = object()
 
@@ -143,8 +141,6 @@ def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
         try:
             batch.append(q.get(timeout=waittime))
         except Empty:
-            _LOGGER.warning('worker timed out %f - qd %d/%d', timeout,
-                            len(batch), batch_size)
             break
     return batch
 
