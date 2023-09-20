@@ -78,17 +78,20 @@ def _find_prefix(value: float | int, base: int,
     return value, prefixes[-1]
 
 
-def _num_repr(value: float | int, si: bool = True) -> str:
+def _num_repr(value: float | int, si: bool = True) -> tuple[float, str]:
     if value == 0:
-        return '0' if si else '0B'
+        return 0, ('' if si else 'B')
 
     base, prefixes = (1000, _PREFIXES) if si else (1024, _PREFIXES_BIN)
     value, prefix = _find_prefix(value, base, prefixes)
 
-    precision = '.3g' if -99.95 < value < 99.95 else '.0f'
     prefix = prefix.strip()
     unit = prefix if si else f'{prefix}iB' if prefix else 'B'
-    return f'{value:{precision}}{unit}'
+    return value, unit
+
+
+def _autospec(value: float) -> str:
+    return '.3g' if -99.95 < value < 99.95 else '.0f'
 
 
 class _Si(ObjectProxy):
@@ -99,13 +102,19 @@ class _Si(ObjectProxy):
         self._self_si = si
 
     def __str__(self) -> str:
-        return _num_repr(self.__wrapped__, self._self_si)
+        value, unit = _num_repr(self.__wrapped__, self._self_si)
+        return f'{value:{_autospec(value)}}{unit}'
 
     def __repr__(self):
         return f'{type(self).__name__}({self})'
 
     def __format__(self, format_spec: str) -> str:
-        return str(self).__format__(format_spec)
+        value, unit = _num_repr(self.__wrapped__, self._self_si)
+        if not format_spec:
+            return f'{value:{_autospec(value)}}{unit}'
+        if format_spec.endswith('s'):
+            return f'{value:{_autospec(value)}}{unit}'.__format__(format_spec)
+        return f'{value:{format_spec}}{unit}'
 
     def __reduce_ex__(self, _) -> tuple:  # Else no serialization
         return type(self), (self.__wrapped__, self._self_si)
