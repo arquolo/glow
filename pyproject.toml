@@ -26,9 +26,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "loky>=3.1",
+    "loky~=3.1",
     "lxml",
     "numpy~=1.21",
     "tqdm",
@@ -43,23 +44,23 @@ memprof = ["psutil"]
 io = ["opencv-python-headless~=4.0", "sounddevice", "soundfile"]
 all = ["glow[io]", "matplotlib"]
 dev-core = [
-    "flake8~=6.0.0",
+    "flake8~=6.1.0",
     "flake8-pie",
     "flake8-pyi",
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
-    "mypy~=1.1.1",
-    "pytest~=6.0",
-    "ruff~=0.0.269",
-    "yapf==0.33.0",
+    "mypy~=1.5.1",
+    "pytest~=7.4.2",
+    "ruff~=0.0.292",
+    "yapf==0.40.2",
 ]
 dev = [
     "glow[dev-core]",
     "flake8-alphabetize",
     # "flake8-class-attributes-order",
     # "flake8-newspaper-style",
-    "typing-extensions~=4.4",
+    "typing-extensions~=4.8",
 ]
 dev-wemake = [
     "glow[dev-core]",
