@@ -95,11 +95,15 @@ class ThreadQuota(Executor):
             _executors.add(self)
 
     def submit(self, fn, /, *args, **kwargs):
+        f = Future()  # type: ignore[var-annotated]
+        self.submit_f(f, fn, *args, **kwargs)
+        return f
+
+    def submit_f(self, f, fn, /, *args, **kwargs):
         with self._shutdown_lock, _shutdown_lock:
             if self._shutdown or _shutdown:
                 raise RuntimeError('cannot schedule futures after shutdown')
 
-            f = Future()  # type: ignore[var-annotated]
             self._work_queue.append(_WorkItem(f, fn, args, kwargs))
 
             if _safe_call(self._idle.pop):  # Pool is not maximized yet
@@ -109,8 +113,6 @@ class ThreadQuota(Executor):
                     w.start()
                     _workers[w] = q
                 q.put(self)
-
-            return f
 
     def shutdown(self, wait=True, *, cancel_futures=False):
         with self._shutdown_lock:
