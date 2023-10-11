@@ -50,7 +50,7 @@ dev-core = [
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
-    "mypy~=1.5.1",
+    "mypy~=1.6.0",
     "pytest~=7.4.2",
     "ruff~=0.0.292",
     "yapf==0.40.2",
