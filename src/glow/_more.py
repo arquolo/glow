@@ -13,6 +13,7 @@ from typing import Protocol, TypeVar, overload
 
 _K = TypeVar('_K', bound=Hashable)
 _T = TypeVar('_T')
+_V = TypeVar('_V')
 _T_co = TypeVar('_T_co', covariant=True)
 
 
@@ -224,15 +225,26 @@ def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
 # ----------------------------------------------------------------------------
 
 
-def groupby(iterable: Iterable[_T_co], key: Callable[[_T_co], _K],
-            /) -> dict[_K, list[_T_co]]:
+@overload
+def groupby(iterable: Iterable[_T_co], /,
+            key: Callable[[_T_co], _K]) -> dict[_K, list[_T_co]]:
+    ...
+
+
+@overload
+def groupby(iterable: Iterable[_T], /, key: Callable[[_T], _K],
+            value: Callable[[_T], _V]) -> dict[_K, list[_V]]:
+    ...
+
+
+def groupby(iterable, /, key, value=lambda x: x):
     """Group items from iterable by key.
 
     >>> groupby([True, (), 1, 0], bool)
     {True: [True, 1], False: [(), 0]}
 
     """
-    r: dict[_K, list[_T_co]] = {}
+    r: dict = {}
     for x in iterable:
-        r.setdefault(key(x), []).append(x)
+        r.setdefault(key(x), []).append(value(x))
     return r
