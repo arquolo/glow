@@ -43,7 +43,9 @@ _K = TypeVar('_K')
 _F = TypeVar('_F', bound=Future)
 
 _NUM_CPUS = os.cpu_count() or 0
-_NUM_CPUS = min(_NUM_CPUS, int(os.getenv('GLOW_CPUS', _NUM_CPUS)))
+if (_env_cpus := os.getenv('GLOW_CPUS')) is not None:
+    _NUM_CPUS = min(_NUM_CPUS, int(_env_cpus))
+    _NUM_CPUS = max(_NUM_CPUS, 0)
 _IDLE_WORKER_TIMEOUT = 10
 _GRANULAR_SCHEDULING = False  # TODO: investigate whether this improves load
 _LOGGER = getLogger(__name__)
@@ -528,4 +530,4 @@ def map_n_dict(func: Callable[[_T_contra], _T],
         prefetch=prefetch,
         mp=mp,
         chunksize=chunksize)
-    return dict(zip(obj.keys(), iter_values))
+    return dict(zip(obj.keys(), iter_values, strict=True))
