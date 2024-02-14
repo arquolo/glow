@@ -42,6 +42,7 @@ homepage = "https://github.com/arquolo/glow"
 [project.optional-dependencies]
 memprof = ["psutil"]
 io = ["opencv-python-headless~=4.0", "sounddevice", "soundfile"]
+ic = ["asttokens", "colorama", "executing", "pygments"]
 all = ["glow[io]", "matplotlib"]
 dev-core = [
     "flake8~=7.0",
