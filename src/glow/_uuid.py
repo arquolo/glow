@@ -81,18 +81,39 @@ class Uid(UUID):
     def __str__(self) -> str:
         return base57_encode(int(self))
 
-    @classmethod
-    def __get_validators__(cls):  # Required for Pydantic
+    @classmethod  # Pydantic 1.x requirement
+    def __get_validators__(cls):
         yield cls
 
-    @classmethod
-    def __modify_schema__(cls, field_schema: dict):  # Required for OpenAPI
+    @classmethod  # Pydantic 2.x requirement
+    def __get_pydantic_core_schema__(cls, _, handler):
+        from pydantic_core import core_schema
+        return core_schema.no_info_after_validator_function(
+            cls,
+            handler(int | str),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                str,
+                info_arg=False,
+                return_schema=core_schema.str_schema(),
+            ),
+        )
+
+    @classmethod  # Pydantic 1.x requirement for OpenAPI
+    def __modify_schema__(cls, field_schema: dict):
         field_schema.update(
             examples=[str(cls.v4()) for _ in range(2)],
             type='string',
             format=None,
             pattern=_REGEX.pattern,
         )
+
+    @classmethod  # Pydantic 2.x requirement for OpenAPI
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        field_schema = handler(core_schema)
+        field_schema = handler.resolve_ref_schema(field_schema)
+        field_schema.pop('anyOf', None)
+        cls.__modify_schema__(field_schema)
+        return field_schema
 
     @classmethod
     def v4(cls) -> Self:
