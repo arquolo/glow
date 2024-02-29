@@ -88,47 +88,43 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
     # but a fastest one.
     # Split tensor by all axes, do mean for each cell,
     # and then aggregate means to mean for the each axis split.
-    arr_f4 = arr.astype('f4')
+    arr = arr.squeeze()
+    hs, ms = np.divmod(arr.shape, 2)
 
     # Pyramid of splits
-    splits: dict[tuple[int, ...], np.ndarray] = {(): arr_f4}
-    for axis, size in enumerate(arr.shape):
-        if size == 1:
-            splits = {(*k, 0): s for k, s in splits.items()}
-        else:
-            half = size // 2
-            splits = {
-                (*k, k2): ss for k, s in splits.items()
-                for k2, ss in enumerate(np.split(s, [half, -half], axis))
-            }
+    splits: dict[tuple[int, ...], np.ndarray] = {(): arr.astype('f4')}
+    for axis, (half, m) in enumerate(zip(hs, ms)):
+        sep = [half, half + 1] if m else [half]
+        splits = {
+            (*k, k2): ss for k, s in splits.items()
+            for k2, ss in enumerate(np.split(s, sep, axis))
+        }
 
-    # Tensor of means, (low, 0, high) ^ ndim
-    s_shape = [1 if size == 1 else 3 for size in arr.shape]
-    means = np.zeros(s_shape)
-    weights = np.zeros(s_shape, int)
+    # Tensor of means, (low, 0?, high) ^ ndim
+    s_shape = 2 * hs.clip(max=1) + ms
+    sums = np.zeros(s_shape)
+    counts = np.zeros(s_shape, int)
     for loc, s in splits.items():
-        means[loc] = s.mean() if s.size else 0
-        weights[loc] = s.size
+        n = s.size
+        if (mask := np.ma.getmask(s)) is not np.ma.nomask:
+            n -= mask.sum()
+        if n:
+            sums[loc] = s.sum()
+        counts[loc] = n
 
     # Aggregate and do grads
     grad = np.zeros(arr.ndim)
-    for axis, size in enumerate(arr.shape):
-        if size == 1:
-            continue
-
-        axes = *(a for a in range(arr.ndim) if a != axis),
-        means_ = np.take(means, [0, 2], axis)
-        weights_ = np.take(weights, [0, 2], axis)
-        head, tail = np.average(means_, axes, weights_)
+    for axis in range(arr.ndim):
+        axes = *range(axis), *range(axis + 1, arr.ndim)
+        head, tail = (sums.sum(axes) / counts.sum(axes).clip(min=1))[[0, -1]]
         grad[axis] = tail - head
 
     return grad
 
 
-def _get_properties(arr: np.ndarray) -> Iterator[str]:
-    yield f'{arr.shape}, {arr.dtype}'
-    if not arr.size:
-        return
+def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:  # noqa: C901
+    assert arr.size
+    assert arr.dtype.kind in 'biufc'  # Only bool/int/uint/float/complex
 
     # Small array, print contents as is
     if arr.size < {'b': 40, 'u': 40, 'i': 40}.get(arr.dtype.kind, 20):
@@ -142,27 +138,37 @@ def _get_properties(arr: np.ndarray) -> Iterator[str]:
         yield f'data={line!r}'
         return
 
-    # Too much data, use statistics
-    lo = arr.min()
-    hi = arr.max()
+    if arr.dtype.kind == 'c':  # View as float
+        arr = arr.astype('c8').view('2f4')
+        lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
 
-    if arr.dtype.kind == 'f':
-        yield f'x∈[{lo:.8f}, {hi:.8f}]'
-        yield f'x={arr.mean():.8f}±{arr.std():.8f}'
+    if arr.dtype.kind == 'f':  # Too much values, use statistics
+        arr = np.ma.masked_invalid(arr)
+        if (num_invalid := arr.mask.sum()) < arr.size:
+            if num_invalid:  # Old min/max have invalid data, recompute
+                lo, hi = arr.min(), arr.max()
+            if lo < hi:
+                yield f'x∈[{lo:.5g}, {hi:.5g}]'
+                yield f'x={arr.mean():.5g}±{arr.std():.5g}'
+            else:
+                yield f'x={lo:.5g}'
+        yield from map(str, np.unique(arr.data[arr.mask]).tolist())
+
+    # Narrow range, raw distribution (lo >= 0 and hi <= 10)
+    elif lo >= 0 and hi <= 10:
+        uniq, counts = np.unique(arr, return_counts=True)
+        weights = counts.astype('f8') / arr.size
+        yield f'x∈{uniq} @ {weights.round(4)}'
+
+    # Wider range, low/high + nuniq
+    elif hi - lo < 1000:
+        yield f'x∈[{lo}, {hi}]'
+        uniq, counts = np.unique(arr, return_counts=True)
+        yield f'{uniq.size / (hi - lo + 1):.2%} range'
 
     # Wide range, only low/high
-    elif int(hi) - int(lo) > 100:
-        yield f'x∈[{lo}, {hi}]'
-
-    # Medium range or zero crossing, low/high + nuniq
-    elif int(lo) < 0 or int(hi) > 10:
-        nuniq = np.unique(arr).size
-        yield f'x∈[{lo}, {hi}], nuniq={nuniq}'
-
-    # Narrow range, raw distribution
     else:
-        weights = np.bincount(arr.flat).astype('f8') / arr.size
-        yield f'weights={weights}'
+        yield f'x∈[{lo}, {hi}]'
 
     if (grad := _get_nd_grad(arr)).any():
         yield f'grad={grad.round(8)}'
@@ -175,7 +181,20 @@ class _ReprArray(NamedTuple):
         return str(self.data)
 
     def __repr__(self) -> str:
-        return 'np.ndarray(' + ', '.join(_get_properties(self.data)) + ')'
+        arr = self.data
+        common = f'{arr.shape if arr.ndim != 1 else arr.size}, {arr.dtype}'
+        if not arr.size:
+            return f'np.empty({common})'
+        if arr.dtype.kind not in 'biufc':  # Only bool/int/uint/float/complex
+            return f'np.array({common}, data={arr.ravel()})'  # Use Numpy
+
+        lo, hi = arr.min(), arr.max()
+        if np.isfinite([lo, hi]).all() and lo == hi:  # "full" array
+            if not lo:
+                return f'np.zeros({common})'
+            return f'np.full({common}, value={lo})'
+        return 'np.array(' + ', '.join([common, *_get_properties(arr, lo, hi)
+                                        ]) + ')'
 
 
 def _prepare(obj):  # noqa: PLR0911
