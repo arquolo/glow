@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 
 from .. import chunked
 
-_Scalar_co = TypeVar('_Scalar_co', bound=np.generic, covariant=True)
+_Scalar_co = TypeVar('_Scalar_co', bound=np.number, covariant=True)
 
 
 def _play(arr: np.ndarray,
