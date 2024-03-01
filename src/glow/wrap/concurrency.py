@@ -8,6 +8,7 @@ from collections.abc import Callable, Hashable, Iterable, Sequence
 from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from functools import partial, update_wrapper
+from logging import getLogger
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
@@ -22,6 +23,7 @@ _F = TypeVar('_F', bound=Callable)
 _BatchFn = Callable[[list[_T]], Iterable[_R]]
 _ZeroArgsF = TypeVar('_ZeroArgsF', bound=Callable[[], object])
 
+_LOGGER = getLogger(__name__)
 _PATIENCE = 0.01
 _unset = object()
 
@@ -141,6 +143,8 @@ def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
         try:
             batch.append(q.get(timeout=waittime))
         except Empty:
+            # _LOGGER.warning('worker timed out %.3fs - qd %d/%d', timeout,
+            #                 len(batch), batch_size)
             break
     return batch
 
@@ -161,8 +165,9 @@ def _batch_invoke(
                 f'{len(results)} != {len(batch)}')
 
     except BaseException as exc:  # noqa: BLE001
-        for f, _ in batch:
-            f.set_exception(exc)
+        # Weird fix to not fail into recursion. Make 1 future instead of many?
+        for i, (f, _) in enumerate(batch):
+            f.set_exception(exc if i == 0 else RuntimeError())
 
     else:
         for (f, _), r in zip(batch, results):
@@ -251,4 +256,76 @@ def streaming(func=None,
     # TODO: find how to distinguish between
     # TODO:  not yet bound method and plain function
     # TODO:  maybe implement __get__ on wrapper
+    return update_wrapper(wrapper, func)
+
+
+def streaming2(func=None,
+               /,
+               *,
+               batch_size,
+               timeout=0.1,
+               workers=1,
+               pool_timeout=20.):
+    if func is None:
+        return partial(
+            streaming2,
+            batch_size=batch_size,
+            timeout=timeout,
+            workers=workers,
+            pool_timeout=pool_timeout)
+
+    assert callable(func)
+    assert workers >= 1
+
+    from .._thread_quota import ThreadQuota
+    ex = ThreadQuota(workers)
+    fut = Future()  # type: ignore[var-annotated]
+    lock = Lock()
+    batch: list = []
+    deadline = monotonic()
+
+    def schedule_batch():
+        nonlocal fut
+        if batch:
+            ex.submit_f(fut, func, batch[:])
+            batch.clear()
+            fut = Future()
+
+    def late_submit():
+        with lock:
+            if (dt := monotonic() - deadline) > 0:
+                sleep(dt)
+            schedule_batch()
+
+    def sync_submit(x):
+        nonlocal deadline
+        with lock:
+            if not batch:
+                deadline = monotonic() + timeout
+                ex.submit(late_submit)
+
+            i = len(batch)
+            batch.append(x)
+
+            if i + 1 == batch_size or monotonic() >= deadline:
+                schedule_batch()
+            return fut, i
+
+    def wrapper(xs):
+        pairs = [sync_submit(x) for x in xs]
+
+        fs = {f for f, _ in pairs}
+        try:
+            dnd = wait(fs, pool_timeout, return_when='FIRST_EXCEPTION')
+        finally:  # Cancel all not-yet-running tasks, we're beyond deadline
+            for f in fs:
+                f.cancel()
+        if dnd.not_done:  # Some tasks timed out
+            del dnd, fs  # ? Break reference cycle
+            raise TimeoutError
+
+        rs = {f: f.result() for f in fs}
+        return [rs[f][i] for f, i in pairs]
+
+    Thread(target=late_submit).start()
     return update_wrapper(wrapper, func)

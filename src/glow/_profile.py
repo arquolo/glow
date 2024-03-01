@@ -200,6 +200,8 @@ def _print_stats(*names: str):
 
 def time_this(fn=None, /, *, name: str | None = None):
     """Log function and/or generator timings at program exit"""
+    # # TODO: (enable=...)
+    # return fn
     if fn is None:
         return partial(time_this, name=name)
 

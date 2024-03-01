@@ -112,14 +112,14 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
             sums[loc] = s.sum()
         counts[loc] = n
 
+    # TODO: compute (ndim 2 sums.size) mask for
+    #   return ((mask @ sums) / (mask @ counts).clip(min=1)) @ [-1, 1]
     # Aggregate and do grads
-    grad = np.zeros(arr.ndim)
+    hsums = np.zeros((arr.ndim, 2), 'f4')
     for axis in range(arr.ndim):
         axes = *range(axis), *range(axis + 1, arr.ndim)
-        head, tail = (sums.sum(axes) / counts.sum(axes).clip(min=1))[[0, -1]]
-        grad[axis] = tail - head
-
-    return grad
+        hsums[axis] = (sums.sum(axes) / counts.sum(axes).clip(min=1))[[0, -1]]
+    return hsums @ [-1, 1]
 
 
 def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:  # noqa: C901

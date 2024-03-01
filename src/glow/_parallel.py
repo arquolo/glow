@@ -4,6 +4,7 @@ __all__ = [
 ]
 
 import atexit
+import concurrent.futures._base as cfb
 import enum
 import os
 import signal
@@ -22,7 +23,7 @@ from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
 from queue import Empty, SimpleQueue
-from threading import Lock
+from threading import Condition, Lock
 from time import perf_counter, sleep
 from typing import Protocol, TypeVar, cast
 
@@ -132,7 +133,7 @@ else:
     _result = Future.result
 
 
-def _result_or_cancel(f: Future[_T]) -> _T:
+def _result_or_cancel1(f: Future[_T]) -> _T:
     try:
         try:
             return _result(f)
@@ -140,6 +141,40 @@ def _result_or_cancel(f: Future[_T]) -> _T:
             f.cancel()
     finally:
         del f
+
+
+def _result_or_cancel(f: Future[_T]) -> _T:
+    fc = cast(Condition, f._condition)
+    fc.acquire()
+    while True:
+        match f._state:
+            case 'PENDING':
+                try:
+                    fc.wait(_PATIENCE)
+                except BaseException:
+                    f._state = 'CANCELLED'
+                    fc.notify_all()
+                    fc.release()
+                    f._invoke_callbacks()
+                    raise
+
+            case 'RUNNING':
+                try:
+                    fc.wait(_PATIENCE)
+                except BaseException:
+                    fc.release()
+                    raise
+
+            case 'CANCELLED' | 'CANCELLED_AND_NOTIFIED':
+                fc.release()
+                raise cfb.CancelledError
+
+            case 'FINISHED':
+                fc.release()
+                if exc := f._exception:
+                    del f
+                    raise exc
+                return f._result
 
 
 def _q_get_fn(q: _Queue[_T]) -> Callable[[], _T]:
