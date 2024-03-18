@@ -27,7 +27,12 @@ from os.path import basename
 from textwrap import dedent
 from threading import Lock
 from types import FrameType
-from typing import Any, NamedTuple, TypeVar, TypeVarTuple, Unpack, overload
+from typing import Any, NamedTuple, TypeVar, overload
+
+try:
+    from typing import TypeVarTuple, Unpack
+except ImportError:
+    from typing_extensions import TypeVarTuple, Unpack
 
 import colorama
 import executing
@@ -324,7 +329,7 @@ def ic(x: _T) -> _T:
 
 
 @overload
-def ic(*xs: Unpack[_Ts]) -> tuple[*_Ts]:
+def ic(*xs: Unpack[_Ts]) -> tuple[Unpack[_Ts]]:
     ...
 
 
