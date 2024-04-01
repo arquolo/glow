@@ -3,7 +3,7 @@ __all__ = ['memprof', 'time_this', 'timer']
 import atexit
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import accumulate, count
@@ -47,19 +47,39 @@ def memprof(name_or_callback: str | Callable[[float], object] | None = None,
 
 
 @contextmanager
-def timer(name_or_callback: str | Callable[[int], object] | None = None,
-          time: Callable[[], int] = perf_counter_ns,
-          /) -> Iterator[None]:
+def _timer_callback(callback: Callable[[int], object],
+                    time: Callable[[], int] = perf_counter_ns,
+                    /) -> Iterator[None]:
+    begin = time()
+    try:
+        yield
+    finally:
+        callback(time() - begin)
+
+
+@contextmanager
+def _timer_print(name: str | None = None,
+                 time: Callable[[], int] = perf_counter_ns,
+                 /) -> Iterator[None]:
     begin = time()
     try:
         yield
     finally:
         end = time()
-        if callable(name_or_callback):
-            name_or_callback(end - begin)
-        else:
-            name = name_or_callback or f'{whereami(2, 1)} line'
-            print(f'{name} done in {si((end - begin) / 1e9)}s')
+        name = name or f'{whereami(2, 1)} line'
+        print(f'{name} done in {si((end - begin) / 1e9)}s')
+
+
+def timer(name_or_callback: str | Callable[[int], object] | None = None,
+          time: Callable[[], int] = perf_counter_ns,
+          /,
+          *,
+          disable: bool = False) -> AbstractContextManager[None]:
+    if disable:
+        return nullcontext()
+    if callable(name_or_callback):
+        return _timer_callback(name_or_callback, time)
+    return _timer_print(name_or_callback, time)
 
 
 def _to_fname(obj) -> str:
@@ -198,10 +218,12 @@ def _print_stats(*names: str):
             sep=' - ')
 
 
-def time_this(fn=None, /, *, name: str | None = None):
+def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
     """Log function and/or generator timings at program exit"""
     if fn is None:
-        return partial(time_this, name=name)
+        return partial(time_this, name=name, disable=disable)
+    if disable:
+        return fn
 
     if name is None:
         name = _to_fname(fn)

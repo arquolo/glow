@@ -10,17 +10,31 @@ def memprof(name_or_callback: str | Callable[[float], object] | None = ...,
     ...
 
 
-def timer(name_or_callback: str | Callable[[int], object] | None = ...,
+@overload
+def timer(name: str | None = ...,
           time: Callable[[], int] = ...,
-          /) -> AbstractContextManager[None]:
+          /,
+          *,
+          disable: bool = ...) -> AbstractContextManager[None]:
     ...
 
 
 @overload
-def time_this(fn: _F, /, *, name: str | None = ...) -> _F:
+def timer(callback: Callable[[int], object] | None,
+          time: Callable[[], int] = ...,
+          /,
+          *,
+          disable: bool = ...) -> AbstractContextManager[None]:
     ...
 
 
 @overload
-def time_this(*, name: str | None = ...) -> Callable[[_F], _F]:
+def time_this(fn: _F, /, *, name: str | None = ..., disable: bool = ...) -> _F:
+    ...
+
+
+@overload
+def time_this(*,
+              name: str | None = ...,
+              disable: bool = ...) -> Callable[[_F], _F]:
     ...
