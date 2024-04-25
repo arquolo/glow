@@ -4,7 +4,6 @@ import atexit
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import dataclass, field
 from functools import partial
 from itertools import accumulate, count
 from threading import get_ident
@@ -124,12 +123,12 @@ class _Nlwp:
         return self._get_max()
 
 
-@dataclass(frozen=True)
 class _Stat:
-    calls: count = field(default_factory=count)
-    nlwp: _Nlwp = field(default_factory=_Nlwp)
-    cpu_ns: _Times = field(default_factory=_Times)
-    all_ns: _Times = field(default_factory=_Times)
+    def __init__(self):
+        self.calls = count()
+        self.nlwp = _Nlwp()
+        self.cpu_ns = _Times()
+        self.all_ns = _Times()
 
     def __call__(self, op, *args, **kwargs):
         with self.nlwp, \
@@ -228,5 +227,8 @@ def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
     if name is None:
         name = _to_fname(fn)
 
-    fn.log_timing = partial(_print_stats, name)
+    time_this.finalizers[fn] = fn.log_timing = partial(_print_stats, name)
     return _TimedCall(fn, _stats[name])
+
+
+time_this.finalizers = {}
