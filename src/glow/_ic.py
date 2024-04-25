@@ -118,65 +118,96 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
         counts[loc] = n
 
     # Aggregate and do grads
-    grad = np.zeros(arr.ndim)
+    hsums = np.empty((arr.ndim, 2), 'f4')
     for axis in range(arr.ndim):
         axes = *range(axis), *range(axis + 1, arr.ndim)
-        head, tail = (sums.sum(axes) / counts.sum(axes).clip(min=1))[[0, -1]]
-        grad[axis] = tail - head
-
-    return grad
+        hsums[axis] = (sums.sum(axes) / counts.sum(axes).clip(min=1))[[0, -1]]
+    return hsums @ [-1, 1]
 
 
-def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:  # noqa: C901
-    assert arr.size
-    assert arr.dtype.kind in 'biufc'  # Only bool/int/uint/float/complex
+_MAX_SIZES = {'b': 40, 'i': 40, 'u': 40, 'f': 20, 'c': 20}
 
-    # Small array, print contents as is
-    if arr.size < {'b': 40, 'u': 40, 'i': 40}.get(arr.dtype.kind, 20):
-        yield f'data={arr.copy().ravel()}'
-        return
 
-    # Small enough binary array, hexify
-    if arr.size < 500 and arr.dtype == bool:
-        data = np.packbits(arr.flat).tobytes()
-        line = ''.join(f'{v:02x}' for v in data).replace('0', '_')
-        yield f'data={line!r}'
-        return
+def _fmt_1d(a: np.ndarray, tol: int = 4) -> str:
+    if a.size == 1:
+        return f'{a.item():.{tol}g}'
+    return '[' + ' '.join(f'{x:.{tol}g}' for x in a.tolist()) + ']'
 
-    if arr.dtype.kind == 'c':  # View as float
-        arr = arr.astype('c8').view('2f4')
-        lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
 
-    if arr.dtype.kind == 'f':  # Too much values, use statistics
-        arr = np.ma.masked_invalid(arr)
-        if (num_invalid := arr.mask.sum()) < arr.size:
-            if num_invalid:  # Old min/max have invalid data, recompute
-                lo, hi = arr.min(), arr.max()
-            if lo < hi:
-                yield f'x∈[{lo:.5g}, {hi:.5g}]'
-                yield f'x={arr.mean():.5g}±{arr.std():.5g}'
-            else:
-                yield f'x={lo:.5g}'
-        yield from map(str, np.unique(arr.data[arr.mask]).tolist())
+def _bool_info(arr: np.ndarray) -> Iterator[str]:
+    if arr.size < 500:  # all data in Packed Hex
+        line = np.packbits(arr.flat).tobytes().hex().replace('0', '_')
+        yield f'bits={line!r}'
 
-    # Narrow range, raw distribution (lo >= 0 and hi <= 10)
-    elif lo >= 0 and hi <= 10:
-        uniq, counts = np.unique(arr, return_counts=True)
-        weights = counts.astype('f8') / arr.size
-        yield f'x∈{uniq} @ {weights.round(4)}'
+    else:  # histrogram + gradient
+        weights = np.bincount(arr.ravel()).astype('f8') / arr.size
+        yield f'bool @ {_fmt_1d(weights)}'
+        yield from _grad_info(arr)
 
-    # Wider range, low/high + nuniq
-    elif hi - lo < 1000:
-        yield f'x∈[{lo}, {hi}]'
-        uniq, counts = np.unique(arr, return_counts=True)
-        yield f'{uniq.size / (hi - lo + 1):.2%} range'
 
-    # Wide range, only low/high
-    else:
-        yield f'x∈[{lo}, {hi}]'
-
+def _grad_info(arr: np.ndarray | np.ma.MaskedArray) -> Iterator[str]:
     if (grad := _get_nd_grad(arr)).any():
-        yield f'grad={grad.round(8)}'
+        yield f'grad={_fmt_1d(grad)}'
+
+
+def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
+    dtype: np.dtype = arr.dtype
+    assert arr.size
+    match dtype.kind:
+        case 'b':  # Bool
+            yield from _bool_info(arr)
+
+        case 'u' | 'i':  # Integers
+            range_ = hi - lo + 1
+
+            # Small range (lo >= 0 and hi <= 10), show distribution
+            if lo >= 0 and hi <= 10:
+                uniq, counts = np.unique(arr, return_counts=True)
+                weights = counts.astype('f8') / arr.size
+
+                if range_ == uniq.size:  # 100% range, no skips
+                    yield f'{dtype}∈[{lo} ... {hi}] @ {_fmt_1d(weights)}'
+                else:
+                    yield f'{dtype}∈{uniq} @ {_fmt_1d(weights)}'
+
+            else:  # Wide range - low/high + mean/std + nuniq (opt) + gradient
+                yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
+                yield f'X∈[{lo} ... {hi}]'
+
+                # Not much uniqs
+                if ((range_ < 1_000 or arr.size < 1_000_000
+                     or arr.itemsize <= 2)
+                        and (nuniq := np.unique(arr).size) != range_):
+                    yield f'{nuniq / range_:.2%} range'
+
+            yield from _grad_info(arr)
+
+        case 'c' | 'f':  # Dense data, use mean/std/gradient
+
+            if dtype.kind == 'c':  # Force complex as float
+                arr = arr.astype('c8').view('2f4')
+                lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
+
+            arr = np.ma.masked_invalid(arr)
+            mask = np.ma.getmask(arr)
+            if (num_invalid := mask.sum()) < arr.size:
+                if num_invalid:  # Old min/max have invalid data, recompute
+                    lo, hi = arr.min(), arr.max()
+                    yield f'{num_invalid / arr.size:.2%} invalid'
+
+                if lo < hi:
+                    yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
+                    yield f'X∈[{lo:.3g} ... {hi:.3g}]'
+                else:
+                    yield f'{dtype}({lo:.3g})'
+
+            # NaN/-Inf/+Inf
+            yield from map(str, np.unique(arr.data[mask]).tolist())
+
+            yield from _grad_info(arr)
+
+        case _:
+            raise NotImplementedError(f'Unknown dtype: {dtype}')
 
 
 class _ReprArray(NamedTuple):
@@ -187,18 +218,35 @@ class _ReprArray(NamedTuple):
 
     def __repr__(self) -> str:
         arr = self.data
-        common = f'{arr.shape if arr.ndim != 1 else arr.size}, {arr.dtype}'
         if not arr.size:
-            return f'np.empty({common})'
-        if arr.dtype.kind not in 'biufc':  # Only bool/int/uint/float/complex
-            return f'np.array({common}, data={arr.ravel()})'  # Use Numpy
+            return f'{arr!r}'  # ndarray.__repr__ is short for 0-sized arrays
+        dtype = arr.dtype
 
-        lo, hi = arr.min(), arr.max()
-        if np.isfinite([lo, hi]).all() and lo == hi:  # "full" array
-            if not lo:
-                return f'np.zeros({common})'
-            return f'np.full({common}, value={lo})'
-        return 'np.array(' + ', '.join([common, *_get_properties(arr, lo, hi)
+        # Single value
+        if arr.size == 1:
+            return f'np.{dtype}({arr})'
+
+        # Try to collapse
+        shape = f'{arr.shape if arr.ndim != 1 else arr.size}'
+        if dtype.kind in 'buifc':
+            lo, hi = arr.min(), arr.max()
+            if np.isfinite([lo, hi]).all() and lo == hi:  # "full" array
+                match lo:
+                    case 0:
+                        template = 'np.zeros({shape}, {dtype})'
+                    case 1:
+                        template = 'np.ones({shape}, {dtype})'
+                    case _:
+                        template = 'np.full({shape}, {dtype}({value}))'
+                return template.format(shape=shape, dtype=dtype, value=lo)
+
+        # Small array (or unknown dtype), print contents as is
+        if arr.size < _MAX_SIZES.get(dtype.kind, np.inf):
+            if arr.ndim == 1 or arr.size == 1:
+                return f'np.{dtype}({arr})'
+            return f'np.array({shape}, {dtype}({arr.ravel()}))'
+
+        return 'np.array(' + ', '.join([shape, *_get_properties(arr, lo, hi)
                                         ]) + ')'
 
 
