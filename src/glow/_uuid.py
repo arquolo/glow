@@ -90,7 +90,7 @@ class Uid(UUID):
         from pydantic_core import core_schema
         return core_schema.no_info_after_validator_function(
             cls,
-            handler(int | str),
+            handler(SupportsInt | str),
             serialization=core_schema.plain_serializer_function_ser_schema(
                 str,
                 info_arg=False,
