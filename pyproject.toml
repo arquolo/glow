@@ -31,7 +31,7 @@ classifiers = [
 dependencies = [
     "loky~=3.1",
     "lxml",
-    "numpy~=1.21",
+    "numpy >=1.21, <3",
     "tqdm",
     "wrapt~=1.15",
 ]
@@ -53,7 +53,7 @@ dev-core = [
     "isort",
     "mypy~=1.7",
     "pytest~=8.0",
-    "ruff~=0.2.2",
+    "ruff~=0.4.9",
     "yapf~=0.40.2",
 ]
 dev = [
@@ -80,6 +80,7 @@ select = [
     "BLE", "COM", "ICN", "INP", "PL", "RSE", "RUF",
     # "FBT", "SLF", "TCH",
     "TRY",
+    "NPY201",
 ]
 ignore = [
     "A003", "B008", "B905", "D1", "D2", "D4", "N812", "S1", "S3",
@@ -131,7 +132,6 @@ max-complexity = 10
 sqlite_cache = true
 check_untyped_defs = true
 ignore_missing_imports = true
-ignore_missing_imports_per_module = true
 no_implicit_optional = true
 show_error_codes = true
 warn_unused_ignores = true
