@@ -66,6 +66,8 @@ def apack(a: npt.ArrayLike | npt.NDArray[np.integer],
 
 
 def pascal(n: int) -> npt.NDArray[np.int64]:
+    if n < 1 or n > 67:
+        raise ValueError('`n` must in 1..67 range')
     a = np.zeros(n, np.int64)
     a[0] = 1
     for _ in range(n - 1):
