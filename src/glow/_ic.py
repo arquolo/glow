@@ -30,7 +30,7 @@ from types import FrameType
 from typing import Any, NamedTuple, TypeVar, overload
 
 try:
-    from typing import TypeVarTuple, Unpack
+    from typing import TypeVarTuple, Unpack  # Py3.11+
 except ImportError:
     from typing_extensions import TypeVarTuple, Unpack
 

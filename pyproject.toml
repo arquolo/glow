@@ -32,6 +32,7 @@ dependencies = [
     "loky~=3.1",
     "lxml",
     "numpy >=1.21, <3",
+    "typing-extensions~=4.1; python_version < '3.11'",
     "tqdm",
     "wrapt~=1.15",
 ]
@@ -61,7 +62,6 @@ dev = [
     "flake8-alphabetize",
     # "flake8-class-attributes-order",
     # "flake8-newspaper-style",
-    "typing-extensions~=4.8",
 ]
 dev-wemake = [
     "glow[dev-core]",

@@ -1,8 +1,6 @@
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
-from typing import TypeVar, overload
-
-from typing_extensions import ParamSpec
+from typing import ParamSpec, TypeVar, overload
 
 _T = TypeVar('_T')
 _F = TypeVar('_F', bound=Callable)
