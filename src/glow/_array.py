@@ -1,4 +1,4 @@
-__all__ = ['aceil', 'afloor', 'apack', 'around', 'smallest_dtype']
+__all__ = ['aceil', 'afloor', 'apack', 'around', 'pascal', 'smallest_dtype']
 
 import numpy as np
 import numpy.typing as npt
@@ -62,4 +62,12 @@ def apack(a: npt.ArrayLike | npt.NDArray[np.integer],
 
     if (dtype := smallest_dtype(a_min, a_max)).itemsize < a.itemsize:
         return a.astype(dtype)
+    return a
+
+
+def pascal(n: int) -> npt.NDArray[np.int64]:
+    a = np.zeros(n, np.int64)
+    a[0] = 1
+    for _ in range(n - 1):
+        a[1:] += a[:-1]
     return a
