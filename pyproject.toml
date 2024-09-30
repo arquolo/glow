@@ -7,7 +7,7 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.13.7"
+version = "0.13.8"
 description = "Functional Python tools"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,9 +52,9 @@ dev-core = [
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
-    "mypy~=1.7",
+    "mypy~=1.11",
     "pytest~=8.0",
-    "ruff~=0.4.9",
+    "ruff~=0.6.8",
     "yapf~=0.40.2",
 ]
 dev = [
