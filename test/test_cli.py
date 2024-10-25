@@ -176,4 +176,5 @@ def _arg_kwarg(a: int, b: str = 'hello'):
 )
 def test_good_func[T](argv: list[str], func: Callable[..., T], expected: T):
     result, _ = parse_args(func, argv)
+    assert type(result) is type(expected)
     assert result == expected
