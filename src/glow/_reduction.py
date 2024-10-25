@@ -48,7 +48,7 @@ class _Proxy[F: Callable]:
 
 
 class _NullProxy[F: Callable](_Proxy[F]):
-    __slots__ = ('call', )
+    __slots__ = ('call',)
 
     def __init__(self, call: F):
         self.call = call
@@ -98,13 +98,15 @@ class _Mmap:
 
 @when_imported('torch')
 def _torch_hook(torch):
-    reducers.update({
-        torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
-        **{
-            t: torch.multiprocessing.reductions.reduce_storage
-            for t in torch.storage._StorageBase.__subclasses__()
-        },
-    })
+    reducers.update(
+        {
+            torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
+            **{
+                t: torch.multiprocessing.reductions.reduce_storage
+                for t in torch.storage._StorageBase.__subclasses__()
+            },
+        }
+    )
 
 
 def _dumps(

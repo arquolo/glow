@@ -25,9 +25,13 @@ def _get_module(frame: FrameType) -> str:
 def _get_function(frame: FrameType) -> str:
     function = frame.f_code.co_name
     function = next(
-        (f.__qualname__
-         for f in gc.get_referrers(frame.f_code) if inspect.isfunction(f)),
-        function)
+        (
+            f.__qualname__
+            for f in gc.get_referrers(frame.f_code)
+            if inspect.isfunction(f)
+        ),
+        function,
+    )
     return '' if function == '<module>' else function
 
 
@@ -58,7 +62,8 @@ def whereami(skip: int = 0, limit: int | None = None) -> str:
 def trace(fn, _, args, kwargs):
     print(
         f'<({whereami(3)})> : {fn.__module__ or ""}.{fn.__qualname__}',
-        flush=True)
+        flush=True,
+    )
     return fn(*args, **kwargs)
 
 
@@ -73,7 +78,8 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
         seen.add(obj.__name__)
         for name in dir(obj):
             _set_trace(
-                getattr(obj, name), module=obj, seen=seen, prefix=prefix)
+                getattr(obj, name), module=obj, seen=seen, prefix=prefix
+            )
 
     if not callable(obj):
         return

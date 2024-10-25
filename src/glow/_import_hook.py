@@ -25,8 +25,9 @@ class _ImportHookChainedLoader(abc.Loader):
             except AttributeError:
                 pass
 
-        if ((spec := getattr(module, '__spec__', None)) is not None
-                and getattr(spec, 'loader', None) is self):
+        if (spec := getattr(module, '__spec__', None)) is not None and getattr(
+            spec, 'loader', None
+        ) is self:
             spec.loader = self.loader
 
     def create_module(self, spec):
@@ -51,8 +52,11 @@ class _ImportHookFinder(abc.MetaPathFinder, set[str]):
 
         self.add(fullname)
         try:
-            if ((spec := util.find_spec(fullname)) and (loader := spec.loader)
-                    and not isinstance(loader, _ImportHookChainedLoader)):
+            if (
+                (spec := util.find_spec(fullname))
+                and (loader := spec.loader)
+                and not isinstance(loader, _ImportHookChainedLoader)
+            ):
                 spec.loader = _ImportHookChainedLoader(loader)
                 return spec
         finally:
@@ -88,6 +92,7 @@ def when_imported[H: _Hook](name: str) -> Callable[[H], H]:
 
     Simplified version of wrapt.when_imported.
     """
+
     def wrapper(hook: H) -> H:
         register_post_import_hook(hook, name)
         return hook

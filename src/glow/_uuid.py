@@ -64,14 +64,16 @@ class Uid(UUID):
     Simplified and more optimized (2-3x faster on average) fork of
     [shortuuid](https://github.com/skorokithakis/shortuuid)
     """
+
     def __init__(self, obj: str | SupportsInt):
         """
         Creates Uid either from str (parsing it as short-uuid) or
         from int()-compatible type
         """
         if not isinstance(obj, str | SupportsInt):
-            raise TypeError('Either int, string or UUID required. '
-                            f'Got {type(obj)}')
+            raise TypeError(
+                f'Either int, string or UUID required. Got {type(obj)}'
+            )
 
         value = base57_decode(obj) if isinstance(obj, str) else int(obj)
         super().__init__(int=value)
@@ -86,13 +88,12 @@ class Uid(UUID):
     @classmethod  # Pydantic 2.x requirement
     def __get_pydantic_core_schema__(cls, _, handler):
         from pydantic_core import core_schema
+
         return core_schema.no_info_after_validator_function(
             cls,
             handler(str | UUID | int),
             serialization=core_schema.plain_serializer_function_ser_schema(
-                str,
-                info_arg=False,
-                return_schema=core_schema.str_schema(),
+                str, info_arg=False, return_schema=core_schema.str_schema()
             ),
         )
 

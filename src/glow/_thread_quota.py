@@ -4,6 +4,7 @@
 + Idle threads are stopped on _TIMEOUT.
 ? Most recently used threads used first (a.k.a. stack, more dropout).
 """
+
 __all__ = ['ThreadQuota']
 
 from collections import deque
@@ -48,7 +49,7 @@ def _python_exit():
 
     for e in _executors:
         e.shutdown(cancel_futures=True)
-    *items, = _workers.items()
+    items = [*_workers.items()]
     for _, q in items:
         q.put(None)
     for w, _ in items:
@@ -123,6 +124,7 @@ class ThreadQuota(Executor):
 
             if not _TIMEOUT:
                 # Keep at most 25% of workers idle
-                while (len(_idle) > max(len(_workers) / 4, _MIN_IDLE)
-                       and (q := _safe_call(_idle.popleft))):
+                while len(_idle) > max(len(_workers) / 4, _MIN_IDLE) and (
+                    q := _safe_call(_idle.popleft)
+                ):
                     q.put(None)

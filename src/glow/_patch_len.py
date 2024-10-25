@@ -12,6 +12,7 @@ Supports:
 Since Python 3.12 `itertools` doesn't support serialization,
 thus `len` will never work for them.
 """
+
 __all__ = ['apply']
 
 import builtins
@@ -25,16 +26,24 @@ from collections.abc import Iterable
 len_hint = functools.singledispatch(builtins.len)
 
 _iterables: list[Iterable] = [
-    '', b'',
-    range(0), (), [], {}, {}.keys(), {}.values(), {}.items(),
+    '',
+    b'',
+    range(0),
+    (),
+    [],
+    {},
+    {}.keys(),
+    {}.values(),
+    {}.items(),
     reversed(()),
     reversed([]),
     set(),
     frozenset(),
-    deque()
+    deque(),
 ]
 _transparent_types: tuple[type, ...] = tuple(
-    it.__iter__().__class__ for it in _iterables)
+    it.__iter__().__class__ for it in _iterables
+)
 for _tp in _transparent_types:
     len_hint.register(_tp, operator.length_hint)
 
@@ -42,8 +51,9 @@ _odict_iter_tp: type = OrderedDict().__iter__().__class__
 
 
 def _are_definitely_independent(iters):
-    return (len({id(it) for it in iters}) == len(iters)
-            and all(isinstance(it, _transparent_types) for it in iters))
+    return len({id(it) for it in iters}) == len(iters) and all(
+        isinstance(it, _transparent_types) for it in iters
+    )
 
 
 @len_hint.register(zip)
@@ -78,7 +88,7 @@ def _len_map(x):  # type: ignore[misc]
 
 @len_hint.register(_odict_iter_tp)
 def _len_odict_iter(x):
-    _, (items, ) = x.__reduce__()
+    _, [items] = x.__reduce__()
     return len(items)
 
 

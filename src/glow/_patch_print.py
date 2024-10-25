@@ -2,6 +2,7 @@
 Patches builtin `print` function to be compatible with `tqdm`.
 Adds some thread safety.
 """
+
 __all__ = ['apply']
 
 import builtins
@@ -26,11 +27,13 @@ def patch_print(module) -> None:
     tqdm = module.tqdm
     tqdm(disable=True)
 
-    def tqdm_print(*values,
-                   sep: str | None = ' ',
-                   end: str | None = '\n',
-                   file: _SupportsWrite | None = None,
-                   flush: bool = False) -> None:
+    def tqdm_print(
+        *values,
+        sep: str | None = ' ',
+        end: str | None = '\n',
+        file: _SupportsWrite | None = None,
+        flush: bool = False,
+    ) -> None:
         if sep is None:
             sep = ' '
         if end is None:
@@ -46,5 +49,4 @@ def apply() -> None:
 
 
 class _SupportsWrite(Protocol):
-    def write(self, s: str, /) -> object:
-        ...
+    def write(self, s: str, /) -> object: ...

@@ -6,8 +6,14 @@ import concurrent.futures as cf
 import enum
 import functools
 from collections import Counter
-from collections.abc import (Callable, Hashable, Iterable, Iterator, KeysView,
-                             MutableMapping)
+from collections.abc import (
+    Callable,
+    Hashable,
+    Iterable,
+    Iterator,
+    KeysView,
+    MutableMapping,
+)
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import RLock
@@ -105,9 +111,11 @@ class _DictMixin[T](_InitializedStore, _IStore[T]):
         with self.lock:
             self.stats.misses += 1
             size = int(self.size_fn(value))
-            if (self.capacity < 0  # is unbound
-                    or self.size + size <= self.capacity  # has free place
-                    or (size < self.capacity and self.can_shrink_for(size))):
+            if (
+                self.capacity < 0  # is unbound
+                or self.size + size <= self.capacity  # has free place
+                or (size < self.capacity and self.can_shrink_for(size))
+            ):
                 self.store_set(key, _Node(value, size))
                 self.size += size
 
@@ -132,7 +140,8 @@ class _ReprMixin[T](_InitializedStore, _IStore[T]):
     @classmethod
     def status(cls) -> str:
         return '\n'.join(
-            f'{id_:x}: {value!r}' for id_, value in sorted(cls.refs.items()))
+            f'{id_:x}: {value!r}' for id_, value in sorted(cls.refs.items())
+        )
 
 
 @dataclass(repr=False)
@@ -219,12 +228,13 @@ def _dispatch(
     queue.clear()
 
     try:
-        *values, = fn([job.token for job in jobs.values()])
+        values = [*fn([job.token for job in jobs.values()])]
 
         if len(values) != len(jobs):
             raise RuntimeError(  # noqa: TRY301
                 'Input batch size is not equal to output: '
-                f'{len(values)} != {len(jobs)}')
+                f'{len(values)} != {len(jobs)}'
+            )
 
     except BaseException as exc:  # noqa: BLE001
         for key, job in jobs.items():
@@ -257,7 +267,7 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
 
     async def _load_many(tokens: Iterable) -> tuple:
         rs = await asyncio.gather(*map(_load, tokens))
-        return *rs,
+        return tuple(rs)
 
     def wrapper(tokens: Iterable) -> tuple:
         coro = _load_many(tokens)
@@ -267,8 +277,9 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
     return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
-def _memoize_batched[F: _BatchedFn](cache: _DictMixin, key_fn: _KeyFn,
-                                    fn: F) -> F:
+def _memoize_batched[
+    F: _BatchedFn
+](cache: _DictMixin, key_fn: _KeyFn, fn: F) -> F:
     assert callable(fn)
     lock = RLock()
     futs = WeakValueDictionary[Hashable, cf.Future]()
@@ -318,7 +329,9 @@ def _memoize_batched[F: _BatchedFn](cache: _DictMixin, key_fn: _KeyFn,
 # ----------------------------- factory wrappers -----------------------------
 
 
-def memoize[F: Callable](
+def memoize[
+    F: Callable
+](
     capacity: SupportsInt | None,
     *,
     batched: bool = False,
@@ -353,5 +366,6 @@ def memoize[F: Callable](
         if batched:
             return functools.partial(_memoize_batched, cache, key_fn)
         return functools.partial(_memoize, cache, key_fn)
-    raise ValueError(f'Unknown policy: "{policy}". '
-                     f'Only "{set(caches)}" are available')
+    raise ValueError(
+        f'Unknown policy: "{policy}". Only "{set(caches)}" are available'
+    )

@@ -4,8 +4,9 @@ import numpy as np
 import numpy.typing as npt
 
 
-def _force_int(op: np.ufunc, a: npt.NDArray[np.number],
-               dtype: npt.DTypeLike) -> npt.NDArray[np.integer]:
+def _force_int(
+    op: np.ufunc, a: npt.NDArray[np.number], dtype: npt.DTypeLike
+) -> npt.NDArray[np.integer]:
     dtype = np.dtype(dtype)
     if dtype.kind not in 'iu':
         raise ValueError(f'Cannot cast to non-integer dtype: {dtype}')
@@ -19,33 +20,39 @@ def _force_int(op: np.ufunc, a: npt.NDArray[np.number],
             raise ValueError(f'Unsupported dtype: {a.dtype}')
 
 
-def around(x: npt.NDArray[np.number],
-           dtype: npt.DTypeLike = int) -> npt.NDArray[np.integer]:
+def around(
+    x: npt.NDArray[np.number], dtype: npt.DTypeLike = int
+) -> npt.NDArray[np.integer]:
     """Faster alternative to `np.round(x).astype(int)`"""
     return _force_int(np.rint, x, dtype)
 
 
-def aceil(x: npt.NDArray[np.number],
-          dtype: npt.DTypeLike = int) -> npt.NDArray[np.integer]:
+def aceil(
+    x: npt.NDArray[np.number], dtype: npt.DTypeLike = int
+) -> npt.NDArray[np.integer]:
     """Faster alternative to `np.ceil(x).astype(int)`"""
     return _force_int(np.ceil, x, dtype)
 
 
-def afloor(x: npt.NDArray[np.number],
-           dtype: npt.DTypeLike = int) -> npt.NDArray[np.integer]:
+def afloor(
+    x: npt.NDArray[np.number], dtype: npt.DTypeLike = int
+) -> npt.NDArray[np.integer]:
     """Faster alternative to `np.floor(x).astype(int)`"""
     return _force_int(np.floor, x, dtype)
 
 
-def smallest_dtype(a_min: float | int,
-                   a_max: float | int | None = None) -> np.dtype:
+def smallest_dtype(
+    a_min: float | int, a_max: float | int | None = None
+) -> np.dtype:
     r = np.min_scalar_type(a_min)
     return r if a_max is None else np.result_type(r, a_max)
 
 
-def apack(a: npt.ArrayLike | npt.NDArray[np.integer],
-          a_min: int | None = None,
-          a_max: int | None = None) -> npt.NDArray[np.integer]:
+def apack(
+    a: npt.ArrayLike | npt.NDArray[np.integer],
+    a_min: int | None = None,
+    a_max: int | None = None,
+) -> npt.NDArray[np.integer]:
     """Convert integer array to smallest dtype"""
     a = np.asarray(a)
     if a.dtype.kind != 'i':

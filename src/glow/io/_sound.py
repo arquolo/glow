@@ -14,10 +14,9 @@ from tqdm.auto import tqdm
 from .. import chunked
 
 
-def _play(arr: np.ndarray,
-          rate: int,
-          blocksize: int = 1024,
-          bufsize: int = 20) -> None:
+def _play(
+    arr: np.ndarray, rate: int, blocksize: int = 1024, bufsize: int = 20
+) -> None:
     """Plays audio from array. Supports interruption via Crtl-C."""
     import sounddevice as sd
 
@@ -35,7 +34,8 @@ def _play(arr: np.ndarray,
             raise sd.CallbackStop
 
     stream = sd.OutputStream(
-        rate, blocksize, callback=callback, finished_callback=ev.set)
+        rate, blocksize, callback=callback, finished_callback=ev.set
+    )
 
     fmt = '{percentage:3.0f}% |{bar}| [{elapsed}<{remaining}]'
     blocks = chunked(arr, blocksize)
@@ -46,7 +46,8 @@ def _play(arr: np.ndarray,
         s.callback(q.put, None)  # Close queue
 
         for data in s.enter_context(
-                tqdm(blocks, leave=False, smoothing=0, bar_format=fmt)):
+            tqdm(blocks, leave=False, smoothing=0, bar_format=fmt)
+        ):
             q.put(data)
 
 
@@ -81,21 +82,26 @@ class Sound[S: np.number]:
     raw = np.array(sound)
     ```
     """
+
     data: npt.NDArray[S]
     rate: int = 44_100
 
     def __post_init__(self):
         if self.data.ndim not in (1, 2):
-            raise ValueError('Sound must be 1d (mono) or 2d array, '
-                             f'got {self.data.shape}')
+            raise ValueError(
+                f'Sound must be 1d (mono) or 2d array, got {self.data.shape}'
+            )
         if self.data.ndim == 1:
             object.__setattr__(self, 'data', self.data[:, None])
         if self.data.shape[-1] not in (1, 2):
-            raise ValueError('Only mono/stereo is supported, '
-                             f'got {self.channels} channels')
+            raise ValueError(
+                f'Only mono/stereo is supported, got {self.channels} channels'
+            )
         if self.data.dtype not in ('i1', 'i2', 'i4', 'f4'):
-            raise ValueError('Only int8/int16/int32/float32 sound dtype '
-                             f'is supported. Got {self.data.dtype}')
+            raise ValueError(
+                'Only int8/int16/int32/float32 sound dtype is supported. '
+                f'Got {self.data.dtype}'
+            )
 
     @property
     def channels(self) -> int:

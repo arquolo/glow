@@ -47,6 +47,7 @@ class Svg:
     Svg(mask, ['pos', 'neg']).save('sample.svg')
     ```
     """
+
     def __init__(self, mask: np.ndarray, labels: Sequence[str]):
         e = ElementMaker()
 
@@ -55,11 +56,14 @@ class Svg:
             if uniq == 0:  # skip background
                 continue
             m = (mask == uniq).astype('u1')
-            contours = cv2.findContours(m, cv2.RETR_CCOMP,
-                                        cv2.CHAIN_APPROX_TC89_L1)[-2]
+            contours, _, _ = cv2.findContours(
+                m, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_TC89_L1
+            )
             polygons = (
                 e.polygon(points=' '.join(map(str, contour.ravel())))
-                for contour in contours if len(contour) >= 3)
+                for contour in contours
+                if len(contour) >= 3
+            )
             groups.append(e.g(*polygons, label=labels[uniq - 1]))
 
         root = e.svg(
@@ -67,7 +71,8 @@ class Svg:
             *groups,
             e.script(href='main.js'),
             e.style('@import url(main.css)'),
-            xmlns=_SVG_NS)
+            xmlns=_SVG_NS,
+        )
 
         indent(root, space='\t')
         self.body = tostring(root, encoding='utf-8')
@@ -83,8 +88,11 @@ class Svg:
 
         if not (style := path.parent / 'main.css').exists():
             labels = zip(hsv_colors(len(self.labels)), self.labels)
-            style.write_text('\n'.join(
-                f'.{name} {{ stroke: {color} }}' for color, name in labels))
+            style.write_text(
+                '\n'.join(
+                    f'.{name} {{ stroke: {color} }}' for color, name in labels
+                )
+            )
 
         path.with_suffix('.svg').write_text(self.body)
 
@@ -96,10 +104,13 @@ class Svg:
         tree = ElementTree()
         tree.parse(path.with_suffix('.svg').as_posix())
 
-        fields = ((node.attrib['label'], (p.attrib['points'] for p in node))
-                  for node in tree.getiterator(f'{{{_SVG_NS}}}g'))
+        fields = (
+            (node.attrib['label'], (p.attrib['points'] for p in node))
+            for node in tree.getiterator(f'{{{_SVG_NS}}}g')
+        )
         return {
-            name:
-            [np.fromstring(ll, 'i4', sep=' ').reshape(-1, 2) for ll in lines]
+            name: [
+                np.fromstring(ll, 'i4', sep=' ').reshape(-1, 2) for ll in lines
+            ]
             for name, lines in fields
         }
