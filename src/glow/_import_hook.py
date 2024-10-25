@@ -4,10 +4,9 @@ import sys
 from collections.abc import Callable
 from importlib import abc, util
 from threading import RLock
-from typing import Any, TypeVar
+from typing import Any
 
-_Hook = Callable[[Any], object]
-_HookVar = TypeVar('_HookVar', bound=_Hook)
+type _Hook = Callable[[Any], object]
 
 _INITIALIZED = False
 _LOCK = RLock()
@@ -82,14 +81,14 @@ def register_post_import_hook(hook: _Hook, name: str) -> None:
             _HOOKS.setdefault(name, []).append(hook)
 
 
-def when_imported(name: str) -> Callable[[_HookVar], _HookVar]:
+def when_imported[H: _Hook](name: str) -> Callable[[H], H]:
     """
     Decorator for marking that a function should be called as a post
     import hook when the target module is imported.
 
     Simplified version of wrapt.when_imported.
     """
-    def wrapper(hook: _HookVar) -> _HookVar:
+    def wrapper(hook: H) -> H:
         register_post_import_hook(hook, name)
         return hook
 

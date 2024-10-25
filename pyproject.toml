@@ -10,7 +10,7 @@ name = "glow"
 version = "0.13.8"
 description = "Functional Python tools"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = {file = "LICENSE"}
 keywords = []
 authors = [
@@ -24,8 +24,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
@@ -44,7 +42,7 @@ homepage = "https://github.com/arquolo/glow"
 memprof = ["psutil"]
 io = ["opencv-python-headless~=4.0", "sounddevice", "soundfile"]
 ic = ["asttokens", "colorama", "executing", "pygments"]
-all = ["glow[io]", "matplotlib"]
+all = ["glow[io]", "glow[ic]", "matplotlib"]
 dev-core = [
     "flake8~=7.0",
     "flake8-pie",
@@ -72,7 +70,7 @@ dev-wemake = [
 
 [tool.ruff]
 line-length = 79
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -94,6 +92,9 @@ inline-quotes = "single"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+[tool.ruff.format]
+quote-style = "single"
 
 [tool.flake8]
 select = [

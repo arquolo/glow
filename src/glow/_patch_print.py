@@ -7,6 +7,7 @@ __all__ = ['apply']
 import builtins
 from functools import update_wrapper, wraps
 from threading import RLock
+from typing import Protocol
 
 from ._import_hook import register_post_import_hook
 
@@ -15,13 +16,9 @@ _lock = RLock()
 
 
 @wraps(_print)
-def locked_print(*args, **kwargs):
+def locked_print(*args, **kwargs) -> None:
     with _lock:
         _print(*args, **kwargs)
-
-
-def tqdm_print(module, *values, sep=' ', end='\n', file=None, flush=False):
-    module.tqdm.write(sep.join(map(str, values)), end=end, file=file)
 
 
 def patch_print(module) -> None:
@@ -29,12 +26,25 @@ def patch_print(module) -> None:
     tqdm = module.tqdm
     tqdm(disable=True)
 
-    def tqdm_print(*values, sep=' ', end='\n', file=None, flush=False):
+    def tqdm_print(*values,
+                   sep: str | None = ' ',
+                   end: str | None = '\n',
+                   file: _SupportsWrite | None = None,
+                   flush: bool = False) -> None:
+        if sep is None:
+            sep = ' '
+        if end is None:
+            end = '\n'
         tqdm.write(sep.join(map(str, values)), end=end, file=file)
 
-    builtins.print = update_wrapper(tqdm_print, _print)
+    builtins.print = update_wrapper(tqdm_print, _print)  # type: ignore
 
 
 def apply() -> None:
-    builtins.print = locked_print
+    builtins.print = locked_print  # type: ignore
     register_post_import_hook(patch_print, 'tqdm')
+
+
+class _SupportsWrite(Protocol):
+    def write(self, s: str, /) -> object:
+        ...

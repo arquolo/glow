@@ -1,8 +1,6 @@
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from typing import TypeVar, overload
-
-_F = TypeVar('_F', bound=Callable)
+from typing import overload
 
 
 def memprof(name_or_callback: str | Callable[[float], object] | None = ...,
@@ -29,12 +27,16 @@ def timer(callback: Callable[[int], object] | None,
 
 
 @overload
-def time_this(fn: _F, /, *, name: str | None = ..., disable: bool = ...) -> _F:
+def time_this[F: Callable](fn: F,
+                           /,
+                           *,
+                           name: str | None = ...,
+                           disable: bool = ...) -> F:
     ...
 
 
 @overload
-def time_this(*,
-              name: str | None = ...,
-              disable: bool = ...) -> Callable[[_F], _F]:
+def time_this[F: Callable](*,
+                           name: str | None = ...,
+                           disable: bool = ...) -> Callable[[F], F]:
     ...

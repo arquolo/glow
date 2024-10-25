@@ -6,15 +6,12 @@ from datetime import timedelta
 from pathlib import Path
 from queue import Queue
 from threading import Event
-from typing import Generic, TypeVar
 
 import numpy as np
 import numpy.typing as npt
 from tqdm.auto import tqdm
 
 from .. import chunked
-
-_Scalar_co = TypeVar('_Scalar_co', bound=np.number, covariant=True)
 
 
 def _play(arr: np.ndarray,
@@ -54,7 +51,7 @@ def _play(arr: np.ndarray,
 
 
 @dataclass(repr=False, frozen=True)
-class Sound(Generic[_Scalar_co]):
+class Sound[S: np.number]:
     """Wraps numpy.array to be playable as sound
 
     Parameters:
@@ -84,7 +81,7 @@ class Sound(Generic[_Scalar_co]):
     raw = np.array(sound)
     ```
     """
-    data: npt.NDArray[_Scalar_co]
+    data: npt.NDArray[S]
     rate: int = 44_100
 
     def __post_init__(self):
@@ -114,7 +111,7 @@ class Sound(Generic[_Scalar_co]):
         dtype = self.data.dtype
         return f'{type(self).__name__}({duration=!s}, {channels=}, {dtype=!s})'
 
-    def __array__(self) -> npt.NDArray[_Scalar_co]:
+    def __array__(self) -> npt.NDArray[S]:
         return self.data
 
     def play(self, blocksize=1024) -> None:

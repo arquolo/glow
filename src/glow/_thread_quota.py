@@ -14,7 +14,6 @@ from concurrent.futures.thread import _WorkItem
 from queue import Empty, SimpleQueue
 from threading import _register_atexit  # type: ignore[attr-defined]
 from threading import Lock, Thread
-from typing import TypeVar
 from weakref import WeakKeyDictionary, WeakSet
 
 # TODO: investigate hangups when _TIMEOUT <= .01
@@ -23,10 +22,8 @@ _MIN_IDLE = 10
 
 # ------------------------------- generics -----------------------------------
 
-_T = TypeVar('_T')
 
-
-def _safe_call(fn: Callable[..., _T], *args, **kwargs) -> _T | None:
+def _safe_call[T](fn: Callable[..., T], *args, **kwargs) -> T | None:
     try:
         return fn(*args, **kwargs)
     except (Empty, IndexError, ValueError):

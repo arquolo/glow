@@ -11,8 +11,7 @@ from collections.abc import (Callable, Hashable, Iterable, Iterator, KeysView,
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import (Any, ClassVar, Generic, Literal, NamedTuple, SupportsInt,
-                    TypeVar, cast)
+from typing import Any, ClassVar, Literal, NamedTuple, SupportsInt, cast
 from weakref import WeakValueDictionary
 
 from .._repr import si_bin
@@ -25,11 +24,10 @@ class _Empty(enum.Enum):
     token = 0
 
 
-_T = TypeVar('_T')
-_F = TypeVar('_F', bound=Callable)
-_BatchedFn = TypeVar('_BatchedFn', bound=Callable[[list], Iterable])
-_Policy = Literal['raw', 'lru', 'mru']
-_KeyFn = Callable[..., Hashable]
+type _BatchedFn = Callable[[list], Iterable]
+type _Policy = Literal['raw', 'lru', 'mru']
+type _KeyFn = Callable[..., Hashable]
+
 _empty = _Empty.token
 
 
@@ -38,9 +36,9 @@ def _unit_size(x):
 
 
 @dataclass(repr=False)
-class _Node(Generic[_T]):
+class _Node[T]:
     __slots__ = ('value', 'size')
-    value: _T
+    value: T
     size: int
 
     def __repr__(self) -> str:
@@ -56,17 +54,17 @@ class Stats(argparse.Namespace):
         return self.__dict__[name]
 
 
-class _IStore(Generic[_T]):
+class _IStore[T]:
     def __len__(self) -> int:
         raise NotImplementedError
 
     def store_clear(self) -> None:
         raise NotImplementedError
 
-    def store_get(self, key: Hashable) -> _Node[_T] | None:
+    def store_get(self, key: Hashable) -> _Node[T] | None:
         raise NotImplementedError
 
-    def store_set(self, key: Hashable, node: _Node[_T]) -> None:
+    def store_set(self, key: Hashable, node: _Node[T]) -> None:
         raise NotImplementedError
 
     def can_shrink_for(self, size: int) -> bool:
@@ -82,7 +80,7 @@ class _InitializedStore:
 
 
 @dataclass(repr=False)
-class _DictMixin(_InitializedStore, _IStore[_T]):
+class _DictMixin[T](_InitializedStore, _IStore[T]):
     lock: RLock = field(default_factory=RLock, init=False)
 
     def clear(self):
@@ -96,14 +94,14 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
     def __iter__(self) -> Iterator:
         return iter(self.keys())
 
-    def __getitem__(self, key: Hashable) -> _T | _Empty:
+    def __getitem__(self, key: Hashable) -> T | _Empty:
         with self.lock:
             if node := self.store_get(key):
                 self.stats.hits += 1
                 return node.value
         return _empty
 
-    def __setitem__(self, key: Hashable, value: _T) -> None:
+    def __setitem__(self, key: Hashable, value: T) -> None:
         with self.lock:
             self.stats.misses += 1
             size = int(self.size_fn(value))
@@ -115,7 +113,7 @@ class _DictMixin(_InitializedStore, _IStore[_T]):
 
 
 @dataclass(repr=False)
-class _ReprMixin(_InitializedStore, _IStore[_T]):
+class _ReprMixin[T](_InitializedStore, _IStore[T]):
     refs: ClassVar[MutableMapping[int, '_ReprMixin']] = WeakValueDictionary()
 
     def __post_init__(self) -> None:
@@ -138,8 +136,8 @@ class _ReprMixin(_InitializedStore, _IStore[_T]):
 
 
 @dataclass(repr=False)
-class _Store(_ReprMixin[_T], _DictMixin[_T]):
-    store: dict[Hashable, _Node[_T]] = field(default_factory=dict)
+class _Store[T](_ReprMixin[T], _DictMixin[T]):
+    store: dict[Hashable, _Node[T]] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(self.store)
@@ -150,22 +148,22 @@ class _Store(_ReprMixin[_T], _DictMixin[_T]):
     def store_clear(self) -> None:
         self.store.clear()
 
-    def store_get(self, key: Hashable) -> _Node[_T] | None:
+    def store_get(self, key: Hashable) -> _Node[T] | None:
         return self.store.get(key)
 
-    def store_set(self, key: Hashable, node: _Node[_T]) -> None:
+    def store_set(self, key: Hashable, node: _Node[T]) -> None:
         self.store[key] = node
 
 
-class _HeapCache(_Store[_T]):
+class _HeapCache[T](_Store[T]):
     def can_shrink_for(self, size: int) -> bool:
         return False
 
 
-class _LruCache(_Store[_T]):
+class _LruCache[T](_Store[T]):
     drop_recent = False
 
-    def store_get(self, key: Hashable) -> _Node[_T] | None:
+    def store_get(self, key: Hashable) -> _Node[T] | None:
         if node := self.store.pop(key, None):
             self.store[key] = node
             return node
@@ -182,14 +180,14 @@ class _LruCache(_Store[_T]):
         return True
 
 
-class _MruCache(_LruCache[_T]):
+class _MruCache[T](_LruCache[T]):
     drop_recent = True
 
 
 # -------------------------------- wrapping --------------------------------
 
 
-def _memoize(cache: _DictMixin, key_fn: _KeyFn, fn: _F) -> _F:
+def _memoize[F: Callable](cache: _DictMixin, key_fn: _KeyFn, fn: F) -> F:
     def wrapper(*args, **kwargs):
         key = key_fn(*args, **kwargs)
 
@@ -201,7 +199,7 @@ def _memoize(cache: _DictMixin, key_fn: _KeyFn, fn: _F) -> _F:
         return value
 
     wrapper.cache = cache  # type: ignore[attr-defined]
-    return cast(_F, functools.update_wrapper(wrapper, fn))
+    return cast(F, functools.update_wrapper(wrapper, fn))
 
 
 # ----------------------- wrapper with batching support ----------------------
@@ -258,7 +256,8 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
         return future
 
     async def _load_many(tokens: Iterable) -> tuple:
-        return await asyncio.gather(*map(_load, tokens))
+        rs = await asyncio.gather(*map(_load, tokens))
+        return *rs,
 
     def wrapper(tokens: Iterable) -> tuple:
         coro = _load_many(tokens)
@@ -268,8 +267,8 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
     return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
 
 
-def _memoize_batched(cache: _DictMixin, key_fn: _KeyFn,
-                     fn: _BatchedFn) -> _BatchedFn:
+def _memoize_batched[F: _BatchedFn](cache: _DictMixin, key_fn: _KeyFn,
+                                    fn: F) -> F:
     assert callable(fn)
     lock = RLock()
     futs = WeakValueDictionary[Hashable, cf.Future]()
@@ -313,20 +312,20 @@ def _memoize_batched(cache: _DictMixin, key_fn: _KeyFn,
 
     wrapper.cache = cache  # type: ignore[attr-defined]
     wrapper.stage = futs  # type: ignore[attr-defined]
-    return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
+    return cast(F, functools.update_wrapper(wrapper, fn))
 
 
 # ----------------------------- factory wrappers -----------------------------
 
 
-def memoize(
+def memoize[F: Callable](
     capacity: SupportsInt | None,
     *,
     batched: bool = False,
     policy: _Policy = 'raw',
     key_fn: _KeyFn = make_key,
     bytesize: bool = True,
-) -> Callable[[_F], _F] | Callable[[_BatchedFn], _BatchedFn]:
+) -> Callable[[F], F]:
     """Returns dict-cache decorator.
 
     Parameters:

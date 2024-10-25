@@ -4,13 +4,8 @@ import math
 import re
 import string
 from functools import lru_cache
-from typing import SupportsInt
+from typing import Self, SupportsInt
 from uuid import UUID, uuid4
-
-try:
-    from typing import Self  # Py3.11+
-except ImportError:
-    from typing_extensions import Self
 
 ALPHABET = string.digits + string.ascii_letters
 ALPHABET = ''.join(sorted({*ALPHABET} - {*'0O1Il'}))
