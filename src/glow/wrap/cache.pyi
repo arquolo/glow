@@ -1,23 +1,23 @@
 from collections.abc import Callable, Hashable, Iterable
 from typing import Literal, overload
 
-type _BatchedFn = Callable[[list], Iterable]
+type _BatchedFn[T, R] = Callable[[list[T]], Iterable[R]]
 type _Policy = Literal['raw', 'lru', 'mru']
 type _KeyFn = Callable[..., Hashable]
 
 @overload
 def memoize[
-    F: Callable
+    **P, R
 ](
     capacity: int,
     *,
     policy: _Policy = ...,
     key_fn: _KeyFn = ...,
     bytesize: bool = ...,
-) -> Callable[[F], F]: ...
+) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 @overload
 def memoize[
-    F: _BatchedFn
+    T, R
 ](
     capacity: int,
     *,
@@ -25,4 +25,4 @@ def memoize[
     policy: _Policy = ...,
     key_fn: _KeyFn = ...,
     bytesize: bool = ...,
-) -> Callable[[F], F]: ...
+) -> Callable[[_BatchedFn[T, R]], _BatchedFn[T, R]]: ...

@@ -48,7 +48,7 @@ class Svg:
     ```
     """
 
-    def __init__(self, mask: np.ndarray, labels: Sequence[str]):
+    def __init__(self, mask: np.ndarray, labels: Sequence[str]) -> None:
         e = ElementMaker()
 
         groups = []

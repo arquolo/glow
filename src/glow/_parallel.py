@@ -149,12 +149,12 @@ def _q_get_fn[T](q: _Queue[T]) -> Callable[[], T]:
 # ---------------------------- pool initialization ----------------------------
 
 
-def _mp_profile():
+def _mp_profile() -> None:
     """Multiprocessed profiler"""
     prof = Profile()
     prof.enable()
 
-    def _finalize(lines=50):
+    def _finalize(lines=50) -> None:
         prof.disable()
         with open(f'prof-{os.getpid()}.txt', 'w') as fp:
             Stats(prof, stream=fp).sort_stats('cumulative').print_stats(lines)
@@ -162,7 +162,7 @@ def _mp_profile():
     atexit.register(_finalize)
 
 
-def _initializer():
+def _initializer() -> None:
     # `signal.signal` suppresses KeyboardInterrupt in child processes
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     if os.environ.get('_GLOW_MP_PROFILE'):
@@ -189,7 +189,7 @@ def get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
         try:
             yield threads
         finally:
-            is_success = sys.exc_info()[0] is None
+            is_success = sys.exception() is None
             threads.shutdown(wait=is_success, cancel_futures=True)
 
 
@@ -206,7 +206,9 @@ def _get_manager(executor: Executor):
 # -------- bufferize iterable by offloading to another thread/process --------
 
 
-def _consume[T](iterable: Iterable[T], q: _Queue[T | _Empty], ev: _Event):
+def _consume[
+    T
+](iterable: Iterable[T], q: _Queue[T | _Empty], ev: _Event) -> None:
     try:
         for item in iterable:
             if ev.is_set():
@@ -232,7 +234,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
         *,
         latency: int = 2,
         mp: bool | Executor = False,
-    ):
+    ) -> None:
         s = ExitStack()
         if isinstance(mp, Executor):
             executor = mp
@@ -303,7 +305,7 @@ class _AutoSize:
 
             return self.size
 
-    def update(self, start_time: float, fut: Future[Sized]):
+    def update(self, start_time: float, fut: Future[Sized]) -> None:
         # Compute as soon as future became done, discard later if not needed
         duration = perf_counter() - start_time
 
@@ -411,7 +413,9 @@ def _unwrap[
         return _get_unwrap_iter(s, qsize, _q_get_fn(q), fs_scheduler)
 
 
-def _batch_invoke[T](func: Callable[..., T], *items: tuple) -> list[T]:
+def _batch_invoke[
+    *Ts, R
+](func: Callable[[*Ts], R], *items: tuple[*Ts]) -> list[R]:
     return [*starmap(func, items)]
 
 

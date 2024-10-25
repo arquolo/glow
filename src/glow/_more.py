@@ -31,7 +31,9 @@ class SupportsSlice[T](Sized, Protocol):
 # ----------------------------------------------------------------------------
 
 
-def as_iter[T](obj: Iterable[T] | T, limit: int | None = None) -> Iterator[T]:
+def as_iter[
+    T
+](obj: Iterable[T] | T, /, limit: int | None = None) -> Iterator[T]:
     """Make iterator with at most `limit` items"""
     if isinstance(obj, Iterable):
         return islice(obj, limit)
@@ -65,21 +67,21 @@ def _dispatch(fallback_fn, fn, it, *args):
 # ----------------------------------------------------------------------------
 
 
-def window_hint(it, size):
+def window_hint(it: Sized, size) -> int:
     return len(it) + 1 - size
 
 
-def chunk_hint(it, size):
+def chunk_hint(it: Sized, size: int) -> int:
     return len(range(0, len(it), size))
 
 
-def _sliced_windowed[T](s: SupportsSlice[T], size: int) -> Iterator[T]:
+def _sliced_windowed[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
     indices = range(len(s) + 1)
     slices = map(slice, indices[:-size], indices[size:])
     return map(s.__getitem__, slices)
 
 
-def _windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
+def _windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
 
@@ -91,16 +93,15 @@ def _windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
     return map(tuple, chain([w], map(w.__iadd__, zip(it))))
 
 
-def _sliced[T](s: SupportsSlice[T], size: int) -> Iterator[T]:
+def _sliced[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
     indices = range(len(s) + size)
     slices = map(slice, indices[::size], indices[size::size])
     return map(s.__getitem__, slices)
 
 
-def _chunked[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
+def _chunked[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
-
     return batched(it, size)
 
 
@@ -108,14 +109,14 @@ def _chunked[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
 
 
 @overload
-def windowed[T](it: SupportsSlice[T], size: int) -> Iterator[T]: ...
+def windowed[T](it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
 
 
 @overload
-def windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]: ...
+def windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 
 
-def windowed(it, size):
+def windowed(it, size, /):
     """Retrieve overlapped windows from iterable.
     Tries to use slicing if possible.
 
@@ -129,11 +130,11 @@ def windowed(it, size):
 
 
 @overload
-def chunked[T](__it: SupportsSlice[T], size: int) -> Iterator[T]: ...
+def chunked[T](__it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
 
 
 @overload
-def chunked[T](__it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]: ...
+def chunked[T](__it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 
 
 def chunked(it, size):
@@ -154,7 +155,7 @@ def chunked(it, size):
 # ----------------------------------------------------------------------------
 
 
-def _deiter[T](q: deque[T]) -> Iterator[T]:
+def _deiter[T](q: deque[T], /) -> Iterator[T]:
     # Same as iter_except(q.popleft, IndexError) from docs of itertools
     try:
         while True:
@@ -163,7 +164,7 @@ def _deiter[T](q: deque[T]) -> Iterator[T]:
         return
 
 
-def ichunked[T](it: Iterable[T], size: int) -> Iterator[Iterator[T]]:
+def ichunked[T](it: Iterable[T], size: int, /) -> Iterator[Iterator[T]]:
     """Split iterable to chunks of at most size items each.
 
     Does't consume items from passed iterable to return complete chunk
@@ -197,7 +198,7 @@ def ichunked[T](it: Iterable[T], size: int) -> Iterator[Iterator[T]]:
 # ----------------------------------------------------------------------------
 
 
-def ilen(iterable: Iterable) -> int:
+def ilen(iterable: Iterable, /) -> int:
     """Return number of items in *iterable*.
 
     This consumes iterable, so handle with care.
@@ -208,7 +209,7 @@ def ilen(iterable: Iterable) -> int:
     return next(counter)
 
 
-def eat(iterable: Iterable, daemon: bool = False) -> None:
+def eat(iterable: Iterable, /, daemon: bool = False) -> None:
     """Consume iterable, daemonize if needed (move to background thread)"""
     if daemon:
         threading.Thread(target=deque, args=(iterable, 0), daemon=True).start()

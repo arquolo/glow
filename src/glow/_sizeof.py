@@ -125,7 +125,7 @@ when_imported('torch')(
 )
 
 
-def sizeof(obj) -> int:
+def sizeof(obj, /) -> int:
     """Computes size of object, no matter how complex it is.
 
     Inspired by

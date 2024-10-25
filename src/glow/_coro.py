@@ -4,50 +4,57 @@ from collections import Counter, deque
 from collections.abc import Callable, Generator, Hashable, Iterable, Iterator
 from functools import update_wrapper
 from threading import Lock
-from typing import cast
 
 import wrapt
 
 from ._more import _deiter
 
 
-def coroutine[F: Callable[..., Generator]](fn: F) -> F:
-    def wrapper(*args, **kwargs):
+def coroutine[
+    **P, Y, S, R
+](fn: Callable[P, Generator[Y, S, R]], /) -> Callable[P, Generator[Y, S, R]]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Y, S, R]:
         coro = fn(*args, **kwargs)
-        coro.send(None)
+        next(coro)
         return coro
 
-    return cast(F, update_wrapper(wrapper, fn))
+    return update_wrapper(wrapper, fn)
 
 
-class _Sync(wrapt.ObjectProxy):
-    def __init__(self, wrapped):
+class _Sync[Y, S, R](wrapt.ObjectProxy):
+    __wrapped__: Generator[Y, S, R]
+
+    def __init__(self, wrapped: Generator[Y, S, R]) -> None:
         super().__init__(wrapped)
         self._self_lock = Lock()
 
-    def _call(self, op, *args, **kwargs):
+    def _call[
+        **P, T
+    ](self, op: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
         with self._self_lock:
             return op(*args, **kwargs)
 
-    def __next__(self):
+    def __next__(self) -> Y:
         return self._call(self.__wrapped__.__next__)
 
-    def send(self, item):
+    def send(self, item: S, /) -> Y:
         return self._call(self.__wrapped__.send, item)
 
-    def throw(self, typ, val=None, tb=None):
-        return self._call(self.__wrapped__.throw, typ, val, tb)
+    def throw(self, value: BaseException, /) -> Y:
+        return self._call(self.__wrapped__.throw, value)
 
-    def close(self):
+    def close(self) -> None:
         return self._call(self.__wrapped__.close)
 
 
-def threadsafe_iter[F: Callable[..., Generator]](fn: F) -> F:
-    def wrapper(*args, **kwargs):
+def threadsafe_iter[
+    **P, Y, S, R
+](fn: Callable[P, Generator[Y, S, R]], /) -> Callable[P, Generator[Y, S, R]]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Y, S, R]:
         gen = fn(*args, **kwargs)
         return _Sync(gen)
 
-    return cast(F, update_wrapper(wrapper, fn))
+    return update_wrapper(wrapper, fn)
 
 
 @threadsafe_iter

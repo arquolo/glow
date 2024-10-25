@@ -2,13 +2,13 @@ __all__ = ['memprof', 'time_this', 'timer']
 
 import atexit
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from functools import partial
 from itertools import accumulate, count
 from threading import get_ident
 from time import perf_counter_ns, process_time_ns, thread_time_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, Self
 
 from wrapt import ObjectProxy
 
@@ -97,7 +97,7 @@ def _to_fname(obj) -> str:
 
 
 class _Times(dict[int, int]):
-    def add(self, value: int):
+    def add(self, value: int) -> None:
         idx = get_ident()
         self[idx] = self.get(idx, 0) + value
 
@@ -117,11 +117,11 @@ class _Nlwp:
         maximums = accumulate(totals, max, initial=0)
         self._get_max = maximums.__next__
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self._add_event(+1)
         self._get_max()
 
-    def __exit__(self, *args):
+    def __exit__(self, *args) -> None:
         self._add_event(-1)
         self._get_max()
 
@@ -131,13 +131,15 @@ class _Nlwp:
 
 
 class _Stat:
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = count()
         self.nlwp = _Nlwp()
         self.cpu_ns = _Times()
         self.all_ns = _Times()
 
-    def __call__(self, op, *args, **kwargs):
+    def __call__[
+        **P, R
+    ](self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         with (
             self.nlwp,
             timer(self.all_ns.add),
@@ -161,44 +163,67 @@ class _Stat:
         return t, i, tail
 
 
-class _Proxy(ObjectProxy):
-    def __init__(self, wrapped, wrapper):
+class _Apply(Protocol):
+    calls: count
+
+    def __call__[
+        **P, R
+    ](self, fn: Callable[P, R], /, *args: P.args, **kwds: P.kwargs) -> R: ...
+
+
+class _Proxy[T](ObjectProxy):
+    __wrapped__: T
+    _self_wrapper: _Apply
+
+    def __init__(self, wrapped: T, wrapper: _Apply) -> None:
         super().__init__(wrapped)
         self._self_wrapper = wrapper
 
 
-class _TimedCall(_Proxy):
-    def __get__(self, instance, owner):
+class _TimedCall[**P, R](_Proxy[Callable[P, R]]):
+    def __get__(
+        self, instance: object, owner: type | None
+    ) -> '_BoundTimedCall':
         fn = self.__wrapped__.__get__(instance, owner)
         return _BoundTimedCall(fn, self._self_wrapper)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         next(self._self_wrapper.calls)
         r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
+        if isinstance(r, Generator):
+            return _TimedGen(r, self._self_wrapper)
         if isinstance(r, Iterator):
             return _TimedIter(r, self._self_wrapper)
         return r
 
 
-class _BoundTimedCall(_TimedCall):
-    def __get__(self, instance, owner):
+class _BoundTimedCall[**P, R](_TimedCall[P, R]):
+    def __get__(self, instance: object, owner: type | None) -> Self:
         return self
 
 
-class _TimedIter(_Proxy):
-    def __iter__(self):
+class _TimedIter[Y](_Proxy[Iterator[Y]]):
+    def __iter__(self) -> Self:
         return self
 
-    def __next__(self):
+    def __next__(self) -> Y:
         return self._self_wrapper(self.__wrapped__.__next__)
 
-    def send(self, value):
+
+class _TimedGen[Y, S, R](_Proxy[Generator[Y, S, R]]):
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> Y:
+        return self._self_wrapper(self.__wrapped__.__next__)
+
+    def send(self, value: S, /) -> Y:
         return self._self_wrapper(self.__wrapped__.send, value)
 
-    def throw(self, typ, val=None, tb=None):
-        return self._self_wrapper(self.__wrapped__.throw, typ, val, tb)
+    def throw(self, value: BaseException, /) -> Y:
+        return self._self_wrapper(self.__wrapped__.throw, value)
 
-    def close(self):
+    def close(self) -> None:
         return self._self_wrapper(self.__wrapped__.close)
 
 
@@ -208,7 +233,7 @@ _stats = defaultdict[str, _Stat](_Stat)
 
 
 @atexit.register
-def _print_stats(*names: str):
+def _print_stats(*names: str) -> None:
     all_busy = (process_time_ns() - _start + 1) / 1e9
 
     stats = []

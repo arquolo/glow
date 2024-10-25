@@ -38,9 +38,7 @@ def _patch_handler_and_load_scipy() -> None:
     if not ok or (addr := ptr.value) is None:
         return
 
-    code: bytearray = (ctypes.c_char * 3).from_address(
-        addr
-    )  # type: ignore[assignment]
+    code: bytearray = (ctypes.c_char * 3).from_address(addr)  # type: ignore
     if not code:
         return
 
