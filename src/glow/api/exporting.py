@@ -48,8 +48,10 @@ def export[F: Callable](obj: F) -> F:
 
     __all__ = namespace.setdefault('__all__', [])
     if name in __all__ or name in namespace:
-        err = (f'Name "{name}" is reserved in <{parent}>'
-               f' by <{namespace[name].__module__}:{name}>')
+        err = (
+            f'Name "{name}" is reserved in <{parent}>'
+            f' by <{namespace[name].__module__}:{name}>'
+        )
         raise ExportError(err)
 
     namespace[name] = obj
@@ -76,4 +78,4 @@ def get_wild_imports(module: ModuleType) -> tuple[str, ...]:
     __all__ = getattr(module, '__all__', None)
     if __all__ is not None:
         return __all__
-    return *(name for name in dir(module) if not name.startswith('_')),
+    return tuple(name for name in dir(module) if not name.startswith('_'))

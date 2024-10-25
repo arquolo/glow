@@ -1,19 +1,31 @@
 __all__ = [
-    'as_iter', 'chunked', 'eat', 'groupby', 'ichunked', 'ilen', 'roundrobin',
-    'windowed'
+    'as_iter',
+    'chunked',
+    'eat',
+    'groupby',
+    'ichunked',
+    'ilen',
+    'roundrobin',
+    'windowed',
 ]
 
 import threading
 from collections import deque
-from collections.abc import (Callable, Hashable, Iterable, Iterator, Mapping,
-                             Sequence, Sized)
+from collections.abc import (
+    Callable,
+    Hashable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    Sized,
+)
 from itertools import batched, chain, count, cycle, islice, repeat
 from typing import Protocol, overload
 
 
 class SupportsSlice[T](Sized, Protocol):
-    def __getitem__(self, __s: slice) -> T:
-        ...
+    def __getitem__(self, __s: slice) -> T: ...
 
 
 # ----------------------------------------------------------------------------
@@ -30,8 +42,11 @@ def as_iter[T](obj: Iterable[T] | T, limit: int | None = None) -> Iterator[T]:
 
 
 def _dispatch(fallback_fn, fn, it, *args):
-    if (not isinstance(it, Sized) or not hasattr(it, '__getitem__')
-            or isinstance(it, Mapping)):
+    if (
+        not isinstance(it, Sized)
+        or not hasattr(it, '__getitem__')
+        or isinstance(it, Mapping)
+    ):
         return fallback_fn(it, *args)
 
     r = fn(it, *args)
@@ -40,7 +55,7 @@ def _dispatch(fallback_fn, fn, it, *args):
 
     try:
         # Ensure that slice is supported by prefetching 1st item
-        first_or_none = *islice(r, 1),
+        first_or_none = tuple(islice(r, 1))
     except TypeError:
         return fallback_fn(it, *args)
     else:
@@ -93,13 +108,11 @@ def _chunked[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
 
 
 @overload
-def windowed[T](it: SupportsSlice[T], size: int) -> Iterator[T]:
-    ...
+def windowed[T](it: SupportsSlice[T], size: int) -> Iterator[T]: ...
 
 
 @overload
-def windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
-    ...
+def windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]: ...
 
 
 def windowed(it, size):
@@ -116,13 +129,11 @@ def windowed(it, size):
 
 
 @overload
-def chunked[T](__it: SupportsSlice[T], size: int) -> Iterator[T]:
-    ...
+def chunked[T](__it: SupportsSlice[T], size: int) -> Iterator[T]: ...
 
 
 @overload
-def chunked[T](__it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
-    ...
+def chunked[T](__it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]: ...
 
 
 def chunked(it, size):
@@ -217,15 +228,17 @@ def roundrobin[T](*iterables: Iterable[T]) -> Iterator[T]:
 
 
 @overload
-def groupby[T, K: Hashable](iterable: Iterable[T], /,
-                            key: Callable[[T], K]) -> dict[K, list[T]]:
-    ...
+def groupby[
+    T, K: Hashable
+](iterable: Iterable[T], /, key: Callable[[T], K]) -> dict[K, list[T]]: ...
 
 
 @overload
-def groupby[T, K: Hashable, V](iterable: Iterable[T], /, key: Callable[[T], K],
-                               value: Callable[[T], V]) -> dict[K, list[V]]:
-    ...
+def groupby[
+    T, K: Hashable, V
+](
+    iterable: Iterable[T], /, key: Callable[[T], K], value: Callable[[T], V]
+) -> dict[K, list[V]]: ...
 
 
 def groupby(iterable, /, key, value=lambda x: x):

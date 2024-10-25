@@ -9,16 +9,37 @@ from ._array import aceil, afloor, apack, around, pascal
 from ._coro import as_actor, coroutine, summary
 from ._debug import lock_seed, trace, trace_module, whereami
 from ._import_hook import register_post_import_hook, when_imported
-from ._more import (as_iter, chunked, eat, groupby, ichunked, ilen, roundrobin,
-                    windowed)
-from ._parallel import (buffered, get_executor, map_n, map_n_dict,
-                        max_cpu_count, starmap_n)
+from ._more import (
+    as_iter,
+    chunked,
+    eat,
+    groupby,
+    ichunked,
+    ilen,
+    roundrobin,
+    windowed,
+)
+from ._parallel import (
+    buffered,
+    get_executor,
+    map_n,
+    map_n_dict,
+    max_cpu_count,
+    starmap_n,
+)
 from ._profile import memprof, time_this, timer
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._sizeof import sizeof
 from ._uuid import Uid
-from .wrap import (Reusable, call_once, memoize, shared_call, streaming,
-                   threadlocal, weak_memoize)
+from .wrap import (
+    Reusable,
+    call_once,
+    memoize,
+    shared_call,
+    streaming,
+    threadlocal,
+    weak_memoize,
+)
 
 if TYPE_CHECKING:
     from ._ic import ic, ic_repr

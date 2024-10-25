@@ -58,7 +58,7 @@ def test_consistency():
 
     assert len(lengths) == 1
 
-    (_, count), = lengths.most_common()
+    [(_, count)] = lengths.most_common()
     assert count == num_iterations
 
 

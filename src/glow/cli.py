@@ -80,7 +80,8 @@ def arg(
         repr=repr,
         hash=hash,
         compare=compare,
-        metadata=metadata)
+        metadata=metadata,
+    )
 
 
 def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
@@ -88,7 +89,7 @@ def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
         raise ValueError('Type list should be parametrized')
 
     origin = get_origin(tp)
-    *args, = get_args(tp)
+    args = [*get_args(tp)]
     if not origin or not args:  # Not a generic type
         return tp, {'type': tp}
 
@@ -107,13 +108,16 @@ def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
     if origin is Literal:  # `Literal[x, y]`
         choices = get_args(tp)
         if len(tps := {type(c) for c in choices}) != 1:
-            raise ValueError('Literal parameters should have '
-                             f'the same type. Got: {tps}')
-        cls, = tps
+            raise ValueError(
+                f'Literal parameters should have the same type. Got: {tps}'
+            )
+        (cls,) = tps
         return cls, {'type': cls, 'choices': choices}
 
-    raise ValueError('Only list, Optional and Literal are supported '
-                     f'as generic types. Got: {tp}')
+    raise ValueError(
+        'Only list, Optional and Literal are supported as generic types. '
+        f'Got: {tp}'
+    )
 
 
 def _get_fields(fn: Callable) -> Iterator[Field]:
@@ -135,8 +139,11 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
         yield fd
 
 
-def _visit_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
-                  seen: dict[str, list]) -> list[_Node]:
+def _visit_nested(
+    parser: ArgumentParser | _ArgumentGroup,
+    fn: Callable,
+    seen: dict[str, list],
+) -> list[_Node]:
     try:
         hints = get_type_hints(fn)
     except NameError:
@@ -157,15 +164,20 @@ def _visit_nested(parser: ArgumentParser | _ArgumentGroup, fn: Callable,
 
     for name, usages in seen.items():
         if len(usages) > 1:
-            raise ValueError(f'Field name "{name}" occured multiple times: '
-                             + ', '.join(f'{c.__module__}.{c.__qualname__}'
-                                         for c in usages)
-                             + '. All field names should be unique')
+            raise ValueError(
+                f'Field name "{name}" occured multiple times: '
+                + ', '.join(f'{c.__module__}.{c.__qualname__}' for c in usages)
+                + '. All field names should be unique'
+            )
     return nodes
 
 
-def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
-                 seen: dict[str, list]) -> _Node:
+def _visit_field(
+    parser: ArgumentParser | _ArgumentGroup,
+    tp: type,
+    fd: Field,
+    seen: dict[str, list],
+) -> _Node:
     cls, opts = _unwrap_type(tp)
 
     help_ = fd.metadata.get('help') or ''
@@ -181,7 +193,9 @@ def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
 
     default = (
         fd.default_factory()
-        if fd.default_factory is not MISSING else fd.default)
+        if fd.default_factory is not MISSING
+        else fd.default
+    )
 
     if cls is bool:  # Optional
         if default is MISSING:
@@ -191,31 +205,36 @@ def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
             *flags,
             action=BooleanOptionalAction,
             default=default,
-            help=help_)
+            help=help_,
+        )
 
     # Generic optional
     elif default is not MISSING:
         if opts.get('nargs') == argparse.OPTIONAL:
             del opts['nargs']
         parser.add_argument(
-            f'--{snake}', *flags, **opts, default=default, help=help_)
+            f'--{snake}', *flags, **opts, default=default, help=help_
+        )
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
         if flags:
-            raise ValueError(f'Positional-only field "{fd.name}" '
-                             'should not have flag')
+            raise ValueError(
+                f'Positional-only field "{fd.name}" should not have flag'
+            )
         parser.add_argument(snake, **opts, help=help_)
 
     else:
-        raise ValueError('Positional-only fields are forbidden '
-                         'for nested types. Please set default value '
-                         f'for "{fd.name}"')
+        raise ValueError(
+            'Positional-only fields are forbidden for nested types. '
+            f'Please set default value for "{fd.name}"'
+        )
 
     return fd.name
 
 
-def _construct[T](src: dict[str, Any], fn: Callable[..., T],
-                  args: Collection[_Node]) -> T:
+def _construct[
+    T
+](src: dict[str, Any], fn: Callable[..., T], args: Collection[_Node]) -> T:
     kwargs = {}
     for a in args:
         if isinstance(a, str):
@@ -225,9 +244,13 @@ def _construct[T](src: dict[str, Any], fn: Callable[..., T],
     return fn(**kwargs)
 
 
-def parse_args[T](fn: Callable[..., T],
-                  args: Sequence[str] | None = None,
-                  prog: str | None = None) -> tuple[T, ArgumentParser]:
+def parse_args[
+    T
+](
+    fn: Callable[..., T],
+    args: Sequence[str] | None = None,
+    prog: str | None = None,
+) -> tuple[T, ArgumentParser]:
     """Create parser from type hints of callable, parse args and do call"""
     # TODO: Rename to `run`
     parser = ArgumentParser(prog)

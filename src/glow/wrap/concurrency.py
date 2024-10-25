@@ -1,5 +1,9 @@
 __all__ = [
-    'call_once', 'shared_call', 'streaming', 'threadlocal', 'weak_memoize'
+    'call_once',
+    'shared_call',
+    'streaming',
+    'threadlocal',
+    'weak_memoize',
 ]
 
 import sys
@@ -22,8 +26,9 @@ _PATIENCE = 0.01
 _unset = object()
 
 
-def threadlocal[T](fn: Callable[..., T], *args: object,
-                   **kwargs: object) -> Callable[[], T]:
+def threadlocal[
+    T
+](fn: Callable[..., T], *args: object, **kwargs: object) -> Callable[[], T]:
     """Thread-local singleton factory, mimics `functools.partial`"""
     local_ = threading.local()
 
@@ -63,6 +68,7 @@ def call_once[F: Callable[[], object]](fn: F) -> F:
     """Makes callable a singleton.
 
     DO NOT USE with recursive functions"""
+
     def wrapper():
         return uf.result()
 
@@ -113,8 +119,9 @@ def weak_memoize[F: Callable](fn: F, /) -> F:
 # ----------------------------- batch collation ------------------------------
 
 
-def _fetch_batch[T](q: SimpleQueue[T], batch_size: int,
-                    timeout: float) -> list[T]:
+def _fetch_batch[
+    T
+](q: SimpleQueue[T], batch_size: int, timeout: float) -> list[T]:
     batch: list[T] = []
 
     # Wait indefinitely until the first item is received
@@ -141,20 +148,20 @@ def _fetch_batch[T](q: SimpleQueue[T], batch_size: int,
     return batch
 
 
-def _batch_invoke[T, R](
-    func: _BatchFn[T, R],
-    batch: Sequence[tuple[Future[R], T]],
-) -> None:
+def _batch_invoke[
+    T, R
+](func: _BatchFn[T, R], batch: Sequence[tuple[Future[R], T]]) -> None:
     batch = [(f, x) for f, x in batch if f.set_running_or_notify_cancel()]
     if not batch:
         return
 
     try:
-        *results, = func([x for _, x in batch])
+        results = [*func([x for _, x in batch])]
         if len(results) != len(batch):
             raise RuntimeError(  # noqa: TRY301
                 'Input batch size is not equal to output: '
-                f'{len(results)} != {len(batch)}')
+                f'{len(results)} != {len(batch)}'
+            )
 
     except BaseException as exc:  # noqa: BLE001
         for f, _ in batch:
@@ -187,13 +194,9 @@ def _start_fetch_compute(func, workers, batch_size, timeout):
     return q
 
 
-def streaming(func=None,
-              /,
-              *,
-              batch_size,
-              timeout=0.1,
-              workers=1,
-              pool_timeout=20.):
+def streaming(
+    func=None, /, *, batch_size, timeout=0.1, workers=1, pool_timeout=20.0
+):
     """
     Delays start of computation to until batch is collected.
     Accepts two timeouts (in seconds):
@@ -221,7 +224,8 @@ def streaming(func=None,
             batch_size=batch_size,
             timeout=timeout,
             workers=workers,
-            pool_timeout=pool_timeout)
+            pool_timeout=pool_timeout,
+        )
 
     assert callable(func)
     assert workers >= 1

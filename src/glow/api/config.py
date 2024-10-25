@@ -27,6 +27,7 @@ class _Env(ChainMap):
         _Env()
 
     """
+
     @contextmanager
     def __call__(self, **items) -> Iterator[None]:
         self.maps.append(items)

@@ -17,17 +17,20 @@ from ._repr import si, si_bin
 
 if TYPE_CHECKING:
     import psutil
+
     _THIS: psutil.Process | None
 
 _THIS = None
 
 
 @contextmanager
-def memprof(name_or_callback: str | Callable[[float], object] | None = None,
-            /) -> Iterator[None]:
+def memprof(
+    name_or_callback: str | Callable[[float], object] | None = None, /
+) -> Iterator[None]:
     global _THIS  # noqa: PLW0603
     if _THIS is None:
         import psutil
+
         _THIS = psutil.Process()
 
     init = _THIS.memory_info().rss
@@ -46,9 +49,11 @@ def memprof(name_or_callback: str | Callable[[float], object] | None = None,
 
 
 @contextmanager
-def _timer_callback(callback: Callable[[int], object],
-                    time: Callable[[], int] = perf_counter_ns,
-                    /) -> Iterator[None]:
+def _timer_callback(
+    callback: Callable[[int], object],
+    time: Callable[[], int] = perf_counter_ns,
+    /,
+) -> Iterator[None]:
     begin = time()
     try:
         yield
@@ -57,9 +62,9 @@ def _timer_callback(callback: Callable[[int], object],
 
 
 @contextmanager
-def _timer_print(name: str | None = None,
-                 time: Callable[[], int] = perf_counter_ns,
-                 /) -> Iterator[None]:
+def _timer_print(
+    name: str | None = None, time: Callable[[], int] = perf_counter_ns, /
+) -> Iterator[None]:
     begin = time()
     try:
         yield
@@ -69,11 +74,13 @@ def _timer_print(name: str | None = None,
         print(f'{name} done in {si((end - begin) / 1e9)}s')
 
 
-def timer(name_or_callback: str | Callable[[int], object] | None = None,
-          time: Callable[[], int] = perf_counter_ns,
-          /,
-          *,
-          disable: bool = False) -> AbstractContextManager[None]:
+def timer(
+    name_or_callback: str | Callable[[int], object] | None = None,
+    time: Callable[[], int] = perf_counter_ns,
+    /,
+    *,
+    disable: bool = False,
+) -> AbstractContextManager[None]:
     if disable:
         return nullcontext()
     if callable(name_or_callback):
@@ -131,9 +138,11 @@ class _Stat:
         self.all_ns = _Times()
 
     def __call__(self, op, *args, **kwargs):
-        with self.nlwp, \
-                timer(self.all_ns.add), \
-                timer(self.cpu_ns.add, thread_time_ns):
+        with (
+            self.nlwp,
+            timer(self.all_ns.add),
+            timer(self.cpu_ns.add, thread_time_ns),
+        ):
             return op(*args, **kwargs)
 
     def stat(self) -> tuple[float, float, str] | None:
@@ -144,8 +153,11 @@ class _Stat:
         i_ns = self.all_ns.total() - t_ns  # idle = total - CPU
         t, i = t_ns / 1e9, i_ns / 1e9
 
-        tail = (f'{n} x {si(t / n)}s' +
-                (f' @ {w}T' if w > 1 else '')) if n > 1 else ''
+        tail = (
+            (f'{n} x {si(t / n)}s' + (f' @ {w}T' if w > 1 else ''))
+            if n > 1
+            else ''
+        )
         return t, i, tail
 
 
@@ -210,11 +222,12 @@ def _print_stats(*names: str):
 
     for busy, idle, tail, name in sorted(stats):
         print(
-            f'{busy/all_busy:6.2%}',
+            f'{busy / all_busy:6.2%}',
             f'{si(busy):>5s}s + {si(idle):>5s}s',
             name,
             tail,
-            sep=' - ')
+            sep=' - ',
+        )
 
 
 def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):

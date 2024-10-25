@@ -1,6 +1,10 @@
 __all__ = [
-    'buffered', 'get_executor', 'map_n', 'map_n_dict', 'max_cpu_count',
-    'starmap_n'
+    'buffered',
+    'get_executor',
+    'map_n',
+    'map_n_dict',
+    'max_cpu_count',
+    'starmap_n',
 ]
 
 import atexit
@@ -56,23 +60,20 @@ _empty: Final = _Empty.token
 
 
 class _Queue[T](Protocol):
-    def get(self, block: bool = ..., timeout: float | None = ...) -> T:
-        ...
+    def get(self, block: bool = ..., timeout: float | None = ...) -> T: ...
 
-    def put(self, item: T) -> None:
-        ...
+    def put(self, item: T) -> None: ...
 
 
 class _Event(Protocol):
-    def is_set(self) -> bool:
-        ...
+    def is_set(self) -> bool: ...
 
-    def set(self) -> None:
-        ...
+    def set(self) -> None: ...
 
 
-def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
-                          mp: bool = False) -> Iterator[int]:
+def _get_cpu_count_limits(
+    upper_bound: int = sys.maxsize, mp: bool = False
+) -> Iterator[int]:
     yield upper_bound
     yield os.cpu_count() or 1
 
@@ -90,7 +91,8 @@ def _get_cpu_count_limits(upper_bound: int = sys.maxsize,
             'Max process count may be calculated incorrectly, '
             'leading to application crash or even BSOD. '
             'Install psutil to avoid that',
-            stacklevel=3)
+            stacklevel=3,
+        )
         return
 
     # Overcommit on Windows is forbidden, thus VMS planning is necessary
@@ -123,6 +125,7 @@ if sys.platform == 'win32':
 
     def _result[T](f: Future[T], /) -> T:
         return _retry_call(f.result, _TimeoutError)
+
 else:
     _result = Future.result
 
@@ -196,6 +199,7 @@ def _get_manager(executor: Executor):
 
     else:  # noqa: RET505
         from multiprocessing.dummy import Manager
+
         return Manager()
 
 
@@ -218,14 +222,17 @@ class buffered[T](Iterator[T]):  # noqa: N801
     Iterates over `iterable` in background thread with at most `latency`
     items ahead from caller
     """
+
     __slots__ = ('_get', '_task', 'close', '__weakref__')
 
-    def __init__(self,
-                 iterable: Iterable[T],
-                 /,
-                 *,
-                 latency: int = 2,
-                 mp: bool | Executor = False):
+    def __init__(
+        self,
+        iterable: Iterable[T],
+        /,
+        *,
+        latency: int = 2,
+        mp: bool | Executor = False,
+    ):
         s = ExitStack()
         if isinstance(mp, Executor):
             executor = mp
@@ -310,22 +317,27 @@ class _AutoSize:
         with self.lock:
             if len(r) != self.size:
                 return
-            self.duration = ((0.8 * self.duration + 0.2 * duration)
-                             if self.duration > 0 else duration)
+            self.duration = (
+                (0.8 * self.duration + 0.2 * duration)
+                if self.duration > 0
+                else duration
+            )
 
 
 # ---------------------- map iterable through function ----------------------
 
 
-def _schedule[F: Future](
-    make_future: Callable[..., F],
-    args_zip: Iterable[Iterable],
-    chunksize: int,
+def _schedule[
+    F: Future
+](
+    make_future: Callable[..., F], args_zip: Iterable[Iterable], chunksize: int
 ) -> Iterator[F]:
     return starmap(make_future, chunked(args_zip, chunksize))
 
 
-def _schedule_auto[F: Future](
+def _schedule_auto[
+    F: Future
+](
     make_future: Callable[..., F],
     args_zip: Iterator[Iterable],
     max_workers: int,
@@ -339,8 +351,9 @@ def _schedule_auto[F: Future](
             yield f
 
 
-def _schedule_auto_v2[F: Future](make_future: Callable[..., F],
-                                 args_zip: Iterator[Iterable]) -> Iterator[F]:
+def _schedule_auto_v2[
+    F: Future
+](make_future: Callable[..., F], args_zip: Iterator[Iterable]) -> Iterator[F]:
     # Vary job size from future to future
     size = _AutoSize()
     while args := [*islice(args_zip, size.suggest())]:
@@ -349,9 +362,14 @@ def _schedule_auto_v2[F: Future](make_future: Callable[..., F],
         yield f
 
 
-def _get_unwrap_iter[T](s: ExitStack, qsize: int,
-                        get_done_f: Callable[[], Future[T]],
-                        fs_scheduler: Iterator) -> Iterator[T]:
+def _get_unwrap_iter[
+    T
+](
+    s: ExitStack,
+    qsize: int,
+    get_done_f: Callable[[], Future[T]],
+    fs_scheduler: Iterator,
+) -> Iterator[T]:
     with s:
         if not qsize:  # No tasks to do
             return
@@ -363,15 +381,20 @@ def _get_unwrap_iter[T](s: ExitStack, qsize: int,
             yield _result_or_cancel(get_done_f())
 
 
-def _unwrap[T](s: ExitStack, fs: Iterable[Future[T]], qsize: int | None,
-               order: bool) -> Iterator[T]:
+def _unwrap[
+    T
+](
+    s: ExitStack, fs: Iterable[Future[T]], qsize: int | None, order: bool
+) -> Iterator[T]:
     q = SimpleQueue[Future[T]]()
 
     # If `order`, then `q` has "PENDING"/"RUNNING"/"DONE" tasks,
     # otherwise it only has "DONE" tasks.
     # FIXME: order=False -> random freezes (in q.get -> Empty)
-    q_put = cast(Callable[[Future[T]], None],
-                 q.put if order else methodcaller('add_done_callback', q.put))
+    q_put = cast(
+        Callable[[Future[T]], None],
+        q.put if order else methodcaller('add_done_callback', q.put),
+    )
 
     # On each `next()` schedules new task
     fs_scheduler = map(q_put, fs)
@@ -392,15 +415,19 @@ def _batch_invoke[T](func: Callable[..., T], *items: tuple) -> list[T]:
     return [*starmap(func, items)]
 
 
-def starmap_n[T](func: Callable[..., T],
-                 iterable: Iterable[Iterable],
-                 /,
-                 *,
-                 max_workers: int | None = None,
-                 prefetch: int | None = 2,
-                 mp: bool = False,
-                 chunksize: int | None = None,
-                 order: bool = True) -> Iterator[T]:
+def starmap_n[
+    T
+](
+    func: Callable[..., T],
+    iterable: Iterable[Iterable],
+    /,
+    *,
+    max_workers: int | None = None,
+    prefetch: int | None = 2,
+    mp: bool = False,
+    chunksize: int | None = None,
+    order: bool = True,
+) -> Iterator[T]:
     """
     Equivalent to itertools.starmap(fn, iterable).
 
@@ -443,8 +470,9 @@ def starmap_n[T](func: Callable[..., T],
         return starmap(func, iterable)  # Fallback to single thread
 
     if mp and chunksize is None and prefetch is None:
-        raise ValueError('With multiprocessing either chunksize or prefetch '
-                         'must be not None')
+        raise ValueError(
+            'With multiprocessing either chunksize or prefetch should be set'
+        )
 
     if prefetch is not None:
         prefetch = max(prefetch + max_workers, 1)
@@ -459,15 +487,11 @@ def starmap_n[T](func: Callable[..., T],
         chunksize = chunksize or 1
 
     if chunksize == 1:
-        submit_one = cast(
-            Callable[..., Future[T]],
-            partial(submit, func),
-        )
+        submit_one = cast(Callable[..., Future[T]], partial(submit, func))
         return _unwrap(s, starmap(submit_one, it), prefetch, order)
 
     submit_many = cast(
-        Callable[..., Future[list[T]]],
-        partial(submit, _batch_invoke, func),
+        Callable[..., Future[list[T]]], partial(submit, _batch_invoke, func)
     )
     if chunksize is not None:
         # Fixed chunksize
@@ -483,14 +507,18 @@ def starmap_n[T](func: Callable[..., T],
     return chain.from_iterable(chunks)
 
 
-def map_n[T](func: Callable[..., T],
-             /,
-             *iterables: Iterable,
-             max_workers: int | None = None,
-             prefetch: int | None = 2,
-             mp: bool = False,
-             chunksize: int | None = None,
-             order: bool = True) -> Iterator[T]:
+def map_n[
+    T
+](
+    func: Callable[..., T],
+    /,
+    *iterables: Iterable,
+    max_workers: int | None = None,
+    prefetch: int | None = 2,
+    mp: bool = False,
+    chunksize: int | None = None,
+    order: bool = True,
+) -> Iterator[T]:
     """
     Returns iterator equivalent to map(func, *iterables).
 
@@ -506,17 +534,22 @@ def map_n[T](func: Callable[..., T],
         prefetch=prefetch,
         mp=mp,
         chunksize=chunksize,
-        order=order)
+        order=order,
+    )
 
 
-def map_n_dict[K, T1, T2](func: Callable[[T1], T2],
-                          obj: Mapping[K, T1],
-                          /,
-                          *,
-                          max_workers: int | None = None,
-                          prefetch: int | None = 2,
-                          mp: bool = False,
-                          chunksize: int | None = None) -> dict[K, T2]:
+def map_n_dict[
+    K, T1, T2
+](
+    func: Callable[[T1], T2],
+    obj: Mapping[K, T1],
+    /,
+    *,
+    max_workers: int | None = None,
+    prefetch: int | None = 2,
+    mp: bool = False,
+    chunksize: int | None = None,
+) -> dict[K, T2]:
     """
     Apply `func` to each value in a mapping in parallel way.
     For extra options, see starmap_n, which is used under hood.
@@ -527,5 +560,6 @@ def map_n_dict[K, T1, T2](func: Callable[[T1], T2],
         max_workers=max_workers,
         prefetch=prefetch,
         mp=mp,
-        chunksize=chunksize)
+        chunksize=chunksize,
+    )
     return dict(zip(obj.keys(), iter_values, strict=True))

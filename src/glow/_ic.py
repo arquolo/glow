@@ -93,7 +93,8 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
     for axis, (half, m) in enumerate(zip(hs, ms)):
         sep = [half, half + 1] if m else [half]
         splits = {
-            (*k, k2): ss for k, s in splits.items()
+            (*k, k2): ss
+            for k, s in splits.items()
             for k2, ss in enumerate(np.split(s, sep, axis))
         }
 
@@ -167,9 +168,9 @@ def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
                 yield f'X∈[{lo} ... {hi}]'
 
                 # Not much uniqs
-                if ((range_ < 1_000 or arr.size < 1_000_000
-                     or arr.itemsize <= 2)
-                        and (nuniq := np.unique(arr).size) != range_):
+                if (
+                    range_ < 1_000 or arr.size < 1_000_000 or arr.itemsize <= 2
+                ) and (nuniq := np.unique(arr).size) != range_:
                     yield f'{nuniq / range_:.2%} range'
 
             yield from _grad_info(arr)
@@ -238,8 +239,11 @@ class _ReprArray(NamedTuple):
                 return f'np.{dtype}({arr})'
             return f'np.array({shape}, {dtype}({arr.ravel()}))'
 
-        return 'np.array(' + ', '.join([shape, *_get_properties(arr, lo, hi)
-                                        ]) + ')'
+        return (
+            'np.array('
+            + ', '.join([shape, *_get_properties(arr, lo, hi)])
+            + ')'
+        )
 
 
 def _prepare(obj):  # noqa: PLR0911
@@ -289,13 +293,16 @@ def _format_context(frame: FrameType, call_node: EnhancedAST | None) -> str:
     if parent_fn != '<module>':
         parent_fn = f'{parent_fn}()'
 
-    return (basename(info.filename) +
-            ('' if call_node is None else f':{call_node.lineno}')
-            + f' in {parent_fn}')
+    return (
+        basename(info.filename)
+        + ('' if call_node is None else f':{call_node.lineno}')
+        + f' in {parent_fn}'
+    )
 
 
-def _construct_argument_output(context: str,
-                               pairs: Iterable[tuple[str, Any]]) -> str:
+def _construct_argument_output(
+    context: str, pairs: Iterable[tuple[str, Any]]
+) -> str:
     pairs = [(arg, ic_repr(val)) for arg, val in pairs]
     # For cleaner output, if <arg> is a literal, eg 3, "string", b'bytes',
     # etc, only output the value, not the argument and the value, as the
@@ -309,17 +316,21 @@ def _construct_argument_output(context: str,
     #   ic| "hello": 'hello'.
     #
     single_line_formatted_args = ', '.join(
-        val if is_literal(arg) else f'{arg}: {val}' for arg, val in pairs)
+        val if is_literal(arg) else f'{arg}: {val}' for arg, val in pairs
+    )
 
     if len(single_line_formatted_args.splitlines()) <= 1:
-        all_pairs = (f'{PREFIX}{context} - {single_line_formatted_args}'
-                     if context else f'{PREFIX}{single_line_formatted_args}')
+        all_pairs = (
+            f'{PREFIX}{context} - {single_line_formatted_args}'
+            if context
+            else f'{PREFIX}{single_line_formatted_args}'
+        )
         if len(all_pairs.splitlines()[0]) <= LINE_WRAP_WIDTH:
             # ic| foo.py:11 in foo() - a: 1, b: 2
             # ic| a: 1, b: 2, c: 3
             return all_pairs
 
-    lines = *(format_pair(arg, value) for arg, value in pairs),
+    lines = tuple(format_pair(arg, value) for arg, value in pairs)
     if context:
         # ic| foo.py:11 in foo()
         #     multilineStr: 'line1
@@ -359,18 +370,15 @@ def _format(frame: FrameType, *args) -> str:
 
 
 @overload
-def ic() -> None:
-    ...
+def ic() -> None: ...
 
 
 @overload
-def ic[T](x: T, /) -> T:
-    ...
+def ic[T](x: T, /) -> T: ...
 
 
 @overload
-def ic[*Ts](*xs: *Ts) -> tuple[*Ts]:
-    ...
+def ic[*Ts](*xs: *Ts) -> tuple[*Ts]: ...
 
 
 def ic(*args):

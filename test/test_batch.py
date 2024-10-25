@@ -18,7 +18,7 @@ def test_as_is():
         results = load_batch(numbers)
         assert numbers == results
 
-    called_with = (x for (x, ), _ in load.call_args_list)
+    called_with = (x for (x,), _ in load.call_args_list)
     assert sorted(called_with) == sorted(load_batch.cache)
 
 

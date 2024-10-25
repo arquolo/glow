@@ -66,9 +66,9 @@ def summary() -> Generator[None, Hashable | None, None]:
 
 @threadsafe_iter
 @coroutine
-def as_actor[T, R](
-    transform: Callable[[Iterable[T]], Iterator[R]],
-) -> Generator[R, T, None]:
+def as_actor[
+    T, R
+](transform: Callable[[Iterable[T]], Iterator[R]]) -> Generator[R, T, None]:
     buf = deque[T]()
     gen = transform(_deiter(buf))  # infinite
 

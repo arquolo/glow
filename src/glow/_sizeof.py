@@ -18,12 +18,13 @@ from ._repr import si_bin
 _ZERO_DEPTH_BASES = (str, bytes, bytearray, range, Number, Enum)
 _SINGLETONS = (type, bool, FunctionType, ModuleType)
 
-pythonapi._PyObject_GetDictPtr.argtypes = (ctypes.py_object, )
+pythonapi._PyObject_GetDictPtr.argtypes = (ctypes.py_object,)
 pythonapi._PyObject_GetDictPtr.restype = ctypes.POINTER(ctypes.py_object)
 
 
 def unique_only(fn):
     """Protection from self-referencing"""
+
     def wrapper(obj, seen: set[int]) -> int:
         if (id_ := id(obj)) not in seen:
             seen.add(id_)
@@ -60,8 +61,11 @@ def true_vars(obj) -> dict[str, object] | None:
     if hasattr(obj, '__dict__'):
         for cls in tp.__mro__:
             if (attr := vars(cls).get('__dict__')) is not None:
-                return (vars(obj) if (isgetsetdescriptor(attr)
-                                      or ismemberdescriptor(attr)) else None)
+                return (
+                    vars(obj)
+                    if isgetsetdescriptor(attr) or ismemberdescriptor(attr)
+                    else None
+                )
     return None
 
 
@@ -94,8 +98,10 @@ def _sizeof(obj, seen: set[int]) -> int:
     if hasattr(obj, '__slots__'):
         size += sum(
             _sizeof(getattr(obj, slot, None), seen)
-            for cls in tp.__mro__ if (slots := getattr(cls, '__slots__', ()))
-            for slot in ([slots] if isinstance(slots, str) else slots))
+            for cls in tp.__mro__
+            if (slots := getattr(cls, '__slots__', ()))
+            for slot in ([slots] if isinstance(slots, str) else slots)
+        )
 
     return size
 
@@ -115,7 +121,8 @@ def _sizeof_torch(obj, _: set[int]) -> int:
 
 _sizeof.register(np.ndarray, _sizeof_numpy)
 when_imported('torch')(
-    lambda torch: _sizeof.register(torch.Tensor, _sizeof_torch))
+    lambda torch: _sizeof.register(torch.Tensor, _sizeof_torch)
+)
 
 
 def sizeof(obj) -> int:

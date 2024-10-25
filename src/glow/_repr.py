@@ -60,14 +60,15 @@ def repr_as_obj(d: dict) -> str:
 # ----------------------- number type with pretty repr -----------------------
 
 _PREFIXES = 'qryzafpnum kMGTPEZYRQ'
-_PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' '):].upper()
+_PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' ') :].upper()
 
 
-def _find_prefix(value: float | int, base: int,
-                 prefixes: str) -> tuple[float, str]:
+def _find_prefix(
+    value: float | int, base: int, prefixes: str
+) -> tuple[float, str]:
     threshold = base - 0.5
     origin = prefixes.find(' ') + 1
-    value *= base ** origin
+    value *= base**origin
 
     for prefix in prefixes:
         value /= base
@@ -94,7 +95,7 @@ def _autospec(value: float) -> str:
 
 
 class _Si(ObjectProxy):
-    __slots__ = '_self_si',
+    __slots__ = ('_self_si',)
 
     def __init__(self, value: float | int = 0, si: bool = True):
         super().__init__(value)

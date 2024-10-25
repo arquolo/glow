@@ -9,6 +9,7 @@ _KWD_MARK = object()
 @dataclass(frozen=True, slots=True)
 class _HashedSeq:
     """Memorizes hash to not recompute it on cache search/update"""
+
     items: tuple
     hashvalue: int
 

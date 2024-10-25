@@ -45,7 +45,7 @@ class AsArg:
 
 class AsArgRepeated(AsArg):
     def args(self):
-        args, = super().args()
+        [args] = super().args()
         return [[*args]] * NUM_STEPS
 
 
@@ -66,20 +66,22 @@ def run_glow(task, *args):
 
 def run_joblib(task, *args):
     from glow.joblib import Parallel, delayed
-    return Parallel(
-        n_jobs=2, backend='multiprocessing')(
-            delayed(task)(*a) for a in zip(*args))
+
+    return Parallel(n_jobs=2, backend='multiprocessing')(
+        delayed(task)(*a) for a in zip(*args)
+    )
 
 
 def run_joblib_mp(task, *args):
     from glow.joblib import Parallel, delayed
+
     return Parallel(n_jobs=2)(delayed(task)(*a) for a in zip(*args))
 
 
 def bench_ipc_speed(order=25, steps=100):
     from matplotlib import pyplot as plt
 
-    sizes = np.asarray([2 ** order, *np.logspace(order, 2, num=steps, base=2)])
+    sizes = np.asarray([2**order, *np.logspace(order, 2, num=steps, base=2)])
     to_bytes = DTYPE.itemsize * 2  # x2, because copy+read
 
     fig = plt.figure(figsize=(10, 4))
@@ -94,7 +96,8 @@ def bench_ipc_speed(order=25, steps=100):
             xscale='log',
             yscale='log',
             ylim=(1, 1e12),
-            title=worker.__name__)
+            title=worker.__name__,
+        )
         for runner in [run_glow, run_joblib, run_joblib_mp]:
             label = f'{worker.__name__}-{runner.__name__}'
             times: list[int] = []
@@ -125,9 +128,9 @@ def source(size):
 
 def do_work(seed, offset):
     rg = np.random.default_rng(seed + offset)
-    n = 10
-    a = rg.random((2 ** n, 2 ** n), dtype='f4')
-    b = rg.random((2 ** n, 2 ** n), dtype='f4')
+    n = 1024
+    a = rg.random((n, n), dtype='f4')
+    b = rg.random((n, n), dtype='f4')
     (a @ b).sum()
     if rg.uniform() < DEATH_RATE:
         raise ValueError(f'Worker died: {seed}') from None
@@ -136,19 +139,16 @@ def do_work(seed, offset):
 
 def _test_interrupt():
     """Should die gracefully on Ctrl-C"""
-    sources = (
-        source(SIZE),
-        np.random.randint(2 ** 10, size=SIZE),
-    )
+    sources = (source(SIZE), np.random.randint(2**10, size=SIZE))
     # sources = map(glow.buffered, sources)
     res = glow.map_n(do_work, *sources, max_workers=NUM_PROCS, mp=True)
     print('start main', end='')
     for r in res:
         print(end=f'\rmain {r} computes...')
         rg = np.random.default_rng(r)
-        n = 10
-        a = rg.random((2 ** n, 2 ** n), dtype='f4')
-        b = rg.random((2 ** n, 2 ** n), dtype='f4')
+        n = 1024
+        a = rg.random((n, n), dtype='f4')
+        b = rg.random((n, n), dtype='f4')
         (a @ b).sum()
         yield r
         print(end=f'\rmain {r} waits...')
