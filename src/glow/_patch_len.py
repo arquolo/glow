@@ -50,14 +50,14 @@ for _tp in _transparent_types:
 _odict_iter_tp: type = OrderedDict().__iter__().__class__
 
 
-def _are_definitely_independent(iters):
+def _are_definitely_independent(iters) -> bool:
     return len({id(it) for it in iters}) == len(iters) and all(
         isinstance(it, _transparent_types) for it in iters
     )
 
 
 @len_hint.register(zip)
-def _len_zip(x):  # type: ignore[misc]
+def _len_zip(x) -> int:  # type: ignore[misc]
     _, iters = x.__reduce__()
     if not iters:
         return 0
@@ -74,7 +74,7 @@ def _len_zip(x):  # type: ignore[misc]
 
 
 @len_hint.register(map)
-def _len_map(x):  # type: ignore[misc]
+def _len_map(x) -> int:  # type: ignore[misc]
     _, (__fn, *iters) = x.__reduce__()
     if len(iters) == 1:
         return len(iters[0])
@@ -87,7 +87,7 @@ def _len_map(x):  # type: ignore[misc]
 
 
 @len_hint.register(_odict_iter_tp)
-def _len_odict_iter(x):
+def _len_odict_iter(x) -> int:
     _, [items] = x.__reduce__()
     return len(items)
 

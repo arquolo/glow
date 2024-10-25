@@ -14,10 +14,10 @@ _HOOKS: dict[str, list[_Hook]] = {}
 
 
 class _ImportHookChainedLoader(abc.Loader):
-    def __init__(self, loader):
+    def __init__(self, loader) -> None:
         self.loader = loader
 
-    def _set_loader(self, module):
+    def _set_loader(self, module) -> None:
         undefined = object()
         if getattr(module, '__loader__', undefined) in (None, self):
             try:
@@ -33,7 +33,7 @@ class _ImportHookChainedLoader(abc.Loader):
     def create_module(self, spec):
         return self.loader.create_module(spec)
 
-    def exec_module(self, module):
+    def exec_module(self, module) -> None:
         self._set_loader(module)
         self.loader.exec_module(module)
 

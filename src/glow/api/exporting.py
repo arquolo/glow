@@ -59,7 +59,7 @@ def export[F: Callable](obj: F) -> F:
     return obj
 
 
-def import_tree(pkg: str):
+def import_tree(pkg: str) -> None:
     """Imports all subpackages.
 
     Usage:
@@ -68,7 +68,7 @@ def import_tree(pkg: str):
     ```
     """
     path: str = sys.modules[pkg].__path__  # type: ignore
-    for _, name, __ in pkgutil.walk_packages(path):
+    for _, name, _ in pkgutil.walk_packages(path):
         subpkg = pkg + '.' + name
         __import__(subpkg)
 

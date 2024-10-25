@@ -86,7 +86,7 @@ class Sound[S: np.number]:
     data: npt.NDArray[S]
     rate: int = 44_100
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.data.ndim not in (1, 2):
             raise ValueError(
                 f'Sound must be 1d (mono) or 2d array, got {self.data.shape}'
@@ -139,7 +139,7 @@ class Sound[S: np.number]:
         soundfile.write(path, self.data, self.rate)
 
 
-def _check_fmt(path: Path | str):
+def _check_fmt(path: Path | str) -> None:
     fmt = Path(path).suffix.lower()
     if fmt not in ('.flac', '.wav'):
         raise ValueError(f'Only FLAC/WAV is supported, got {fmt}')

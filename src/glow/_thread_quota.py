@@ -42,7 +42,7 @@ _workers = WeakKeyDictionary[Thread, _Pipe]()
 _idle = deque[_Pipe]()
 
 
-def _python_exit():
+def _python_exit() -> None:
     global _shutdown  # noqa: PLW0603
     with _shutdown_lock:
         _shutdown = True
@@ -82,7 +82,7 @@ def _worker(q: _Pipe) -> None:
 class ThreadQuota(Executor):
     __slots__ = ('_work_queue', '_idle', '_shutdown_lock', '_shutdown')
 
-    def __init__(self, max_workers: int):
+    def __init__(self, max_workers: int) -> None:
         self._work_queue = deque[_WorkItem]()
         self._idle = [1] * max_workers  # semaphore
 
@@ -97,7 +97,7 @@ class ThreadQuota(Executor):
         self.submit_f(f, fn, *args, **kwargs)
         return f
 
-    def submit_f(self, f, fn, /, *args, **kwargs):
+    def submit_f(self, f, fn, /, *args, **kwargs) -> None:
         with self._shutdown_lock, _shutdown_lock:
             if self._shutdown or _shutdown:
                 raise RuntimeError('cannot schedule futures after shutdown')
@@ -112,7 +112,7 @@ class ThreadQuota(Executor):
                     _workers[w] = q
                 q.put(self)
 
-    def shutdown(self, wait=True, *, cancel_futures=False):
+    def shutdown(self, wait=True, *, cancel_futures=False) -> None:
         with self._shutdown_lock:
             if self._shutdown:
                 return

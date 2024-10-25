@@ -3,18 +3,6 @@ from concurrent.futures import Executor
 from contextlib import AbstractContextManager
 from typing import overload
 
-class _Callable1[T, R]:
-    def __call__(self, __1: T, /) -> R: ...
-
-class _Callable2[T1, T2, R]:
-    def __call__(self, __1: T1, __2: T2, /) -> R: ...
-
-class _Callable3[T1, T2, T3, R]:
-    def __call__(self, __1: T1, __2: T2, __3: T3, /) -> R: ...
-
-class _Callable4[R]:
-    def __call__(self, __1, __2, __3, __4, /, *args) -> R: ...
-
 def max_cpu_count(upper_bound: int = ..., mp: bool = ...) -> int: ...
 def get_executor(
     max_workers: int, mp: bool
@@ -41,7 +29,7 @@ def starmap_n[
 def map_n[
     T, R
 ](
-    __func: _Callable1[T, R],
+    __func: Callable[[T], R],
     __iter1: Iterable[T],
     /,
     *,
@@ -55,7 +43,7 @@ def map_n[
 def map_n[
     T1, T2, R
 ](
-    __f: _Callable2[T1, T2, R],
+    __f: Callable[[T1, T2], R],
     __iter1: Iterable[T1],
     __iter2: Iterable[T2],
     /,
@@ -70,7 +58,7 @@ def map_n[
 def map_n[
     T1, T2, T3, R
 ](
-    __f: _Callable3[T1, T2, T3, R],
+    __f: Callable[[T1, T2, T3], R],
     __iter1: Iterable[T1],
     __iter2: Iterable[T2],
     __iter3: Iterable[T3],
@@ -86,7 +74,7 @@ def map_n[
 def map_n[
     R
 ](
-    __func: _Callable4[R],
+    __func: Callable[..., R],
     __iter1: Iterable,
     __iter2: Iterable,
     __iter3: Iterable,

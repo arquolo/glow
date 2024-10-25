@@ -11,11 +11,12 @@ import threading
 from collections.abc import Callable, Hashable, Iterable, Sequence
 from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Any, cast
+from typing import Final
 from weakref import WeakValueDictionary
 
 from .util import make_key
@@ -23,12 +24,18 @@ from .util import make_key
 type _BatchFn[T, R] = Callable[[list[T]], Iterable[R]]
 
 _PATIENCE = 0.01
-_unset = object()
+
+
+class _Empty(Enum):
+    token = 0
+
+
+_empty: Final = _Empty.token
 
 
 def threadlocal[
     T
-](fn: Callable[..., T], *args: object, **kwargs: object) -> Callable[[], T]:
+](fn: Callable[..., T], /, *args: object, **kwargs: object) -> Callable[[], T]:
     """Thread-local singleton factory, mimics `functools.partial`"""
     local_ = threading.local()
 
@@ -42,18 +49,18 @@ def threadlocal[
     return update_wrapper(wrapper, fn)
 
 
-@dataclass
-class _UFuture:
-    _fn: Callable[[], object]
+@dataclass(slots=True, weakref_slot=True)
+class _UFuture[T]:
+    _fn: Callable[[], T]
     _lock: Lock = field(default_factory=Lock)
-    _result: object = _unset
+    _result: T | _Empty = _empty
     _exception: BaseException | None = None
 
-    def result(self):
+    def result(self) -> T:
         with self._lock:
             if self._exception:
                 raise self._exception
-            if self._result is not _unset:
+            if self._result is not _empty:
                 return self._result
 
             try:
@@ -64,26 +71,26 @@ class _UFuture:
             return r
 
 
-def call_once[F: Callable[[], object]](fn: F) -> F:
+def call_once[T](fn: Callable[[], T], /) -> Callable[[], T]:
     """Makes callable a singleton.
 
     DO NOT USE with recursive functions"""
 
-    def wrapper():
+    def wrapper() -> T:
         return uf.result()
 
-    fn._future = uf = _UFuture(fn)  # type: ignore[attr-defined]
-    return cast(F, update_wrapper(wrapper, fn))
+    fn._future = uf = _UFuture[T](fn)  # type: ignore[attr-defined]
+    return update_wrapper(wrapper, fn)
 
 
-def shared_call[F: Callable](fn: F, /) -> F:
+def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
     """Merges duplicate parallel invocations of callable to a single one.
 
     DO NOT USE with recursive functions"""
-    fs = WeakValueDictionary[Hashable, _UFuture]()
+    fs = WeakValueDictionary[Hashable, _UFuture[R]]()
     lock = Lock()
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = make_key(*args, **kwargs)
 
         with lock:  # Create only one task per args-kwargs set
@@ -92,19 +99,19 @@ def shared_call[F: Callable](fn: F, /) -> F:
 
         return uf.result()
 
-    return cast(F, update_wrapper(wrapper, fn))
+    return update_wrapper(wrapper, fn)
 
 
-def weak_memoize[F: Callable](fn: F, /) -> F:
+def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
     """Preserves each result of each call until they are garbage collected."""
-    rs = WeakValueDictionary[Hashable, Any]()
+    rs = WeakValueDictionary[Hashable, R]()
     lock = Lock()
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = make_key(*args, **kwargs)
 
         with lock:
-            if (r := rs.get(key, _unset)) is not _unset:
+            if (r := rs.get(key, _empty)) is not _empty:
                 return r
 
         r = fn(*args, **kwargs)
@@ -113,7 +120,7 @@ def weak_memoize[F: Callable](fn: F, /) -> F:
             rs[key] = r
         return r
 
-    return cast(F, update_wrapper(wrapper, fn))
+    return update_wrapper(wrapper, fn)
 
 
 # ----------------------------- batch collation ------------------------------

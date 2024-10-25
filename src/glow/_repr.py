@@ -97,7 +97,7 @@ def _autospec(value: float) -> str:
 class _Si(ObjectProxy):
     __slots__ = ('_self_si',)
 
-    def __init__(self, value: float | int = 0, si: bool = True):
+    def __init__(self, value: float | int = 0, si: bool = True) -> None:
         super().__init__(value)
         self._self_si = si
 
@@ -105,7 +105,7 @@ class _Si(ObjectProxy):
         value, unit = _num_repr(self.__wrapped__, self._self_si)
         return f'{value:{_autospec(value)}}{unit}'
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{type(self).__name__}({self})'
 
     def __format__(self, format_spec: str) -> str:

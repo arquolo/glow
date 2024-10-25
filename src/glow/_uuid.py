@@ -65,7 +65,7 @@ class Uid(UUID):
     [shortuuid](https://github.com/skorokithakis/shortuuid)
     """
 
-    def __init__(self, obj: str | SupportsInt):
+    def __init__(self, obj: str | SupportsInt) -> None:
         """
         Creates Uid either from str (parsing it as short-uuid) or
         from int()-compatible type
@@ -98,7 +98,7 @@ class Uid(UUID):
         )
 
     @classmethod  # Pydantic 1.x requirement for OpenAPI
-    def __modify_schema__(cls, field_schema: dict):
+    def __modify_schema__(cls, field_schema: dict) -> None:
         field_schema.update(
             examples=[str(cls.v4()) for _ in range(2)],
             type='string',

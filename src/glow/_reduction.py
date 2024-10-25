@@ -40,17 +40,17 @@ def _get_shm_dir() -> Path:
     return _SYSTEM_TEMP
 
 
-class _Proxy[F: Callable]:
-    call: F
+class _Proxy[*Ts, R]:
+    call: Callable[[*Ts], R]
 
-    def __call__(self, *args):
+    def __call__(self, *args: *Ts) -> R:
         return self.call(*args)
 
 
-class _NullProxy[F: Callable](_Proxy[F]):
+class _NullProxy[*Ts, R](_Proxy[*Ts, R]):
     __slots__ = ('call',)
 
-    def __init__(self, call: F):
+    def __init__(self, call: Callable[[*Ts], R]) -> None:
         self.call = call
 
 
@@ -64,7 +64,7 @@ class _Mmap:
         mv.buf[:] = data
         return mv
 
-    def __init__(self, size, tag, create=False):
+    def __init__(self, size, tag, create=False) -> None:
         self.size = size
         self.tag = tag
         if create:
@@ -97,7 +97,7 @@ class _Mmap:
 
 
 @when_imported('torch')
-def _torch_hook(torch):
+def _torch_hook(torch) -> None:
     reducers.update(
         {
             torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
@@ -125,10 +125,10 @@ def _mmap_reconstruct(data: bytes, memos: list[_Mmap]):
     return pickle.loads(data, buffers=buffers)
 
 
-class _MmapProxy[F: Callable](_Proxy[F]):
+class _MmapProxy[*Ts, R](_Proxy[*Ts, R]):
     __slots__ = ('uid', 'call', 'data', 'memos')
 
-    def __init__(self, call: F) -> None:
+    def __init__(self, call: Callable[[*Ts], R]) -> None:
         buffers: list[pickle.PickleBuffer] = []
         self.uid = id(call)
         self.call = call
@@ -147,10 +147,10 @@ def _shn_reconstruct(data: bytes, memos: list[tuple[SharedMemory, int]]):
     return pickle.loads(data, buffers=buffers)
 
 
-class _ShmemProxy[F: Callable](_Proxy[F]):
+class _ShmemProxy[*Ts, R](_Proxy[*Ts, R]):
     __slots__ = ('call', 'data', 'memos')
 
-    def __init__(self, call: F) -> None:
+    def __init__(self, call: Callable[[*Ts], R]) -> None:
         buffers: list[pickle.PickleBuffer] = []
         self.call = call
         self.data = _dumps(call, callback=buffers.append)
@@ -165,6 +165,6 @@ class _ShmemProxy[F: Callable](_Proxy[F]):
         return _shn_reconstruct, (self.data, self.memos)
 
 
-def move_to_shmem[T](fn: Callable[..., T]) -> Callable[..., T]:
+def move_to_shmem[*Ts, R](fn: Callable[[*Ts], R]) -> Callable[[*Ts], R]:
     return _NullProxy(fn)
     return _ShmemProxy(fn)

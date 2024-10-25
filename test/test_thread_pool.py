@@ -139,7 +139,7 @@ def do_work(seed, offset):
 
 def _test_interrupt():
     """Should die gracefully on Ctrl-C"""
-    sources = (source(SIZE), np.random.randint(2**10, size=SIZE))
+    sources = (source(SIZE), np.random.randint(1024, size=SIZE))
     # sources = map(glow.buffered, sources)
     res = glow.map_n(do_work, *sources, max_workers=NUM_PROCS, mp=True)
     print('start main', end='')

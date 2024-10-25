@@ -17,7 +17,7 @@ from collections.abc import (
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Any, ClassVar, Literal, NamedTuple, SupportsInt, cast
+from typing import Any, ClassVar, Final, Literal, NamedTuple, SupportsInt
 from weakref import WeakValueDictionary
 
 from .._repr import si_bin
@@ -30,14 +30,14 @@ class _Empty(enum.Enum):
     token = 0
 
 
-type _BatchedFn = Callable[[list], Iterable]
+type _BatchedFn[T, R] = Callable[[list[T]], Iterable[R]]
 type _Policy = Literal['raw', 'lru', 'mru']
 type _KeyFn = Callable[..., Hashable]
 
-_empty = _Empty.token
+_empty: Final = _Empty.token
 
 
-def _unit_size(x):
+def _unit_size(obj, /) -> int:
     return 1
 
 
@@ -52,7 +52,7 @@ class _Node[T]:
 
 
 class Stats(argparse.Namespace):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         self.__dict__ = Counter()
         self.__dict__.update(**kwargs)
 
@@ -89,7 +89,7 @@ class _InitializedStore:
 class _DictMixin[T](_InitializedStore, _IStore[T]):
     lock: RLock = field(default_factory=RLock, init=False)
 
-    def clear(self):
+    def clear(self) -> None:
         with self.lock:
             self.store_clear()
             self.size = 0
@@ -196,8 +196,10 @@ class _MruCache[T](_LruCache[T]):
 # -------------------------------- wrapping --------------------------------
 
 
-def _memoize[F: Callable](cache: _DictMixin, key_fn: _KeyFn, fn: F) -> F:
-    def wrapper(*args, **kwargs):
+def _memoize[
+    **P, R
+](cache: _DictMixin, key_fn: _KeyFn, fn: Callable[P, R]) -> Callable[P, R]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = key_fn(*args, **kwargs)
 
         if (value := cache[key]) is not _empty:
@@ -208,7 +210,7 @@ def _memoize[F: Callable](cache: _DictMixin, key_fn: _KeyFn, fn: F) -> F:
         return value
 
     wrapper.cache = cache  # type: ignore[attr-defined]
-    return cast(F, functools.update_wrapper(wrapper, fn))
+    return functools.update_wrapper(wrapper, fn)
 
 
 # ----------------------- wrapper with batching support ----------------------
@@ -223,7 +225,7 @@ def _dispatch(
     fn: Callable[[list], Iterable],
     evict: Callable[[Hashable], object],
     queue: dict[Hashable, _Job],
-):
+) -> None:
     jobs = {**queue}
     queue.clear()
 
@@ -246,13 +248,15 @@ def _dispatch(
             job.future.set_result(value)
 
 
-def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
+def _memoize_batched_aio[
+    T, R
+](key_fn: _KeyFn, fn: _BatchedFn[T, R]) -> _BatchedFn[T, R]:
     assert callable(fn)
-    futs: dict[Hashable, asyncio.Future] = {}
+    futs: dict[Hashable, asyncio.Future[R]] = {}
     queue: dict[Hashable, _Job] = {}
     loop = make_loop()
 
-    def _load(token) -> asyncio.Future:
+    def _load(token: T) -> asyncio.Future[R]:
         key = key_fn(token)
         if result := futs.get(key):
             return result
@@ -265,21 +269,21 @@ def _memoize_batched_aio(key_fn: _KeyFn, fn: _BatchedFn) -> _BatchedFn:
 
         return future
 
-    async def _load_many(tokens: Iterable) -> tuple:
+    async def _load_many(tokens: Iterable[T]) -> tuple[R, ...]:
         rs = await asyncio.gather(*map(_load, tokens))
         return tuple(rs)
 
-    def wrapper(tokens: Iterable) -> tuple:
+    def wrapper(tokens: Iterable[T]) -> tuple[R, ...]:
         coro = _load_many(tokens)
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
 
     wrapper.stage = futs  # type: ignore[attr-defined]
-    return cast(_BatchedFn, functools.update_wrapper(wrapper, fn))
+    return functools.update_wrapper(wrapper, fn)
 
 
 def _memoize_batched[
-    F: _BatchedFn
-](cache: _DictMixin, key_fn: _KeyFn, fn: F) -> F:
+    T, R
+](cache: _DictMixin, key_fn: _KeyFn, fn: _BatchedFn[T, R]) -> _BatchedFn[T, R]:
     assert callable(fn)
     lock = RLock()
     futs = WeakValueDictionary[Hashable, cf.Future]()
@@ -297,7 +301,7 @@ def _memoize_batched[
 
         return future
 
-    def wrapper(tokens: Iterable) -> list:
+    def wrapper(tokens: Iterable[T]) -> list[R]:
         keyed_tokens = [(key_fn(t), t) for t in tokens]
 
         # Try to hit
@@ -323,14 +327,14 @@ def _memoize_batched[
 
     wrapper.cache = cache  # type: ignore[attr-defined]
     wrapper.stage = futs  # type: ignore[attr-defined]
-    return cast(F, functools.update_wrapper(wrapper, fn))
+    return functools.update_wrapper(wrapper, fn)
 
 
 # ----------------------------- factory wrappers -----------------------------
 
 
 def memoize[
-    F: Callable
+    **P, R
 ](
     capacity: SupportsInt | None,
     *,
@@ -338,7 +342,7 @@ def memoize[
     policy: _Policy = 'raw',
     key_fn: _KeyFn = make_key,
     bytesize: bool = True,
-) -> Callable[[F], F]:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Returns dict-cache decorator.
 
     Parameters:
