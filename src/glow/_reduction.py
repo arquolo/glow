@@ -12,14 +12,10 @@ import weakref
 from collections.abc import Callable
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Generic, TypeVar
 
 import loky
 
 from ._import_hook import when_imported
-
-_T = TypeVar('_T')
-_F = TypeVar('_F', bound=Callable)
 
 _SYSTEM_SHM_MIN_SIZE = int(2e9)
 _SYSTEM_SHM = Path('/dev/shm')
@@ -44,17 +40,17 @@ def _get_shm_dir() -> Path:
     return _SYSTEM_TEMP
 
 
-class _Proxy(Generic[_F]):
-    call: _F
+class _Proxy[F: Callable]:
+    call: F
 
     def __call__(self, *args):
         return self.call(*args)
 
 
-class _NullProxy(_Proxy[_F]):
+class _NullProxy[F: Callable](_Proxy[F]):
     __slots__ = ('call', )
 
-    def __init__(self, call: _F):
+    def __init__(self, call: F):
         self.call = call
 
 
@@ -127,10 +123,10 @@ def _mmap_reconstruct(data: bytes, memos: list[_Mmap]):
     return pickle.loads(data, buffers=buffers)
 
 
-class _MmapProxy(_Proxy[_F]):
+class _MmapProxy[F: Callable](_Proxy[F]):
     __slots__ = ('uid', 'call', 'data', 'memos')
 
-    def __init__(self, call: _F) -> None:
+    def __init__(self, call: F) -> None:
         buffers: list[pickle.PickleBuffer] = []
         self.uid = id(call)
         self.call = call
@@ -149,10 +145,10 @@ def _shn_reconstruct(data: bytes, memos: list[tuple[SharedMemory, int]]):
     return pickle.loads(data, buffers=buffers)
 
 
-class _ShmemProxy(_Proxy[_F]):
+class _ShmemProxy[F: Callable](_Proxy[F]):
     __slots__ = ('call', 'data', 'memos')
 
-    def __init__(self, call: _F) -> None:
+    def __init__(self, call: F) -> None:
         buffers: list[pickle.PickleBuffer] = []
         self.call = call
         self.data = _dumps(call, callback=buffers.append)
@@ -167,6 +163,6 @@ class _ShmemProxy(_Proxy[_F]):
         return _shn_reconstruct, (self.data, self.memos)
 
 
-def move_to_shmem(fn: Callable[..., _T]) -> Callable[..., _T]:
+def move_to_shmem[T](fn: Callable[..., T]) -> Callable[..., T]:
     return _NullProxy(fn)
     return _ShmemProxy(fn)

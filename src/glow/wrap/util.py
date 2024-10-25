@@ -1,18 +1,21 @@
 __all__ = ['make_key']
 
+from dataclasses import dataclass
 from collections.abc import Hashable
 
 _KWD_MARK = object()
 
 
-class _HashedSeq(list):  # List is mutable, that's why not NamedTuple
-    __slots__ = 'hashvalue',
+@dataclass(frozen=True, slots=True)
+class _HashedSeq:
+    """Memorizes hash to not recompute it on cache search/update"""
+    items: tuple
+    hashvalue: int
 
-    def __init__(self, tup: tuple):
-        self[:] = tup
-        self.hashvalue = hash(tup)  # Memorize hash
+    def __eq__(self, value: object) -> bool:
+        return type(value) is _HashedSeq and self.items == value.items
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return self.hashvalue
 
 
@@ -22,4 +25,4 @@ def make_key(*args, **kwargs) -> Hashable:
         args = sum(kwargs.items(), (*args, _KWD_MARK))
     if len(args) == 1 and type(args[0]) in {int, str}:
         return args[0]
-    return _HashedSeq(args)
+    return _HashedSeq(args, hash(args))

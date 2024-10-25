@@ -4,24 +4,20 @@ from collections import Counter, deque
 from collections.abc import Callable, Generator, Hashable, Iterable, Iterator
 from functools import update_wrapper
 from threading import Lock
-from typing import TypeVar, cast
+from typing import cast
 
 import wrapt
 
 from ._more import _deiter
 
-_T = TypeVar('_T')
-_R = TypeVar('_R')
-_F = TypeVar('_F', bound=Callable[..., Generator])
 
-
-def coroutine(fn: _F) -> _F:
+def coroutine[F: Callable[..., Generator]](fn: F) -> F:
     def wrapper(*args, **kwargs):
         coro = fn(*args, **kwargs)
         coro.send(None)
         return coro
 
-    return cast(_F, update_wrapper(wrapper, fn))
+    return cast(F, update_wrapper(wrapper, fn))
 
 
 class _Sync(wrapt.ObjectProxy):
@@ -46,12 +42,12 @@ class _Sync(wrapt.ObjectProxy):
         return self._call(self.__wrapped__.close)
 
 
-def threadsafe_iter(fn: _F) -> _F:
+def threadsafe_iter[F: Callable[..., Generator]](fn: F) -> F:
     def wrapper(*args, **kwargs):
         gen = fn(*args, **kwargs)
         return _Sync(gen)
 
-    return cast(_F, update_wrapper(wrapper, fn))
+    return cast(F, update_wrapper(wrapper, fn))
 
 
 @threadsafe_iter
@@ -70,10 +66,10 @@ def summary() -> Generator[None, Hashable | None, None]:
 
 @threadsafe_iter
 @coroutine
-def as_actor(
-    transform: Callable[[Iterable[_T]], Iterator[_R]],
-) -> Generator[_R, _T, None]:
-    buf = deque[_T]()
+def as_actor[T, R](
+    transform: Callable[[Iterable[T]], Iterator[R]],
+) -> Generator[R, T, None]:
+    buf = deque[T]()
     gen = transform(_deiter(buf))  # infinite
 
     # shortcuts

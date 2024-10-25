@@ -7,25 +7,19 @@ import threading
 from collections import deque
 from collections.abc import (Callable, Hashable, Iterable, Iterator, Mapping,
                              Sequence, Sized)
-from functools import partial
-from itertools import chain, count, cycle, islice, repeat
-from typing import Protocol, TypeVar, overload
-
-_K = TypeVar('_K', bound=Hashable)
-_T = TypeVar('_T')
-_V = TypeVar('_V')
-_T_co = TypeVar('_T_co', covariant=True)
+from itertools import batched, chain, count, cycle, islice, repeat
+from typing import Protocol, overload
 
 
-class SupportsSlice(Sized, Protocol[_T_co]):
-    def __getitem__(self, __s: slice) -> _T_co:
+class SupportsSlice[T](Sized, Protocol):
+    def __getitem__(self, __s: slice) -> T:
         ...
 
 
 # ----------------------------------------------------------------------------
 
 
-def as_iter(obj: Iterable[_T] | _T, limit: int | None = None) -> Iterator[_T]:
+def as_iter[T](obj: Iterable[T] | T, limit: int | None = None) -> Iterator[T]:
     """Make iterator with at most `limit` items"""
     if isinstance(obj, Iterable):
         return islice(obj, limit)
@@ -64,13 +58,13 @@ def chunk_hint(it, size):
     return len(range(0, len(it), size))
 
 
-def _sliced_windowed(s: SupportsSlice[_T], size: int) -> Iterator[_T]:
+def _sliced_windowed[T](s: SupportsSlice[T], size: int) -> Iterator[T]:
     indices = range(len(s) + 1)
     slices = map(slice, indices[:-size], indices[size:])
     return map(s.__getitem__, slices)
 
 
-def _windowed(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
+def _windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
 
@@ -82,32 +76,29 @@ def _windowed(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
     return map(tuple, chain([w], map(w.__iadd__, zip(it))))
 
 
-def _sliced(s: SupportsSlice[_T], size: int) -> Iterator[_T]:
+def _sliced[T](s: SupportsSlice[T], size: int) -> Iterator[T]:
     indices = range(len(s) + size)
     slices = map(slice, indices[::size], indices[size::size])
     return map(s.__getitem__, slices)
 
 
-def _chunked(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
+def _chunked[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
 
-    # TODO: python 3.12 - `itertools.batched(it, size)`
-    fetch_chunk = partial(islice, iter(it), size)
-    chunks = iter(fetch_chunk, None)
-    return iter(map(tuple, chunks).__next__, ())  # type: ignore[arg-type]
+    return batched(it, size)
 
 
 # ---------------------------------------------------------------------------
 
 
 @overload
-def windowed(it: SupportsSlice[_T], size: int) -> Iterator[_T]:
+def windowed[T](it: SupportsSlice[T], size: int) -> Iterator[T]:
     ...
 
 
 @overload
-def windowed(it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
+def windowed[T](it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
     ...
 
 
@@ -125,12 +116,12 @@ def windowed(it, size):
 
 
 @overload
-def chunked(__it: SupportsSlice[_T], size: int) -> Iterator[_T]:
+def chunked[T](__it: SupportsSlice[T], size: int) -> Iterator[T]:
     ...
 
 
 @overload
-def chunked(__it: Iterable[_T], size: int) -> Iterator[tuple[_T, ...]]:
+def chunked[T](__it: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
     ...
 
 
@@ -152,7 +143,7 @@ def chunked(it, size):
 # ----------------------------------------------------------------------------
 
 
-def _deiter(q: deque[_T]) -> Iterator[_T]:
+def _deiter[T](q: deque[T]) -> Iterator[T]:
     # Same as iter_except(q.popleft, IndexError) from docs of itertools
     try:
         while True:
@@ -161,7 +152,7 @@ def _deiter(q: deque[_T]) -> Iterator[_T]:
         return
 
 
-def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
+def ichunked[T](it: Iterable[T], size: int) -> Iterator[Iterator[T]]:
     """Split iterable to chunks of at most size items each.
 
     Does't consume items from passed iterable to return complete chunk
@@ -174,7 +165,7 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
     [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
     """
     if size == 1:  # Trivial case
-        yield from map(iter, zip(it))  # type: ignore[arg-type]
+        yield from map(iter, zip(it))
         return
 
     it = iter(it)
@@ -183,7 +174,7 @@ def ichunked(it: Iterable[_T], size: int) -> Iterator[Iterator[_T]]:
         body = islice(it, size - 1)
 
         # Cache for not-yet-consumed
-        tail = deque[_T]()
+        tail = deque[T]()
 
         # Include early fetched item into chunk
         yield chain(_deiter(head), body, _deiter(tail))
@@ -214,7 +205,7 @@ def eat(iterable: Iterable, daemon: bool = False) -> None:
         deque(iterable, 0)  # Same as `more_itertools.consume(..., n=None)`
 
 
-def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
+def roundrobin[T](*iterables: Iterable[T]) -> Iterator[T]:
     """roundrobin('ABC', 'D', 'EF') --> A D E B F C"""
     iters = cycle(iter(it) for it in iterables)
     for pending in range(len(iterables) - 1, -1, -1):
@@ -226,14 +217,14 @@ def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
 
 
 @overload
-def groupby(iterable: Iterable[_T_co], /,
-            key: Callable[[_T_co], _K]) -> dict[_K, list[_T_co]]:
+def groupby[T, K: Hashable](iterable: Iterable[T], /,
+                            key: Callable[[T], K]) -> dict[K, list[T]]:
     ...
 
 
 @overload
-def groupby(iterable: Iterable[_T], /, key: Callable[[_T], _K],
-            value: Callable[[_T], _V]) -> dict[_K, list[_V]]:
+def groupby[T, K: Hashable, V](iterable: Iterable[T], /, key: Callable[[T], K],
+                               value: Callable[[T], V]) -> dict[K, list[V]]:
     ...
 
 

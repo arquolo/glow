@@ -11,27 +11,23 @@ from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 from weakref import WeakValueDictionary
 
 from .util import make_key
 
-_T = TypeVar('_T')
-_R = TypeVar('_R')
-_F = TypeVar('_F', bound=Callable)
-_BatchFn = Callable[[list[_T]], Iterable[_R]]
-_ZeroArgsF = TypeVar('_ZeroArgsF', bound=Callable[[], object])
+type _BatchFn[T, R] = Callable[[list[T]], Iterable[R]]
 
 _PATIENCE = 0.01
 _unset = object()
 
 
-def threadlocal(fn: Callable[..., _T], *args: object,
-                **kwargs: object) -> Callable[[], _T]:
+def threadlocal[T](fn: Callable[..., T], *args: object,
+                   **kwargs: object) -> Callable[[], T]:
     """Thread-local singleton factory, mimics `functools.partial`"""
     local_ = threading.local()
 
-    def wrapper() -> _T:
+    def wrapper() -> T:
         try:
             return local_.obj
         except AttributeError:
@@ -63,7 +59,7 @@ class _UFuture:
             return r
 
 
-def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
+def call_once[F: Callable[[], object]](fn: F) -> F:
     """Makes callable a singleton.
 
     DO NOT USE with recursive functions"""
@@ -71,10 +67,10 @@ def call_once(fn: _ZeroArgsF) -> _ZeroArgsF:
         return uf.result()
 
     fn._future = uf = _UFuture(fn)  # type: ignore[attr-defined]
-    return cast(_ZeroArgsF, update_wrapper(wrapper, fn))
+    return cast(F, update_wrapper(wrapper, fn))
 
 
-def shared_call(fn: _F, /) -> _F:
+def shared_call[F: Callable](fn: F, /) -> F:
     """Merges duplicate parallel invocations of callable to a single one.
 
     DO NOT USE with recursive functions"""
@@ -90,10 +86,10 @@ def shared_call(fn: _F, /) -> _F:
 
         return uf.result()
 
-    return cast(_F, update_wrapper(wrapper, fn))
+    return cast(F, update_wrapper(wrapper, fn))
 
 
-def weak_memoize(fn: _F, /) -> _F:
+def weak_memoize[F: Callable](fn: F, /) -> F:
     """Preserves each result of each call until they are garbage collected."""
     rs = WeakValueDictionary[Hashable, Any]()
     lock = Lock()
@@ -111,15 +107,15 @@ def weak_memoize(fn: _F, /) -> _F:
             rs[key] = r
         return r
 
-    return cast(_F, update_wrapper(wrapper, fn))
+    return cast(F, update_wrapper(wrapper, fn))
 
 
 # ----------------------------- batch collation ------------------------------
 
 
-def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
-                 timeout: float) -> list[_T]:
-    batch: list[_T] = []
+def _fetch_batch[T](q: SimpleQueue[T], batch_size: int,
+                    timeout: float) -> list[T]:
+    batch: list[T] = []
 
     # Wait indefinitely until the first item is received
     if sys.platform == 'win32':
@@ -145,10 +141,10 @@ def _fetch_batch(q: SimpleQueue[_T], batch_size: int,
     return batch
 
 
-def _batch_invoke(
-    func: _BatchFn[_T, _R],
-    batch: Sequence[tuple[Future[_R], _T]],
-):
+def _batch_invoke[T, R](
+    func: _BatchFn[T, R],
+    batch: Sequence[tuple[Future[R], T]],
+) -> None:
     batch = [(f, x) for f, x in batch if f.set_running_or_notify_cancel()]
     if not batch:
         return

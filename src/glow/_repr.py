@@ -2,7 +2,7 @@ __all__ = ['countable', 'mangle', 'repr_as_obj', 'si', 'si_bin']
 
 from collections import Counter
 from collections.abc import Callable
-from typing import TypeVar, cast
+from typing import cast
 
 from wrapt import ObjectProxy
 
@@ -59,7 +59,6 @@ def repr_as_obj(d: dict) -> str:
 
 # ----------------------- number type with pretty repr -----------------------
 
-_IntOrFloat = TypeVar('_IntOrFloat', int, float)
 _PREFIXES = 'qryzafpnum kMGTPEZYRQ'
 _PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' '):].upper()
 
@@ -120,7 +119,7 @@ class _Si(ObjectProxy):
         return type(self), (self.__wrapped__, self._self_si)
 
 
-def si(value: _IntOrFloat) -> _IntOrFloat:
+def si[T: (int, float)](value: T) -> T:
     """Mix value with human-readable formatting,
     uses metric prefixes. Returns exact subtype of value.
 
@@ -128,10 +127,10 @@ def si(value: _IntOrFloat) -> _IntOrFloat:
     >>> print(s)
     10k
     """
-    return cast(_IntOrFloat, _Si(value, si=True))
+    return cast(T, _Si(value, si=True))
 
 
-def si_bin(value: _IntOrFloat) -> _IntOrFloat:
+def si_bin[T: (int, float)](value: T) -> T:
     """Treats value as size in bytes, mixes it with binary prefix.
     Returns exact subtype of value.
 
@@ -142,4 +141,4 @@ def si_bin(value: _IntOrFloat) -> _IntOrFloat:
     .. _Human readable bytes count
        https://programming.guide/java/formatting-byte-size-to-human-readable-format.html
     """
-    return cast(_IntOrFloat, _Si(value, si=False))
+    return cast(T, _Si(value, si=False))

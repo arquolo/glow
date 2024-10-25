@@ -1,12 +1,10 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal
 
 import pytest
 
 from glow.cli import parse_args
-
-T = TypeVar('T')
 
 
 @dataclass
@@ -168,6 +166,6 @@ def _arg_kwarg(a: int, b: str = 'hello'):
     (['53'], _arg_kwarg, (53, 'hello')),
     (['87', '--b', 'bye'], _arg_kwarg, (87, 'bye')),
 ])
-def test_good_func(argv: list[str], func: Callable[..., T], expected: T):
+def test_good_func[T](argv: list[str], func: Callable[..., T], expected: T):
     result, _ = parse_args(func, argv)
     assert result == expected

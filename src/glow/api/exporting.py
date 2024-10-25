@@ -4,16 +4,13 @@ import pkgutil
 import sys
 from collections.abc import Callable
 from types import ModuleType
-from typing import TypeVar
-
-_T = TypeVar('_T', bound=Callable)
 
 
 class ExportError(Exception):
     pass
 
 
-def export(obj: _T) -> _T:
+def export[F: Callable](obj: F) -> F:
     """Exposes obj to __all__ in module parent to where it was defined,
     although breaking intellisense.
 

@@ -48,11 +48,9 @@ from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
 from collections.abc import Callable, Collection, Iterator, Sequence
 from dataclasses import MISSING, Field, field, fields, is_dataclass
 from inspect import getmodule, signature, stack
-from typing import (Any, Literal, TypeVar, Union, get_args, get_origin,
-                    get_type_hints)
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
-_T = TypeVar('_T')
-_Node = str | tuple[str, type, list['_Node']]
+type _Node = str | tuple[str, type, list['_Node']]
 _NoneType = type(None)
 _UNION_TYPES: list = [Union, types.UnionType]
 
@@ -216,8 +214,8 @@ def _visit_field(parser: ArgumentParser | _ArgumentGroup, tp: type, fd: Field,
     return fd.name
 
 
-def _construct(src: dict[str, Any], fn: Callable[..., _T],
-               args: Collection[_Node]) -> _T:
+def _construct[T](src: dict[str, Any], fn: Callable[..., T],
+                  args: Collection[_Node]) -> T:
     kwargs = {}
     for a in args:
         if isinstance(a, str):
@@ -227,9 +225,9 @@ def _construct(src: dict[str, Any], fn: Callable[..., _T],
     return fn(**kwargs)
 
 
-def parse_args(fn: Callable[..., _T],
-               args: Sequence[str] | None = None,
-               prog: str | None = None) -> tuple[_T, ArgumentParser]:
+def parse_args[T](fn: Callable[..., T],
+                  args: Sequence[str] | None = None,
+                  prog: str | None = None) -> tuple[T, ArgumentParser]:
     """Create parser from type hints of callable, parse args and do call"""
     # TODO: Rename to `run`
     parser = ArgumentParser(prog)

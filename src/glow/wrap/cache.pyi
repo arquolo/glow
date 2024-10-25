@@ -1,26 +1,25 @@
 from collections.abc import Callable, Hashable, Iterable
-from typing import Literal, TypeAlias, TypeVar, overload
+from typing import Literal, overload
 
-_F = TypeVar('_F', bound=Callable)
-_BatchedFn = TypeVar('_BatchedFn', bound=Callable[[list], Iterable])
-_Policy: TypeAlias = Literal['raw', 'lru', 'mru']
-_KeyFn: TypeAlias = Callable[..., Hashable]
+type _BatchedFn = Callable[[list], Iterable]
+type _Policy = Literal['raw', 'lru', 'mru']
+type _KeyFn = Callable[..., Hashable]
 
 
 @overload
-def memoize(capacity: int,
-            *,
-            policy: _Policy = ...,
-            key_fn: _KeyFn = ...,
-            bytesize: bool = ...) -> Callable[[_F], _F]:
+def memoize[F: Callable](capacity: int,
+                         *,
+                         policy: _Policy = ...,
+                         key_fn: _KeyFn = ...,
+                         bytesize: bool = ...) -> Callable[[F], F]:
     ...
 
 
 @overload
-def memoize(capacity: int,
-            *,
-            batched: Literal[True],
-            policy: _Policy = ...,
-            key_fn: _KeyFn = ...,
-            bytesize: bool = ...) -> Callable[[_BatchedFn], _BatchedFn]:
+def memoize[F: _BatchedFn](capacity: int,
+                           *,
+                           batched: Literal[True],
+                           policy: _Policy = ...,
+                           key_fn: _KeyFn = ...,
+                           bytesize: bool = ...) -> Callable[[F], F]:
     ...

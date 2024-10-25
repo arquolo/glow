@@ -6,13 +6,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
 from threading import Thread
-from typing import Generic, TypeVar
 
 from .concurrency import call_once
 
-_T = TypeVar('_T')
-_Make = Callable[[], _T]
-_Callback = Callable[[_T], object]
+type _Make[T] = Callable[[], T]
+type _Callback[T] = Callable[[T], object]
 
 
 @call_once
@@ -22,32 +20,32 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-async def _await(fn: _Make[_T]) -> _T:
+async def _await[T](fn: _Make[T]) -> T:
     return fn()
 
 
-def _trampoline(callback: _Callback[_T], ref: weakref.ref[_T]) -> None:
+def _trampoline[T](callback: _Callback[T], ref: weakref.ref[T]) -> None:
     if (obj := ref()) is not None:
         callback(obj)
 
 
 @dataclass
-class Reusable(Generic[_T]):
-    make: _Make[_T]
+class Reusable[T]:
+    make: _Make[T]
     delay: float
-    finalize: _Callback[_T] | None = None
+    finalize: _Callback[T] | None = None
 
     _loop: asyncio.AbstractEventLoop = field(default_factory=make_loop)
     _deleter: asyncio.TimerHandle | None = None
-    _box: list[_T] = field(default_factory=list)
+    _box: list[T] = field(default_factory=list)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    def __call__(self) -> _T:
+    def __call__(self) -> T:
         """Returns inner object, or recreates it"""
         fut = asyncio.run_coroutine_threadsafe(self._get(), self._loop)
         return fut.result()
 
-    async def _get(self) -> _T:
+    async def _get(self) -> T:
         async with self._lock:
             # reschedule finalizer
             if self._deleter is not None:

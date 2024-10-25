@@ -27,12 +27,7 @@ from os.path import basename
 from textwrap import dedent
 from threading import Lock
 from types import FrameType
-from typing import Any, NamedTuple, TypeVar, overload
-
-try:
-    from typing import TypeVarTuple, Unpack  # Py3.11+
-except ImportError:
-    from typing_extensions import TypeVarTuple, Unpack
+from typing import Any, NamedTuple, overload
 
 import colorama
 import executing
@@ -50,9 +45,6 @@ LINE_WRAP_WIDTH = 70  # Characters
 
 FORMATTER = TerminalFormatter(bg='dark')
 LEXER = PythonLexer(ensurenl=False)
-
-_T = TypeVar('_T')
-_Ts = TypeVarTuple('_Ts')
 
 
 def is_literal(s) -> bool:
@@ -372,12 +364,12 @@ def ic() -> None:
 
 
 @overload
-def ic(x: _T) -> _T:
+def ic[T](x: T, /) -> T:
     ...
 
 
 @overload
-def ic(*xs: Unpack[_Ts]) -> tuple[Unpack[_Ts]]:
+def ic[*Ts](*xs: *Ts) -> tuple[*Ts]:
     ...
 
 
