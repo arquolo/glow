@@ -106,6 +106,8 @@ class _Times(dict[int, int]):
 
 
 class _Nlwp:
+    """Atomic used thread counter"""
+
     __slots__ = ('_add_event', '_get_max')
 
     def __init__(self) -> None:
@@ -117,13 +119,9 @@ class _Nlwp:
         maximums = accumulate(totals, max, initial=0)
         self._get_max = maximums.__next__
 
-    def __enter__(self) -> None:
-        self._add_event(+1)
-        self._get_max()
-
-    def __exit__(self, *args) -> None:
-        self._add_event(-1)
-        self._get_max()
+    def update(self, step: int) -> int:
+        self._add_event(step)
+        return self._get_max()
 
     def max(self) -> int:
         self._add_event(0)
@@ -131,28 +129,36 @@ class _Nlwp:
 
 
 class _Stat:
+    __slots__ = ('busy_ns', 'calls', 'idle_ns', 'nlwp')
+
     def __init__(self) -> None:
         self.calls = count()
         self.nlwp = _Nlwp()
-        self.cpu_ns = _Times()
-        self.all_ns = _Times()
+        self.busy_ns = _Times()
+        self.idle_ns = _Times()
 
     def __call__[
         **P, R
     ](self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        with (
-            self.nlwp,
-            timer(self.all_ns.add),
-            timer(self.cpu_ns.add, thread_time_ns),
-        ):
+        self.nlwp.update(+1)
+        total = perf_counter_ns()
+        active = thread_time_ns()
+        try:
             return op(*args, **kwargs)
+        finally:
+            active = thread_time_ns() - active
+            total = perf_counter_ns() - total
+            idle = max(0, total - active)
+            self.busy_ns.add(active)
+            self.idle_ns.add(idle)
+            self.nlwp.update(-1)
 
     def stat(self) -> tuple[float, float, str] | None:
         if not (n := next(self.calls)):
             return None
         w = self.nlwp.max()
-        t_ns = self.cpu_ns.total()  # CPU
-        i_ns = self.all_ns.total() - t_ns  # idle = total - CPU
+        t_ns = self.busy_ns.total()  # CPU = D(thread_time)
+        i_ns = self.idle_ns.total()  # idle = D(perf_counter) - D(thread_time)
         t, i = t_ns / 1e9, i_ns / 1e9
 
         tail = (
@@ -236,7 +242,7 @@ _stats = defaultdict[str, _Stat](_Stat)
 def _print_stats(*names: str) -> None:
     all_busy = (process_time_ns() - _start + 1) / 1e9
 
-    stats = []
+    stats: list[tuple[float, float, str, str]] = []  # (busy, idle, tail, name)
     names = names or tuple(_stats)
     for name in names:
         if not (stat := _stats.pop(name, None)):
