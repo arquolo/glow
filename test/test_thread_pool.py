@@ -118,7 +118,7 @@ def bench_ipc_speed(order=25, steps=100):
 
 
 def source(size):
-    deads = np.random.uniform(size=size).astype('f4')
+    deads = np.random.uniform(size=size).astype('f')
     print(np.where(deads < DEATH_RATE)[0].tolist()[:10])
     for seed, death in enumerate(deads):
         if death < DEATH_RATE:
@@ -129,8 +129,8 @@ def source(size):
 def do_work(seed, offset):
     rg = np.random.default_rng(seed + offset)
     n = 1024
-    a = rg.random((n, n), dtype='f4')
-    b = rg.random((n, n), dtype='f4')
+    a = rg.random((n, n), dtype='f')
+    b = rg.random((n, n), dtype='f')
     (a @ b).sum()
     if rg.uniform() < DEATH_RATE:
         raise ValueError(f'Worker died: {seed}') from None
@@ -147,8 +147,8 @@ def _test_interrupt():
         print(end=f'\rmain {r} computes...')
         rg = np.random.default_rng(r)
         n = 1024
-        a = rg.random((n, n), dtype='f4')
-        b = rg.random((n, n), dtype='f4')
+        a = rg.random((n, n), dtype='f')
+        b = rg.random((n, n), dtype='f')
         (a @ b).sum()
         yield r
         print(end=f'\rmain {r} waits...')

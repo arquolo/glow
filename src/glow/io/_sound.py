@@ -130,7 +130,7 @@ class Sound[S: np.number]:
         import soundfile
 
         data, rate = soundfile.read(path)
-        return cls(data.astype('f4'), rate)
+        return cls(data.astype('f'), rate)
 
     def save(self, path: Path | str) -> None:
         _check_fmt(path)

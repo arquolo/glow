@@ -30,7 +30,8 @@ for (let group of svg.getElementsByTagName("g")) {
 
 
 def hsv_colors(count: int) -> Iterator[str]:
-    for hue in np.linspace(0, 360, num=count, endpoint=False, dtype='int32'):
+    hues = np.linspace(0, 360, num=count, endpoint=False, dtype='i')
+    for hue in hues.tolist():
         yield f'hsl({hue},100%,50%)'
 
 
@@ -55,7 +56,7 @@ class Svg:
         for uniq in np.unique(mask.ravel()):
             if uniq == 0:  # skip background
                 continue
-            m = (mask == uniq).astype('u1')
+            m = (mask == uniq).astype('B')
             contours, _, _ = cv2.findContours(
                 m, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_TC89_L1
             )
@@ -110,7 +111,7 @@ class Svg:
         )
         return {
             name: [
-                np.fromstring(ll, 'i4', sep=' ').reshape(-1, 2) for ll in lines
+                np.fromstring(ll, 'i', sep=' ').reshape(-1, 2) for ll in lines
             ]
             for name, lines in fields
         }

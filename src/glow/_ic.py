@@ -89,7 +89,7 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
     hs, ms = np.divmod(arr.shape, 2)
 
     # Pyramid of splits
-    splits: dict[tuple[int, ...], np.ndarray] = {(): arr.astype('f4')}
+    splits: dict[tuple[int, ...], np.ndarray] = {(): arr.astype('f')}
     for axis, (half, m) in enumerate(zip(hs, ms)):
         sep = [half, half + 1] if m else [half]
         splits = {
@@ -101,7 +101,7 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
     # Tensor of means, (low, 0?, high) ^ ndim
     s_shape = 2 * hs.clip(max=1) + ms
     sums = np.zeros(s_shape)
-    counts = np.zeros(s_shape, int)
+    counts = np.zeros(s_shape, 'i')
     for loc, s in splits.items():
         n = s.size
         if (mask := np.ma.getmask(s)) is not np.ma.nomask:
@@ -111,7 +111,7 @@ def _get_nd_grad(arr: np.ndarray) -> np.ndarray:
         counts[loc] = n
 
     # Aggregate and do grads
-    hsums = np.empty((arr.ndim, 2), 'f4')
+    hsums = np.empty((arr.ndim, 2), 'f')
     for axis in range(arr.ndim):
         axes = *range(axis), *range(axis + 1, arr.ndim)
         hsums[axis] = (sums.sum(axes) / counts.sum(axes).clip(min=1))[[0, -1]]
@@ -133,7 +133,7 @@ def _bool_info(arr: np.ndarray) -> Iterator[str]:
         yield f'bits={line!r}'
 
     else:  # histrogram + gradient
-        weights = np.bincount(arr.ravel()).astype('f8') / arr.size
+        weights = np.bincount(arr.ravel()).astype('d') / arr.size
         yield f'bool @ {_fmt_1d(weights)}'
         yield from _grad_info(arr)
 
@@ -151,12 +151,12 @@ def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
             yield from _bool_info(arr)
 
         case 'u' | 'i':  # Integers
-            range_ = hi - lo + 1
+            range_ = int(hi) - int(lo) + 1
 
             # Small range (lo >= 0 and hi <= 10), show distribution
             if lo >= 0 and hi <= 10:
                 uniq, counts = np.unique(arr, return_counts=True)
-                weights = counts.astype('f8') / arr.size
+                weights = counts.astype('d') / arr.size
 
                 if range_ == uniq.size:  # 100% range, no skips
                     yield f'{dtype}∈[{lo} ... {hi}] @ {_fmt_1d(weights)}'
@@ -178,7 +178,7 @@ def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
         case 'c' | 'f':  # Dense data, use mean/std/gradient
 
             if dtype.kind == 'c':  # Force complex as float
-                arr = arr.astype('c8').view('2f4')
+                arr = arr.astype('F').view('2f')
                 lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
 
             arr = np.ma.masked_invalid(arr)
