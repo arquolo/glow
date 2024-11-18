@@ -2,18 +2,17 @@ __all__ = ['memprof', 'time_this', 'timer']
 
 import atexit
 from collections import defaultdict, deque
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from functools import partial
 from itertools import accumulate, count
 from threading import get_ident
 from time import perf_counter_ns, process_time_ns, thread_time_ns
-from typing import TYPE_CHECKING, Protocol, Self
-
-from wrapt import ObjectProxy
+from typing import TYPE_CHECKING
 
 from ._debug import whereami
 from ._repr import si, si_bin
+from ._wrap import wrap
 
 if TYPE_CHECKING:
     import psutil
@@ -105,44 +104,52 @@ class _Times(dict[int, int]):
         return sum(self.values())
 
 
-class _Nlwp:
-    """Atomic used thread counter"""
+class MaximumCumsum:
+    """
+    Coroutine version of:
+        >>> numbers = [1, -1, 1, 1, -1, -1]
+        ... np.maximum.accumulate(np.cumsum(numbers))
+        [1, 1, 1, 2, 2, 2]
 
-    __slots__ = ('_add_event', '_get_max')
+    Usage:
+        >>> m = _MaximumSum()
+        ... numbers = [1, -1, 1, 1, -1, -1]
+        ... [m.send(x) for x in numbers]
+        [1, 1, 1, 2, 2, 2]
+    """
+
+    __slots__ = ('_push', '_pop')
 
     def __init__(self) -> None:
-        events = deque[int]()
-        self._add_event = events.append
+        todo = deque[int]()
+        self._push = todo.append
 
-        deltas = iter(events.popleft, None)
-        totals = accumulate(deltas)
-        maximums = accumulate(totals, max, initial=0)
-        self._get_max = maximums.__next__
+        values = iter(todo.popleft, None)
+        partial_sums = accumulate(values)
+        max_partial_sums = accumulate(partial_sums, max)
+        self._pop = max_partial_sums.__next__
 
-    def update(self, step: int) -> int:
-        self._add_event(step)
-        return self._get_max()
-
-    def max(self) -> int:
-        self._add_event(0)
-        return self._get_max()
+    def send(self, value: int) -> int:
+        self._push(value)
+        return self._pop()
 
 
 class _Stat:
-    __slots__ = ('busy_ns', 'calls', 'idle_ns', 'nlwp')
+    __slots__ = ('busy_ns', 'calls', 'idle_ns', 'active_calls', 'reads')
 
     def __init__(self) -> None:
         self.calls = count()
-        self.nlwp = _Nlwp()
+        self.reads = count()
+        self.active_calls = MaximumCumsum()
         self.busy_ns = _Times()
         self.idle_ns = _Times()
 
     def __call__[
         **P, R
     ](self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        self.nlwp.update(+1)
-        total = perf_counter_ns()
-        active = thread_time_ns()
+        self.active_calls.send(+1)
+        total = perf_counter_ns()  # Tracks Wall time
+        active = thread_time_ns()  # Tracks `active` thread time, i.e. not idle
         try:
             return op(*args, **kwargs)
         finally:
@@ -151,12 +158,12 @@ class _Stat:
             idle = max(0, total - active)
             self.busy_ns.add(active)
             self.idle_ns.add(idle)
-            self.nlwp.update(-1)
+            self.active_calls.send(-1)
 
     def stat(self) -> tuple[float, float, str] | None:
-        if not (n := next(self.calls)):
+        if not (n := next(self.calls) - next(self.reads)):
             return None
-        w = self.nlwp.max()
+        w = self.active_calls.send(0)
         t_ns = self.busy_ns.total()  # CPU = D(thread_time)
         i_ns = self.idle_ns.total()  # idle = D(perf_counter) - D(thread_time)
         t, i = t_ns / 1e9, i_ns / 1e9
@@ -167,70 +174,6 @@ class _Stat:
             else ''
         )
         return t, i, tail
-
-
-class _Apply(Protocol):
-    calls: count
-
-    def __call__[
-        **P, R
-    ](self, fn: Callable[P, R], /, *args: P.args, **kwds: P.kwargs) -> R: ...
-
-
-class _Proxy[T](ObjectProxy):
-    __wrapped__: T
-    _self_wrapper: _Apply
-
-    def __init__(self, wrapped: T, wrapper: _Apply) -> None:
-        super().__init__(wrapped)
-        self._self_wrapper = wrapper
-
-
-class _TimedCall[**P, R](_Proxy[Callable[P, R]]):
-    def __get__(
-        self, instance: object, owner: type | None
-    ) -> '_BoundTimedCall':
-        fn = self.__wrapped__.__get__(instance, owner)
-        return _BoundTimedCall(fn, self._self_wrapper)
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
-        next(self._self_wrapper.calls)
-        r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
-        if isinstance(r, Generator):
-            return _TimedGen(r, self._self_wrapper)
-        if isinstance(r, Iterator):
-            return _TimedIter(r, self._self_wrapper)
-        return r
-
-
-class _BoundTimedCall[**P, R](_TimedCall[P, R]):
-    def __get__(self, instance: object, owner: type | None) -> Self:
-        return self
-
-
-class _TimedIter[Y](_Proxy[Iterator[Y]]):
-    def __iter__(self) -> Self:
-        return self
-
-    def __next__(self) -> Y:
-        return self._self_wrapper(self.__wrapped__.__next__)
-
-
-class _TimedGen[Y, S, R](_Proxy[Generator[Y, S, R]]):
-    def __iter__(self) -> Self:
-        return self
-
-    def __next__(self) -> Y:
-        return self._self_wrapper(self.__wrapped__.__next__)
-
-    def send(self, value: S, /) -> Y:
-        return self._self_wrapper(self.__wrapped__.send, value)
-
-    def throw(self, value: BaseException, /) -> Y:
-        return self._self_wrapper(self.__wrapped__.throw, value)
-
-    def close(self) -> None:
-        return self._self_wrapper(self.__wrapped__.close)
 
 
 # Wall time, i.e. sum of per-thread times, excluding sleep
@@ -272,7 +215,7 @@ def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
         name = _to_fname(fn)
 
     time_this.finalizers[fn] = fn.log_timing = partial(_print_stats, name)
-    return _TimedCall(fn, _stats[name])
+    return wrap(fn, _stats[name])
 
 
 time_this.finalizers = {}
