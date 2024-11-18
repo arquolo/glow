@@ -20,10 +20,10 @@ from threading import RLock
 from typing import Any, ClassVar, Final, Literal, NamedTuple, SupportsInt
 from weakref import WeakValueDictionary
 
-from .._repr import si_bin
-from .._sizeof import sizeof
-from .reusable import make_loop
-from .util import make_key
+from ._keys import make_key
+from ._repr import si_bin
+from ._reusable import make_loop
+from ._sizeof import sizeof
 
 
 class _Empty(enum.Enum):

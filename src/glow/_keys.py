@@ -1,7 +1,7 @@
 __all__ = ['make_key']
 
-from dataclasses import dataclass
 from collections.abc import Hashable
+from dataclasses import dataclass
 
 _KWD_MARK = object()
 

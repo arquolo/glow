@@ -19,7 +19,7 @@ from time import monotonic, sleep
 from typing import Final
 from weakref import WeakValueDictionary
 
-from .util import make_key
+from ._keys import make_key
 
 type _BatchFn[T, R] = Callable[[list[T]], Iterable[R]]
 

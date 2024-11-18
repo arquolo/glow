@@ -6,6 +6,14 @@ from typing import TYPE_CHECKING
 
 from . import _patch_len, _patch_print, _patch_scipy
 from ._array import aceil, afloor, apack, around, pascal
+from ._cache import memoize
+from ._concurrency import (
+    call_once,
+    shared_call,
+    streaming,
+    threadlocal,
+    weak_memoize,
+)
 from ._coro import as_actor, coroutine, summary
 from ._debug import lock_seed, trace, trace_module, whereami
 from ._import_hook import register_post_import_hook, when_imported
@@ -29,17 +37,9 @@ from ._parallel import (
 )
 from ._profile import memprof, time_this, timer
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
+from ._reusable import Reusable
 from ._sizeof import sizeof
 from ._uuid import Uid
-from .wrap import (
-    Reusable,
-    call_once,
-    memoize,
-    shared_call,
-    streaming,
-    threadlocal,
-    weak_memoize,
-)
 
 if TYPE_CHECKING:
     from ._ic import ic, ic_repr

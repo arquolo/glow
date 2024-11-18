@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from functools import partial
 from threading import Thread
 
-from .concurrency import call_once
+from ._concurrency import call_once
 
-type _Make[T] = Callable[[], T]
+type _Get[T] = Callable[[], T]
 type _Callback[T] = Callable[[T], object]
 
 
@@ -20,7 +20,7 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-async def _await[T](fn: _Make[T]) -> T:
+async def _await[T](fn: _Get[T]) -> T:
     return fn()
 
 
@@ -31,7 +31,7 @@ def _trampoline[T](callback: _Callback[T], ref: weakref.ref[T]) -> None:
 
 @dataclass
 class Reusable[T]:
-    make: _Make[T]
+    make: _Get[T]
     delay: float
     finalize: _Callback[T] | None = None
 
