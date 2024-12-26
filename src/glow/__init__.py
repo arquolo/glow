@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from . import _patch_len, _patch_print, _patch_scipy
 from ._array import aceil, afloor, apack, around, pascal
+from ._async import amap, astarmap, azip
 from ._cache import memoize
 from ._concurrency import (
     call_once,
@@ -65,10 +66,13 @@ __all__ = [
     'Uid',
     'aceil',
     'afloor',
+    'amap',
     'apack',
     'around',
     'as_actor',
     'as_iter',
+    'astarmap',
+    'azip',
     'buffered',
     'call_once',
     'chunked',
