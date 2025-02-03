@@ -1,7 +1,7 @@
 __all__ = ['amap', 'astarmap', 'azip']
 
 import asyncio
-from asyncio import Task
+from asyncio import Queue, Task
 from collections import deque
 from collections.abc import (
     AsyncIterable,
@@ -63,21 +63,30 @@ async def _iter_results_unordered[
     Order of results is arbitrary.
     """
     todo = set[Task[T]]()
+    done = Queue[Task[T]]()
+
+    def _done_callback(t: Task[T]) -> None:
+        todo.discard(t)
+        done.put_nowait(t)
+
     while True:
         # Prefill task buffer
-        while len(todo) < limit and (t := await anext(ts, None)):
+        while (len(todo) + done.qsize() < limit) and (
+            t := await anext(ts, None)
+        ):
             todo.add(t)
-        if not todo:
+            t.add_done_callback(_done_callback)
+
+        # No more tasks to do and nothing more to schedule
+        if not todo and done.empty():
             return
 
-        # Pop done tasks
-        done, todo = await asyncio.wait(
-            todo, return_when=asyncio.FIRST_COMPLETED
-        )
-        while done:
-            yield await done.pop()
-        if not todo:
-            return
+        # Wait till any task succeed
+        yield (await done.get()).result()
+
+        # Pop tasks happened to also be DONE (after line above)
+        while not done.empty():
+            yield done.get_nowait().result()
 
 
 async def _iter_results[
@@ -92,14 +101,17 @@ async def _iter_results[
         # Prefill task buffer
         while len(todo) < limit and (t := await anext(ts, None)):
             todo.append(t)
-
-        # Pop done tasks
-        await asyncio.wait(todo, return_when=asyncio.FIRST_COMPLETED)
-        while todo[0].done():
-            yield await todo.popleft()
-
-        if not todo:
+        if not todo:  # No more tasks to do and nothing more to schedule
             return
+
+        # Forcefully block first task, while it's awaited,
+        # others in `todo` are also running, because they are `asyncio.Task`.
+        # So after this some of tasks from `todo` are also done.
+        yield await todo.popleft()
+
+        # Pop tasks happened to also be DONE (after line above)
+        while todo and todo[0].done():
+            yield todo.popleft().result()
 
 
 async def azip(*iterables: Iterable | AsyncIterable) -> AsyncIterator[tuple]:
