@@ -61,14 +61,17 @@ _empty: Final = _Empty.token
 
 class _Queue[T](Protocol):
     def get(self, block: bool = ..., timeout: float | None = ...) -> T: ...
-
     def put(self, item: T) -> None: ...
 
 
 class _Event(Protocol):
     def is_set(self) -> bool: ...
-
     def set(self) -> None: ...
+
+
+class _Manager(Protocol):
+    def Event(self) -> _Event: ...  # noqa: N802
+    def Queue(self, /, maxsize: int) -> _Queue: ...  # noqa: N802
 
 
 def _get_cpu_count_limits(
@@ -193,7 +196,7 @@ def get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
             threads.shutdown(wait=is_success, cancel_futures=True)
 
 
-def _get_manager(executor: Executor):
+def _get_manager(executor: Executor) -> _Manager:
     if isinstance(executor, loky.ProcessPoolExecutor):
         return executor._context.Manager()
 
@@ -208,15 +211,15 @@ def _get_manager(executor: Executor):
 
 def _consume[
     T
-](iterable: Iterable[T], q: _Queue[T | _Empty], ev: _Event) -> None:
+](items: Iterable[T], buf: _Queue[T | _Empty], stop: _Event) -> None:
     try:
-        for item in iterable:
-            if ev.is_set():
+        for item in items:
+            if stop.is_set():
                 break
-            q.put(item)
+            buf.put(item)
     finally:
-        q.put(_empty)  # Signal to stop iteration
-        q.put(_empty)  # Match last q.get
+        buf.put(_empty)  # Signal to stop iteration
+        buf.put(_empty)  # Match last q.get
 
 
 class buffered[T](Iterator[T]):  # noqa: N801
@@ -225,7 +228,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
     items ahead from caller
     """
 
-    __slots__ = ('_get', '_task', 'close', '__weakref__')
+    __slots__ = ('_next', '_consume', 'close', '__weakref__')
 
     def __init__(
         self,
@@ -247,16 +250,16 @@ class buffered[T](Iterator[T]):  # noqa: N801
 
         ev: _Event = mgr.Event()
         q: _Queue[T | _Empty] = mgr.Queue(latency)
-        self._task = executor.submit(_consume, iterable, q, ev)  # type: ignore
-        self._get = q_get = _q_get_fn(q)
+        self._consume = executor.submit(_consume, iterable, q, ev)
+        self._next = _q_get_fn(q)
 
-        # If main killed, wakes up consume to check ev
+        # If main is killed, unblocks consumer to allow it to check stop flag
         # Otherwise collects 2nd _empty from q.
         # Called 2nd
-        s.callback(q_get)
+        s.callback(self._next)
 
-        # If main killed, signals consume to stop.
-        # If consume is already stopped (on error or not), does nothing.
+        # If main is killed, notifies consumer to stop.
+        # If consumer is already stopped (on error or not), does nothing.
         # Called 1st
         s.callback(ev.set)
 
@@ -267,11 +270,12 @@ class buffered[T](Iterator[T]):  # noqa: N801
 
     def __next__(self) -> T:
         if self.close.alive:
-            if (item := self._get()) is not _empty:
+            if (item := self._next()) is not _empty:
                 return item
 
             self.close()
-            _result(self._task)  # Throws exception if worker killed itself
+            # Reraise exception from source iterable if any
+            _result(self._consume)
 
         raise StopIteration
 
