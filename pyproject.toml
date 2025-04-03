@@ -7,7 +7,7 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.14.3"
+version = "0.14.4"
 description = "Functional Python tools"
 readme = "README.md"
 requires-python = ">=3.12"
