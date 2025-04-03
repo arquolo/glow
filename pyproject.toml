@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+    "loguru",
     "loky~=3.1",
     "lxml",
     "numpy >=1.21, <3",
@@ -39,10 +40,25 @@ dependencies = [
 homepage = "https://github.com/arquolo/glow"
 
 [project.optional-dependencies]
-memprof = ["psutil"]
-io = ["opencv-python-headless~=4.0", "sounddevice", "soundfile"]
-ic = ["asttokens", "colorama", "executing", "pygments"]
-all = ["glow[io]", "glow[ic]", "matplotlib"]
+memprof = [
+    "psutil",
+]
+io = [
+    "opencv-python-headless~=4.0",
+    "sounddevice",
+    "soundfile",
+]
+ic = [
+    "asttokens",
+    "colorama ; sys_platform=='win32'",
+    "executing",
+    "pygments",
+]
+all = [
+    "glow[io]",
+    "glow[ic]",
+    "matplotlib",
+]
 dev-core = [
     "black~=24.10",
     "flake8~=7.0",

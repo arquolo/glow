@@ -29,7 +29,6 @@ from threading import Lock
 from types import FrameType
 from typing import Any, NamedTuple, overload
 
-import colorama
 import executing
 import numpy as np
 from executing.executing import EnhancedAST
@@ -37,7 +36,11 @@ from pygments import highlight
 from pygments.formatters import TerminalFormatter
 from pygments.lexers.python import PythonLexer
 
-colorama.init()
+if sys.platform == 'win32':
+    import colorama
+
+    colorama.init()
+
 LOCK = Lock()
 
 PREFIX = 'ic| '

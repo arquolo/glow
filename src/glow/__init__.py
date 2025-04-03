@@ -18,6 +18,7 @@ from ._concurrency import (
 from ._coro import as_actor, coroutine, summary
 from ._debug import lock_seed, trace, trace_module, whereami
 from ._import_hook import register_post_import_hook, when_imported
+from ._logging import init_loguru
 from ._more import (
     as_iter,
     chunked,
@@ -90,6 +91,7 @@ __all__ = [
     'ichunked',
     'ilen',
     'imhash_hist',
+    'init_loguru',
     'lock_seed',
     'mangle',
     'map_n',
