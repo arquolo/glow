@@ -62,8 +62,8 @@ def init_loguru(
         'websockets.server',
         *names[level],
     ]
-    for level_, names in names.items():
-        for name in names:
+    for level_, names_ in names.items():
+        for name in names_:
             _intercept_std_logger(name, level_)
 
 
