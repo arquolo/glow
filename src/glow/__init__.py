@@ -44,8 +44,12 @@ from ._uuid import Uid
 
 if TYPE_CHECKING:
     from ._ic import ic, ic_repr
+    from ._imutil import imhash_hist
 else:
-    _exports = {'._ic': ['ic', 'ic_repr']}
+    _exports = {
+        '._ic': ['ic', 'ic_repr'],
+        '._imutil': ['imhash_hist'],
+    }
     _submodule_by_name = {
         name: modname for modname, names in _exports.items() for name in names
     }
@@ -85,6 +89,7 @@ __all__ = [
     'ic_repr',
     'ichunked',
     'ilen',
+    'imhash_hist',
     'lock_seed',
     'mangle',
     'map_n',
