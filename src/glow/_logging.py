@@ -60,7 +60,7 @@ def init_loguru(
         'websockets.client',
         'websockets.protocol',
         'websockets.server',
-        *names[level],
+        *names.get(level, []),
     ]
     for level_, names_ in names.items():
         for name in names_:
