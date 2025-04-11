@@ -42,6 +42,17 @@ async def astarmap[
     unordered: bool = False,
 ) -> AsyncIterator[R]:
     assert callable(func)
+
+    # optimization: Plain loop if concurrency is unnecessary
+    if limit <= 1:
+        if isinstance(iterable, Iterable):
+            for args in iterable:
+                yield await func(*args)
+        else:
+            async for args in iterable:
+                yield await func(*args)
+        return
+
     async with asyncio.TaskGroup() as tg:
         ts = (
             (tg.create_task(func(*args)) for args in iterable)
