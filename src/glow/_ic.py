@@ -141,6 +141,52 @@ def _bool_info(arr: np.ndarray) -> Iterator[str]:
         yield from _grad_info(arr)
 
 
+def _int_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
+    range_ = int(hi) - int(lo) + 1
+
+    # Small range (lo >= 0 and hi <= 10), show distribution
+    if lo >= 0 and hi <= 10:
+        uniq, counts = np.unique(arr, return_counts=True)
+        weights = counts.astype('d') / arr.size
+
+        if range_ == uniq.size:  # 100% range, no skips
+            yield f'{dtype}∈[{lo} ... {hi}] @ {_fmt_1d(weights)}'
+        else:
+            yield f'{dtype}∈{uniq} @ {_fmt_1d(weights)}'
+
+    else:  # Wide range - low/high + mean/std + nuniq (opt) + gradient
+        yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
+        yield f'X∈[{lo} ... {hi}]'
+
+        # Not much uniqs
+        if (range_ < 1_000 or arr.size < 1_000_000 or arr.itemsize <= 2) and (
+            nuniq := np.unique(arr).size
+        ) != range_:
+            yield f'{nuniq / range_:.2%} range'
+
+
+def _float_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
+    if dtype.kind == 'c':  # Force complex as float
+        arr = arr.astype('F').view('2f')
+        lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
+
+    arr = np.ma.masked_invalid(arr)
+    mask = np.ma.getmask(arr)
+    if (num_invalid := mask.sum()) < arr.size:
+        if num_invalid:  # Old min/max have invalid data, recompute
+            lo, hi = arr.min(), arr.max()
+            yield f'{num_invalid / arr.size:.2%} invalid'
+
+        if lo < hi:
+            yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
+            yield f'X∈[{lo:.3g} ... {hi:.3g}]'
+        else:
+            yield f'{dtype}({lo:.3g})'
+
+    # NaN/-Inf/+Inf
+    yield from map(str, np.unique(arr.data[mask]).tolist())
+
+
 def _grad_info(arr: np.ndarray | np.ma.MaskedArray) -> Iterator[str]:
     if (grad := _get_nd_grad(arr)).any():
         yield f'grad={_fmt_1d(grad)}'
@@ -154,52 +200,11 @@ def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
             yield from _bool_info(arr)
 
         case 'u' | 'i':  # Integers
-            range_ = int(hi) - int(lo) + 1
-
-            # Small range (lo >= 0 and hi <= 10), show distribution
-            if lo >= 0 and hi <= 10:
-                uniq, counts = np.unique(arr, return_counts=True)
-                weights = counts.astype('d') / arr.size
-
-                if range_ == uniq.size:  # 100% range, no skips
-                    yield f'{dtype}∈[{lo} ... {hi}] @ {_fmt_1d(weights)}'
-                else:
-                    yield f'{dtype}∈{uniq} @ {_fmt_1d(weights)}'
-
-            else:  # Wide range - low/high + mean/std + nuniq (opt) + gradient
-                yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
-                yield f'X∈[{lo} ... {hi}]'
-
-                # Not much uniqs
-                if (
-                    range_ < 1_000 or arr.size < 1_000_000 or arr.itemsize <= 2
-                ) and (nuniq := np.unique(arr).size) != range_:
-                    yield f'{nuniq / range_:.2%} range'
-
+            yield from _int_info(arr, lo, hi, dtype)
             yield from _grad_info(arr)
 
         case 'c' | 'f':  # Dense data, use mean/std/gradient
-
-            if dtype.kind == 'c':  # Force complex as float
-                arr = arr.astype('F').view('2f')
-                lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
-
-            arr = np.ma.masked_invalid(arr)
-            mask = np.ma.getmask(arr)
-            if (num_invalid := mask.sum()) < arr.size:
-                if num_invalid:  # Old min/max have invalid data, recompute
-                    lo, hi = arr.min(), arr.max()
-                    yield f'{num_invalid / arr.size:.2%} invalid'
-
-                if lo < hi:
-                    yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
-                    yield f'X∈[{lo:.3g} ... {hi:.3g}]'
-                else:
-                    yield f'{dtype}({lo:.3g})'
-
-            # NaN/-Inf/+Inf
-            yield from map(str, np.unique(arr.data[mask]).tolist())
-
+            yield from _float_info(arr, lo, hi, dtype)
             yield from _grad_info(arr)
 
         case _:
@@ -296,11 +301,11 @@ def _format_context(frame: FrameType, call_node: EnhancedAST | None) -> str:
     if parent_fn != '<module>':
         parent_fn = f'{parent_fn}()'
 
-    return (
-        basename(info.filename)
-        + ('' if call_node is None else f':{call_node.lineno}')
-        + f' in {parent_fn}'
-    )
+    if call_node is None:
+        return f'{basename(info.filename)} in {parent_fn}'
+
+    lineno = call_node.lineno  # type: ignore[attr-defined]
+    return f'{basename(info.filename)}:{lineno} in {parent_fn}'
 
 
 def _construct_argument_output(

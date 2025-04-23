@@ -4,6 +4,7 @@ import atexit
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
+from dataclasses import dataclass, field
 from functools import partial
 from itertools import accumulate, count
 from threading import get_ident
@@ -118,7 +119,7 @@ class MaximumCumsum:
         [1, 1, 1, 2, 2, 2]
     """
 
-    __slots__ = ('_push', '_pop')
+    __slots__ = ('_pop', '_push')
 
     def __init__(self) -> None:
         todo = deque[int]()
@@ -134,19 +135,17 @@ class MaximumCumsum:
         return self._pop()
 
 
+@dataclass(frozen=True, slots=True)
 class _Stat:
-    __slots__ = ('busy_ns', 'calls', 'idle_ns', 'active_calls', 'reads')
+    calls: count = field(default_factory=count)
+    reads: count = field(default_factory=count)
+    active_calls: MaximumCumsum = field(default_factory=MaximumCumsum)
+    busy_ns: _Times = field(default_factory=_Times)
+    idle_ns: _Times = field(default_factory=_Times)
 
-    def __init__(self) -> None:
-        self.calls = count()
-        self.reads = count()
-        self.active_calls = MaximumCumsum()
-        self.busy_ns = _Times()
-        self.idle_ns = _Times()
-
-    def __call__[
-        **P, R
-    ](self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+    def __call__[**P, R](
+        self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs
+    ) -> R:
         self.active_calls.send(+1)
         total = perf_counter_ns()  # Tracks Wall time
         active = thread_time_ns()  # Tracks `active` thread time, i.e. not idle

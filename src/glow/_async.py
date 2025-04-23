@@ -18,9 +18,7 @@ type _AnyIterable[T] = AsyncIterable[T] | Iterable[T]
 type _AnyIterator[T] = AsyncIterator[T] | Iterator[T]
 
 
-def amap[
-    R
-](
+def amap[R](
     func: Callable[..., Coroutine[Any, Any, R]],
     /,
     *iterables: _AnyIterable,
@@ -31,9 +29,7 @@ def amap[
     return astarmap(func, it, limit=limit, unordered=unordered)
 
 
-async def astarmap[
-    *Ts, R
-](
+async def astarmap[*Ts, R](
     func: Callable[[*Ts], Coroutine[Any, Any, R]],
     iterable: _AnyIterable[tuple[*Ts]],
     /,
@@ -70,9 +66,9 @@ async def astarmap[
             yield x
 
 
-async def _iter_results_unordered[
-    T
-](ts: _AnyIterator[Task[T]], limit: int) -> AsyncIterator[T]:
+async def _iter_results_unordered[T](
+    ts: _AnyIterator[Task[T]], limit: int
+) -> AsyncIterator[T]:
     """
     Runs exactly `limit` tasks simultaneously (less in the end of iteration).
     Order of results is arbitrary.
@@ -114,9 +110,9 @@ async def _iter_results_unordered[
             yield done.get_nowait().result()
 
 
-async def _iter_results[
-    T
-](ts: _AnyIterator[Task[T]], limit: int) -> AsyncIterator[T]:
+async def _iter_results[T](
+    ts: _AnyIterator[Task[T]], limit: int
+) -> AsyncIterator[T]:
     """
     Runs up to `limit` tasks simultaneously (less in the end of iteration).
     Order of results is preserved.

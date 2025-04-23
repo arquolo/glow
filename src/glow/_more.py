@@ -31,9 +31,9 @@ class SupportsSlice[T](Sized, Protocol):
 # ----------------------------------------------------------------------------
 
 
-def as_iter[
-    T
-](obj: Iterable[T] | T, /, limit: int | None = None) -> Iterator[T]:
+def as_iter[T](
+    obj: Iterable[T] | T, /, limit: int | None = None
+) -> Iterator[T]:
     """Make iterator with at most `limit` items"""
     if isinstance(obj, Iterable):
         return islice(obj, limit)
@@ -229,15 +229,13 @@ def roundrobin[T](*iterables: Iterable[T]) -> Iterator[T]:
 
 
 @overload
-def groupby[
-    T, K: Hashable
-](iterable: Iterable[T], /, key: Callable[[T], K]) -> dict[K, list[T]]: ...
+def groupby[T, K: Hashable](
+    iterable: Iterable[T], /, key: Callable[[T], K]
+) -> dict[K, list[T]]: ...
 
 
 @overload
-def groupby[
-    T, K: Hashable, V
-](
+def groupby[T, K: Hashable, V](
     iterable: Iterable[T], /, key: Callable[[T], K], value: Callable[[T], V]
 ) -> dict[K, list[V]]: ...
 

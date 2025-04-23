@@ -25,9 +25,9 @@ _MIN_IDLE = os.cpu_count() or 1
 # ------------------------------- generics -----------------------------------
 
 
-def _safe_call[
-    **P, T
-](fn: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T | None:
+def _safe_call[**P, T](
+    fn: Callable[P, T], *args: P.args, **kwargs: P.kwargs
+) -> T | None:
     try:
         return fn(*args, **kwargs)
     except (Empty, IndexError, ValueError):
@@ -82,7 +82,7 @@ def _worker(q: _Pipe) -> None:
 
 
 class ThreadQuota(Executor):
-    __slots__ = ('_work_queue', '_idle', '_shutdown_lock', '_shutdown')
+    __slots__ = ('_idle', '_shutdown', '_shutdown_lock', '_work_queue')
 
     def __init__(self, max_workers: int) -> None:
         self._work_queue = deque[_WorkItem]()
@@ -94,18 +94,14 @@ class ThreadQuota(Executor):
         with _shutdown_lock:
             _executors.add(self)
 
-    def submit[
-        **P, R
-    ](
+    def submit[**P, R](
         self, fn: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> Future[R]:
         f = Future()  # type: ignore[var-annotated]
         self.submit_f(f, fn, *args, **kwargs)
         return f
 
-    def submit_f[
-        **P, R
-    ](
+    def submit_f[**P, R](
         self,
         f: Future[R],
         fn: Callable[P, R],

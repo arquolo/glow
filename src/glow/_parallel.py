@@ -41,7 +41,11 @@ from ._more import chunked, ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
 
-_NUM_CPUS = os.cpu_count() or 0
+_TOTAL_CPUS = (
+    os.process_cpu_count() if sys.version_info >= (3, 13) else os.cpu_count()
+)
+_NUM_CPUS = _TOTAL_CPUS or 0
+
 if (_env_cpus := os.getenv('GLOW_CPUS')) is not None:
     _NUM_CPUS = min(_NUM_CPUS, int(_env_cpus))
     _NUM_CPUS = max(_NUM_CPUS, 0)
@@ -78,7 +82,7 @@ def _get_cpu_count_limits(
     upper_bound: int = sys.maxsize, mp: bool = False
 ) -> Iterator[int]:
     yield upper_bound
-    yield os.cpu_count() or 1
+    yield _TOTAL_CPUS or 1
 
     # Windows platform lacks memory overcommit, so it's sensitive to VMS growth
     if not mp or sys.platform != 'win32' or 'torch' not in sys.modules:
@@ -209,9 +213,9 @@ def _get_manager(executor: Executor) -> _Manager:
 # -------- bufferize iterable by offloading to another thread/process --------
 
 
-def _consume[
-    T
-](items: Iterable[T], buf: _Queue[T | _Empty], stop: _Event) -> None:
+def _consume[T](
+    items: Iterable[T], buf: _Queue[T | _Empty], stop: _Event
+) -> None:
     try:
         for item in items:
             if stop.is_set():
@@ -228,7 +232,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
     items ahead from caller
     """
 
-    __slots__ = ('_next', '_consume', 'close', '__weakref__')
+    __slots__ = ('__weakref__', '_consume', '_next', 'close')
 
     def __init__(
         self,
@@ -333,17 +337,13 @@ class _AutoSize:
 # ---------------------- map iterable through function ----------------------
 
 
-def _schedule[
-    F: Future
-](
+def _schedule[F: Future](
     make_future: Callable[..., F], args_zip: Iterable[Iterable], chunksize: int
 ) -> Iterator[F]:
     return starmap(make_future, chunked(args_zip, chunksize))
 
 
-def _schedule_auto[
-    F: Future
-](
+def _schedule_auto[F: Future](
     make_future: Callable[..., F],
     args_zip: Iterator[Iterable],
     max_workers: int,
@@ -357,9 +357,9 @@ def _schedule_auto[
             yield f
 
 
-def _schedule_auto_v2[
-    F: Future
-](make_future: Callable[..., F], args_zip: Iterator[Iterable]) -> Iterator[F]:
+def _schedule_auto_v2[F: Future](
+    make_future: Callable[..., F], args_zip: Iterator[Iterable]
+) -> Iterator[F]:
     # Vary job size from future to future
     size = _AutoSize()
     while args := [*islice(args_zip, size.suggest())]:
@@ -368,9 +368,7 @@ def _schedule_auto_v2[
         yield f
 
 
-def _get_unwrap_iter[
-    T
-](
+def _get_unwrap_iter[T](
     s: ExitStack,
     qsize: int,
     get_done_f: Callable[[], Future[T]],
@@ -387,9 +385,7 @@ def _get_unwrap_iter[
             yield _result_or_cancel(get_done_f())
 
 
-def _unwrap[
-    T
-](
+def _unwrap[T](
     s: ExitStack, fs: Iterable[Future[T]], qsize: int | None, order: bool
 ) -> Iterator[T]:
     q = SimpleQueue[Future[T]]()
@@ -417,15 +413,13 @@ def _unwrap[
         return _get_unwrap_iter(s, qsize, _q_get_fn(q), fs_scheduler)
 
 
-def _batch_invoke[
-    *Ts, R
-](func: Callable[[*Ts], R], *items: tuple[*Ts]) -> list[R]:
+def _batch_invoke[*Ts, R](
+    func: Callable[[*Ts], R], *items: tuple[*Ts]
+) -> list[R]:
     return [*starmap(func, items)]
 
 
-def starmap_n[
-    T
-](
+def starmap_n[T](
     func: Callable[..., T],
     iterable: Iterable[Iterable],
     /,
@@ -515,9 +509,7 @@ def starmap_n[
     return chain.from_iterable(chunks)
 
 
-def map_n[
-    T
-](
+def map_n[T](
     func: Callable[..., T],
     /,
     *iterables: Iterable,
@@ -546,9 +538,7 @@ def map_n[
     )
 
 
-def map_n_dict[
-    K, T1, T2
-](
+def map_n_dict[K, T1, T2](
     func: Callable[[T1], T2],
     obj: Mapping[K, T1],
     /,

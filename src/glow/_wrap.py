@@ -7,23 +7,24 @@ from typing import Any, Protocol, Self
 from wrapt import ObjectProxy
 
 
-def wrap[**P, R](func: Callable[P, R], wrapper: '_Apply') -> Callable[P, R]:
+def wrap[**P, R](func: Callable[P, R], wrapper: '_Wrapper') -> Callable[P, R]:
     return _Callable(func, wrapper)
 
 
-class _Apply(Protocol):
-    calls: count
+class _Wrapper(Protocol):
+    @property
+    def calls(self) -> count: ...
 
-    def __call__[
-        **P, R
-    ](self, fn: Callable[P, R], /, *args: P.args, **kwds: P.kwargs) -> R: ...
+    def __call__[**P, R](
+        self, fn: Callable[P, R], /, *args: P.args, **kwds: P.kwargs
+    ) -> R: ...
 
 
 class _Proxy[T](ObjectProxy):
     __wrapped__: T
-    _self_wrapper: _Apply
+    _self_wrapper: _Wrapper
 
-    def __init__(self, wrapped: T, wrapper: _Apply) -> None:
+    def __init__(self, wrapped: T, wrapper: _Wrapper) -> None:
         super().__init__(wrapped)
         self._self_wrapper = wrapper
 
@@ -51,11 +52,11 @@ class _BoundCallable[**P, R](_Callable[P, R]):
 
 
 class _WrapStop:
-    _self_wrapper: _Apply
+    _self_wrapper: _Wrapper
 
-    def _wrap_stop[
-        **P, R
-    ](self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs) -> R:
+    def _wrap_stop[**P, R](
+        self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
+    ) -> R:
         try:
             ret = self._self_wrapper(op, *args, **kwargs)
         except StopIteration as stop:
@@ -98,7 +99,7 @@ class _Generator[Y, S, R](
     pass
 
 
-def _wrap[T](r: T, wrapper: _Apply) -> T:
+def _wrap[T](r: T, wrapper: _Wrapper) -> T:
     # function & generator
     # are distinguishable only by their result
     match r:

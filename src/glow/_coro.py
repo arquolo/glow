@@ -10,9 +10,9 @@ import wrapt
 from ._more import _deiter
 
 
-def coroutine[
-    **P, Y, S, R
-](fn: Callable[P, Generator[Y, S, R]], /) -> Callable[P, Generator[Y, S, R]]:
+def coroutine[**P, Y, S, R](
+    fn: Callable[P, Generator[Y, S, R]], /
+) -> Callable[P, Generator[Y, S, R]]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Y, S, R]:
         coro = fn(*args, **kwargs)
         next(coro)
@@ -28,9 +28,9 @@ class _Sync[Y, S, R](wrapt.ObjectProxy):
         super().__init__(wrapped)
         self._self_lock = Lock()
 
-    def _call[
-        **P, T
-    ](self, op: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    def _call[**P, T](
+        self, op: Callable[P, T], *args: P.args, **kwargs: P.kwargs
+    ) -> T:
         with self._self_lock:
             return op(*args, **kwargs)
 
@@ -44,12 +44,12 @@ class _Sync[Y, S, R](wrapt.ObjectProxy):
         return self._call(self.__wrapped__.throw, value)
 
     def close(self) -> None:
-        return self._call(self.__wrapped__.close)
+        self._call(self.__wrapped__.close)
 
 
-def threadsafe_iter[
-    **P, Y, S, R
-](fn: Callable[P, Generator[Y, S, R]], /) -> Callable[P, Generator[Y, S, R]]:
+def threadsafe_iter[**P, Y, S, R](
+    fn: Callable[P, Generator[Y, S, R]], /
+) -> Callable[P, Generator[Y, S, R]]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Y, S, R]:
         gen = fn(*args, **kwargs)
         return _Sync(gen)
@@ -73,9 +73,9 @@ def summary() -> Generator[None, Hashable | None, None]:
 
 @threadsafe_iter
 @coroutine
-def as_actor[
-    T, R
-](transform: Callable[[Iterable[T]], Iterator[R]]) -> Generator[R, T, None]:
+def as_actor[T, R](
+    transform: Callable[[Iterable[T]], Iterator[R]],
+) -> Generator[R, T, None]:
     buf = deque[T]()
     gen = transform(_deiter(buf))  # infinite
 

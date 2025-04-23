@@ -55,7 +55,7 @@ class _NullProxy[*Ts, R](_Proxy[*Ts, R]):
 
 
 class _Mmap:
-    __slots__ = ('size', 'tag', 'buf', '__weakref__')
+    __slots__ = ('__weakref__', 'buf', 'size', 'tag')
     _shm_root = _get_shm_dir()
 
     @classmethod
@@ -99,13 +99,11 @@ class _Mmap:
 @when_imported('torch')
 def _torch_hook(torch) -> None:
     reducers.update(
-        {
-            torch.Tensor: torch.multiprocessing.reductions.reduce_tensor,
-            **{
-                t: torch.multiprocessing.reductions.reduce_storage
-                for t in torch.storage._StorageBase.__subclasses__()
-            },
-        }
+        {torch.Tensor: torch.multiprocessing.reductions.reduce_tensor}
+        | dict.fromkeys(
+            torch.storage._StorageBase.__subclasses__(),
+            torch.multiprocessing.reductions.reduce_storage,
+        )
     )
 
 
@@ -126,7 +124,7 @@ def _mmap_reconstruct(data: bytes, memos: list[_Mmap]):
 
 
 class _MmapProxy[*Ts, R](_Proxy[*Ts, R]):
-    __slots__ = ('uid', 'call', 'data', 'memos')
+    __slots__ = ('call', 'data', 'memos', 'uid')
 
     def __init__(self, call: Callable[[*Ts], R]) -> None:
         buffers: list[pickle.PickleBuffer] = []

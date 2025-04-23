@@ -3,9 +3,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, overload
 
 @overload
-def arg[
-    T
-](
+def arg[T](
     default: T,
     /,
     *,
@@ -18,9 +16,7 @@ def arg[
     metadata: Mapping[str, object] = ...,
 ) -> T: ...
 @overload
-def arg[
-    T
-](
+def arg[T](
     *,
     factory: Callable[[], T],
     flag: str = ...,
@@ -42,8 +38,6 @@ def arg(
     compare: bool = ...,
     metadata: Mapping[str, object] = ...,
 ) -> Any: ...
-def parse_args[
-    T
-](fn: Callable[..., T], args: Sequence[str] = ..., prog: str = ...) -> tuple[
-    T, ArgumentParser
-]: ...
+def parse_args[T](
+    fn: Callable[..., T], args: Sequence[str] = ..., prog: str = ...
+) -> tuple[T, ArgumentParser]: ...

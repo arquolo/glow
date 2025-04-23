@@ -10,9 +10,7 @@ from typing import Any, overload
 type _AnyIterable[T] = Iterable[T] | AsyncIterable[T]
 type _Coro[T] = Coroutine[Any, Any, T]
 
-def astarmap[
-    *Ts, R
-](
+def astarmap[*Ts, R](
     func: Callable[[*Ts], _Coro[R]],
     iterable: _AnyIterable[tuple[*Ts]],
     /,
@@ -21,9 +19,7 @@ def astarmap[
     unordered: bool = ...,
 ) -> AsyncIterator[R]: ...
 @overload
-def amap[
-    T, R
-](
+def amap[T, R](
     func: Callable[[T], _Coro[R]],
     iter1: _AnyIterable[T],
     /,
@@ -32,9 +28,7 @@ def amap[
     unordered: bool = ...,
 ) -> AsyncIterator[R]: ...
 @overload
-def amap[
-    T, T2, R
-](
+def amap[T, T2, R](
     func: Callable[[T, T2], _Coro[R]],
     iter1: _AnyIterable[T],
     iter2: _AnyIterable[T2],
@@ -44,9 +38,7 @@ def amap[
     unordered: bool = ...,
 ) -> AsyncIterator[R]: ...
 @overload
-def amap[
-    T, T2, T3, R
-](
+def amap[T, T2, T3, R](
     func: Callable[[T, T2, T3], _Coro[R]],
     iter1: _AnyIterable[T],
     iter2: _AnyIterable[T2],
@@ -57,9 +49,7 @@ def amap[
     unordered: bool = ...,
 ) -> AsyncIterator[R]: ...
 @overload
-def amap[
-    T, T2, T3, T4, R
-](
+def amap[T, T2, T3, T4, R](
     func: Callable[[T, T2, T3, T4], _Coro[R]],
     iter1: _AnyIterable[T],
     iter2: _AnyIterable[T2],
@@ -71,9 +61,7 @@ def amap[
     unordered: bool = ...,
 ) -> AsyncIterator[R]: ...
 @overload
-def amap[
-    R
-](
+def amap[R](
     func: Callable[..., _Coro[R]],
     iter1: _AnyIterable,
     iter2: _AnyIterable,
@@ -88,27 +76,19 @@ def amap[
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
-def azip[
-    T
-](iter1: _AnyIterable[T], /) -> AsyncIterator[
-    tuple[T]  # noqa: Y090,RUF100
-]: ...
+def azip[T](
+    iter1: _AnyIterable[T], /
+) -> AsyncIterator[tuple[T]]: ...  # noqa: Y090,RUF100
 @overload
-def azip[
-    T, T2
-](iter1: _AnyIterable[T], iter2: _AnyIterable[T2], /) -> AsyncIterator[
-    tuple[T, T2]
-]: ...
+def azip[T, T2](
+    iter1: _AnyIterable[T], iter2: _AnyIterable[T2], /
+) -> AsyncIterator[tuple[T, T2]]: ...
 @overload
-def azip[
-    T, T2, T3
-](
+def azip[T, T2, T3](
     iter1: _AnyIterable[T], iter2: _AnyIterable[T2], iter3: _AnyIterable[T3], /
 ) -> AsyncIterator[tuple[T, T2, T3]]: ...
 @overload
-def azip[
-    T, T2, T3, T4
-](
+def azip[T, T2, T3, T4](
     iter1: _AnyIterable[T],
     iter2: _AnyIterable[T2],
     iter3: _AnyIterable[T3],

@@ -232,9 +232,9 @@ def _visit_field(
     return fd.name
 
 
-def _construct[
-    T
-](src: dict[str, Any], fn: Callable[..., T], args: Collection[_Node]) -> T:
+def _construct[T](
+    src: dict[str, Any], fn: Callable[..., T], args: Collection[_Node]
+) -> T:
     kwargs = {}
     for a in args:
         if isinstance(a, str):
@@ -244,9 +244,7 @@ def _construct[
     return fn(**kwargs)
 
 
-def parse_args[
-    T
-](
+def parse_args[T](
     fn: Callable[..., T],
     args: Sequence[str] | None = None,
     prog: str | None = None,

@@ -40,11 +40,11 @@ def patch_print(module) -> None:
             end = '\n'
         tqdm.write(sep.join(map(str, values)), end=end, file=file)
 
-    builtins.print = update_wrapper(tqdm_print, _print)  # type: ignore
+    builtins.print = update_wrapper(tqdm_print, _print)
 
 
 def apply() -> None:
-    builtins.print = locked_print  # type: ignore
+    builtins.print = locked_print
     register_post_import_hook(patch_print, 'tqdm')
 
 

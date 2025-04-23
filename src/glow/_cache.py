@@ -41,9 +41,8 @@ def _unit_size(obj, /) -> int:
     return 1
 
 
-@dataclass(repr=False)
+@dataclass(repr=False, slots=True)
 class _Node[T]:
-    __slots__ = ('value', 'size')
     value: T
     size: int
 
@@ -196,9 +195,9 @@ class _MruCache[T](_LruCache[T]):
 # -------------------------------- wrapping --------------------------------
 
 
-def _memoize[
-    **P, R
-](cache: _DictMixin, key_fn: _KeyFn, fn: Callable[P, R]) -> Callable[P, R]:
+def _memoize[**P, R](
+    cache: _DictMixin, key_fn: _KeyFn, fn: Callable[P, R]
+) -> Callable[P, R]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = key_fn(*args, **kwargs)
 
@@ -248,9 +247,9 @@ def _dispatch(
             job.future.set_result(value)
 
 
-def _memoize_batched_aio[
-    T, R
-](key_fn: _KeyFn, fn: _BatchedFn[T, R]) -> _BatchedFn[T, R]:
+def _memoize_batched_aio[T, R](
+    key_fn: _KeyFn, fn: _BatchedFn[T, R]
+) -> _BatchedFn[T, R]:
     assert callable(fn)
     futs: dict[Hashable, asyncio.Future[R]] = {}
     queue: dict[Hashable, _Job] = {}
@@ -281,9 +280,9 @@ def _memoize_batched_aio[
     return functools.update_wrapper(wrapper, fn)
 
 
-def _memoize_batched[
-    T, R
-](cache: _DictMixin, key_fn: _KeyFn, fn: _BatchedFn[T, R]) -> _BatchedFn[T, R]:
+def _memoize_batched[T, R](
+    cache: _DictMixin, key_fn: _KeyFn, fn: _BatchedFn[T, R]
+) -> _BatchedFn[T, R]:
     assert callable(fn)
     lock = RLock()
     futs = WeakValueDictionary[Hashable, cf.Future]()
@@ -333,9 +332,7 @@ def _memoize_batched[
 # ----------------------------- factory wrappers -----------------------------
 
 
-def memoize[
-    **P, R
-](
+def memoize[**P, R](
     capacity: SupportsInt | None,
     *,
     batched: bool = False,

@@ -7,14 +7,10 @@ def max_cpu_count(upper_bound: int = ..., mp: bool = ...) -> int: ...
 def get_executor(
     max_workers: int, mp: bool
 ) -> AbstractContextManager[Executor]: ...
-def buffered[
-    T
-](
+def buffered[T](
     __iter: Iterable[T], /, *, latency: int = ..., mp: bool | Executor = ...
 ) -> Iterator[T]: ...
-def starmap_n[
-    R
-](
+def starmap_n[R](
     __func: Callable[..., R],
     __iter: Iterable[Iterable],
     /,
@@ -26,9 +22,7 @@ def starmap_n[
     order: bool = ...,
 ) -> Iterator[R]: ...
 @overload
-def map_n[
-    T, R
-](
+def map_n[T, R](
     __func: Callable[[T], R],
     __iter1: Iterable[T],
     /,
@@ -40,9 +34,7 @@ def map_n[
     order: bool = ...,
 ) -> Iterator[R]: ...
 @overload
-def map_n[
-    T1, T2, R
-](
+def map_n[T1, T2, R](
     __f: Callable[[T1, T2], R],
     __iter1: Iterable[T1],
     __iter2: Iterable[T2],
@@ -55,9 +47,7 @@ def map_n[
     order: bool = ...,
 ) -> Iterator[R]: ...
 @overload
-def map_n[
-    T1, T2, T3, R
-](
+def map_n[T1, T2, T3, R](
     __f: Callable[[T1, T2, T3], R],
     __iter1: Iterable[T1],
     __iter2: Iterable[T2],
@@ -71,9 +61,7 @@ def map_n[
     order: bool = ...,
 ) -> Iterator[R]: ...
 @overload
-def map_n[
-    R
-](
+def map_n[R](
     __func: Callable[..., R],
     __iter1: Iterable,
     __iter2: Iterable,
@@ -87,9 +75,7 @@ def map_n[
     chunksize: int | None = ...,
     order: bool = ...,
 ) -> Iterator[R]: ...
-def map_n_dict[
-    T, K, R
-](
+def map_n_dict[T, K, R](
     func: Callable[[T], R],
     obj: Mapping[K, T],
     /,

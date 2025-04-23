@@ -6,9 +6,7 @@ type _Policy = Literal['raw', 'lru', 'mru']
 type _KeyFn = Callable[..., Hashable]
 
 @overload
-def memoize[
-    **P, R
-](
+def memoize[**P, R](
     capacity: int,
     *,
     policy: _Policy = ...,
@@ -16,9 +14,7 @@ def memoize[
     bytesize: bool = ...,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 @overload
-def memoize[
-    T, R
-](
+def memoize[T, R](
     capacity: int,
     *,
     batched: Literal[True],

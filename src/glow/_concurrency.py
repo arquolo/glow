@@ -33,9 +33,9 @@ class _Empty(Enum):
 _empty: Final = _Empty.token
 
 
-def threadlocal[
-    T
-](fn: Callable[..., T], /, *args: object, **kwargs: object) -> Callable[[], T]:
+def threadlocal[T](
+    fn: Callable[..., T], /, *args: object, **kwargs: object
+) -> Callable[[], T]:
     """Thread-local singleton factory, mimics `functools.partial`"""
     local_ = threading.local()
 
@@ -126,9 +126,9 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 # ----------------------------- batch collation ------------------------------
 
 
-def _fetch_batch[
-    T
-](q: SimpleQueue[T], batch_size: int, timeout: float) -> list[T]:
+def _fetch_batch[T](
+    q: SimpleQueue[T], batch_size: int, timeout: float
+) -> list[T]:
     batch: list[T] = []
 
     # Wait indefinitely until the first item is received
@@ -155,9 +155,9 @@ def _fetch_batch[
     return batch
 
 
-def _batch_invoke[
-    T, R
-](func: _BatchFn[T, R], batch: Sequence[tuple[Future[R], T]]) -> None:
+def _batch_invoke[T, R](
+    func: _BatchFn[T, R], batch: Sequence[tuple[Future[R], T]]
+) -> None:
     batch = [(f, x) for f, x in batch if f.set_running_or_notify_cancel()]
     if not batch:
         return
