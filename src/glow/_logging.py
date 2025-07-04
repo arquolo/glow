@@ -4,7 +4,7 @@ import logging
 import sys
 from collections.abc import Iterable
 from types import FrameType, ModuleType
-from typing import Any
+from typing import Any, TypedDict, Unpack
 
 from loguru import logger
 
@@ -19,12 +19,19 @@ _DEFAULT_FMT = (
 )
 
 
+class _LoggerAddKwds(TypedDict, total=False):
+    colorize: bool | None
+    serialize: bool
+    backtrace: bool
+    diagnose: bool
+
+
 def init_loguru(
     level: str = 'WARNING',
     *,
     names: Iterable[str] | dict[str, list[str]] = (),
     fmt: str = _DEFAULT_FMT,
-    serialize: bool = False,
+    **logger_add_kwargs: Unpack[_LoggerAddKwds],
 ) -> None:
     """
     Configure loguru to:
@@ -42,7 +49,7 @@ def init_loguru(
     logging.captureWarnings(True)
 
     logger.remove()
-    logger.add(sys.stdout, level=level, format=fmt, serialize=serialize)
+    logger.add(sys.stdout, level=level, format=fmt, **logger_add_kwargs)
     _intercept_std_logger('', level)
 
     if not isinstance(names, dict):
