@@ -94,7 +94,7 @@ def _autospec(value: float) -> str:
     return '.3g' if -99.95 < value < 99.95 else '.0f'
 
 
-class _Value(ObjectProxy):
+class _Value(ObjectProxy):  # type: ignore[misc]
     __slots__ = ()
     __wrapped__: int | float
     binary: bool = False

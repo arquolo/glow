@@ -21,7 +21,7 @@ def coroutine[**P, Y, S, R](
     return update_wrapper(wrapper, fn)
 
 
-class _Sync[Y, S, R](wrapt.ObjectProxy):
+class _Sync[Y, S, R](wrapt.ObjectProxy):  # type: ignore[misc]
     __wrapped__: Generator[Y, S, R]
 
     def __init__(self, wrapped: Generator[Y, S, R]) -> None:

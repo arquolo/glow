@@ -20,7 +20,7 @@ class _Wrapper(Protocol):
     ) -> R: ...
 
 
-class _Proxy[T](ObjectProxy):
+class _Proxy[T](ObjectProxy):  # type: ignore[misc]
     __wrapped__: T
     _self_wrapper: _Wrapper
 
