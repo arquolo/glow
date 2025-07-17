@@ -78,15 +78,15 @@ def _find_prefix(
     return value, prefixes[-1]
 
 
-def _num_repr(value: float | int, si: bool = True) -> tuple[float, str]:
+def _num_repr(value: float | int, binary: bool = False) -> tuple[float, str]:
     if value == 0:
-        return 0, ('' if si else 'B')
+        return 0, ('B' if binary else '')
 
-    base, prefixes = (1000, _PREFIXES) if si else (1024, _PREFIXES_BIN)
+    base, prefixes = (1024, _PREFIXES_BIN) if binary else (1000, _PREFIXES)
     value, prefix = _find_prefix(value, base, prefixes)
 
     prefix = prefix.strip()
-    unit = prefix if si else f'{prefix}iB' if prefix else 'B'
+    unit = (f'{prefix}iB' if prefix else 'B') if binary else prefix
     return value, unit
 
 
@@ -94,22 +94,20 @@ def _autospec(value: float) -> str:
     return '.3g' if -99.95 < value < 99.95 else '.0f'
 
 
-class _Si(ObjectProxy):
-    __slots__ = ('_self_si',)
-
-    def __init__(self, value: float | int = 0, si: bool = True) -> None:
-        super().__init__(value)
-        self._self_si = si
+class _Value(ObjectProxy):
+    __slots__ = ()
+    __wrapped__: int | float
+    binary: bool = False
 
     def __str__(self) -> str:
-        value, unit = _num_repr(self.__wrapped__, self._self_si)
+        value, unit = _num_repr(self.__wrapped__, self.binary)
         return f'{value:{_autospec(value)}}{unit}'
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({self})'
 
     def __format__(self, format_spec: str) -> str:
-        value, unit = _num_repr(self.__wrapped__, self._self_si)
+        value, unit = _num_repr(self.__wrapped__, self.binary)
         if not format_spec:
             return f'{value:{_autospec(value)}}{unit}'
         if format_spec.endswith('s'):
@@ -117,7 +115,11 @@ class _Si(ObjectProxy):
         return f'{value:{format_spec}}{unit}'
 
     def __reduce_ex__(self, _) -> tuple:  # Else no serialization
-        return type(self), (self.__wrapped__, self._self_si)
+        return type(self), (self.__wrapped__,)
+
+
+class _BinaryValue(_Value):
+    binary: bool = True
 
 
 def si[T: (int, float)](value: T) -> T:
@@ -128,7 +130,7 @@ def si[T: (int, float)](value: T) -> T:
     >>> print(s)
     10k
     """
-    return cast(T, _Si(value, si=True))
+    return cast(T, _Value(value))
 
 
 def si_bin[T: (int, float)](value: T) -> T:
@@ -142,4 +144,4 @@ def si_bin[T: (int, float)](value: T) -> T:
     .. _Human readable bytes count
        https://programming.guide/java/formatting-byte-size-to-human-readable-format.html
     """
-    return cast(T, _Si(value, si=False))
+    return cast(T, _BinaryValue(value))
