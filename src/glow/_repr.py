@@ -48,7 +48,7 @@ def countable() -> Callable[[object], int]:
     return lambda obj: instances.setdefault(id(obj), len(instances))
 
 
-def repr_as_obj(d: dict) -> str:
+def repr_as_obj(d: dict, /) -> str:
     """Returns pretty representation of dict.
 
     >>> repr_as_obj({'a': 1, 'b': 2})

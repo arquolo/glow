@@ -7,13 +7,13 @@ from dataclasses import dataclass, field
 from functools import partial
 from threading import Thread
 
-from ._concurrency import call_once
+from ._cache import memoize
 
 type _Get[T] = Callable[[], T]
 type _Callback[T] = Callable[[T], object]
 
 
-@call_once
+@memoize()
 def make_loop() -> asyncio.AbstractEventLoop:
     loop = asyncio.new_event_loop()
     Thread(target=loop.run_forever, daemon=True).start()

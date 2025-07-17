@@ -8,29 +8,22 @@ __all__ = [
 
 import sys
 import threading
-from collections.abc import Callable, Hashable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import Future, wait
-from dataclasses import dataclass, field
-from enum import Enum
 from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Final
-from weakref import WeakValueDictionary
+from typing import NoReturn
+from warnings import warn
 
-from ._keys import make_key
+from loguru import logger
+
+from ._cache import memoize
 
 type _BatchFn[T, R] = Callable[[list[T]], Iterable[R]]
 
 _PATIENCE = 0.01
-
-
-class _Empty(Enum):
-    token = 0
-
-
-_empty: Final = _Empty.token
 
 
 def threadlocal[T](
@@ -49,78 +42,40 @@ def threadlocal[T](
     return update_wrapper(wrapper, fn)
 
 
-@dataclass(slots=True, weakref_slot=True)
-class _UFuture[T]:
-    _fn: Callable[[], T]
-    _lock: Lock = field(default_factory=Lock)
-    _result: T | _Empty = _empty
-    _exception: BaseException | None = None
-
-    def result(self) -> T:
-        with self._lock:
-            if self._exception:
-                raise self._exception
-            if self._result is not _empty:
-                return self._result
-
-            try:
-                self._result = r = self._fn()
-            except BaseException as e:
-                self._exception = e
-                raise
-            return r
-
-
 def call_once[T](fn: Callable[[], T], /) -> Callable[[], T]:
     """Makes callable a singleton.
 
+    Supports async-def functions (but not async-gen functions).
     DO NOT USE with recursive functions"""
-
-    def wrapper() -> T:
-        return uf.result()
-
-    fn._future = uf = _UFuture[T](fn)  # type: ignore[attr-defined]
-    return update_wrapper(wrapper, fn)
+    warn(
+        'Deprecated. Use `@memoize()` for this',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return memoize()(fn)
 
 
 def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
     """Merges duplicate parallel invocations of callable to a single one.
 
+    Supports async-def functions (but not async-gen functions).
     DO NOT USE with recursive functions"""
-    fs = WeakValueDictionary[Hashable, _UFuture[R]]()
-    lock = Lock()
-
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = make_key(*args, **kwargs)
-
-        with lock:  # Create only one task per args-kwargs set
-            if not (uf := fs.get(key)):
-                fs[key] = uf = _UFuture(partial(fn, *args, **kwargs))
-
-        return uf.result()
-
-    return update_wrapper(wrapper, fn)
+    warn(
+        'Deprecated. Use `@memoize(0)` for this',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return memoize(0)(fn)
 
 
 def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
     """Preserves each result of each call until they are garbage collected."""
-    rs = WeakValueDictionary[Hashable, R]()
-    lock = Lock()
-
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = make_key(*args, **kwargs)
-
-        with lock:
-            if (r := rs.get(key, _empty)) is not _empty:
-                return r
-
-        r = fn(*args, **kwargs)
-
-        with lock:
-            rs[key] = r
-        return r
-
-    return update_wrapper(wrapper, fn)
+    warn(
+        'Deprecated. Use `@memoize(0)` for this',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return memoize(0)(fn)
 
 
 # ----------------------------- batch collation ------------------------------
@@ -183,7 +138,7 @@ def _start_fetch_compute(func, workers, batch_size, timeout):
     q = SimpleQueue()  # type: ignore[var-annotated]
     lock = Lock()
 
-    def loop():
+    def loop() -> NoReturn:
         while True:
             # Because of lock, _fetch_batch could be inlined into wrapper,
             # and dispatch to thread pool could be done from there,

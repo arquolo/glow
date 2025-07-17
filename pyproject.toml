@@ -70,6 +70,7 @@ dev-core = [
     "isort",
     "mypy~=1.16",
     "pytest~=8.0",
+    "pytest-asyncio",
     "ruff~=0.12.2",
 ]
 dev = [
