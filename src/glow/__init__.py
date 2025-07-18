@@ -41,6 +41,7 @@ from ._profile import memprof, time_this, timer
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._reusable import Reusable
 from ._sizeof import sizeof
+from ._streams import cumsum, maximum_cumsum
 from ._uuid import Uid
 
 if TYPE_CHECKING:
@@ -84,6 +85,7 @@ __all__ = [
     'chunked',
     'coroutine',
     'countable',
+    'cumsum',
     'eat',
     'get_executor',
     'groupby',
@@ -98,6 +100,7 @@ __all__ = [
     'map_n',
     'map_n_dict',
     'max_cpu_count',
+    'maximum_cumsum',
     'memoize',
     'memprof',
     'pascal',

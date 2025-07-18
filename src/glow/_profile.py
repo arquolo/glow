@@ -1,18 +1,19 @@
 __all__ = ['memprof', 'time_this', 'timer']
 
 import atexit
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
-from itertools import accumulate, count
+from itertools import count
 from threading import get_ident
 from time import perf_counter_ns, process_time_ns, thread_time_ns
 from typing import TYPE_CHECKING
 
 from ._debug import whereami
 from ._repr import si, si_bin
+from ._streams import Stream, maximum_cumsum
 from ._wrap import wrap
 
 if TYPE_CHECKING:
@@ -105,41 +106,11 @@ class _Times(dict[int, int]):
         return sum(self.values())
 
 
-class MaximumCumsum:
-    """
-    Coroutine version of:
-        >>> numbers = [1, -1, 1, 1, -1, -1]
-        ... np.maximum.accumulate(np.cumsum(numbers))
-        [1, 1, 1, 2, 2, 2]
-
-    Usage:
-        >>> m = _MaximumSum()
-        ... numbers = [1, -1, 1, 1, -1, -1]
-        ... [m.send(x) for x in numbers]
-        [1, 1, 1, 2, 2, 2]
-    """
-
-    __slots__ = ('_pop', '_push')
-
-    def __init__(self) -> None:
-        todo = deque[int]()
-        self._push = todo.append
-
-        values = iter(todo.popleft, None)
-        partial_sums = accumulate(values)
-        max_partial_sums = accumulate(partial_sums, max)
-        self._pop = max_partial_sums.__next__
-
-    def send(self, value: int) -> int:
-        self._push(value)
-        return self._pop()
-
-
 @dataclass(frozen=True, slots=True)
 class _Stat:
     calls: count = field(default_factory=count)
     reads: count = field(default_factory=count)
-    active_calls: MaximumCumsum = field(default_factory=MaximumCumsum)
+    active_calls: Stream[int, int] = field(default_factory=maximum_cumsum)
     busy_ns: _Times = field(default_factory=_Times)
     idle_ns: _Times = field(default_factory=_Times)
 
@@ -147,8 +118,11 @@ class _Stat:
         self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs
     ) -> R:
         self.active_calls.send(+1)
-        total = perf_counter_ns()  # Tracks Wall time
-        active = thread_time_ns()  # Tracks `active` thread time, i.e. not idle
+        # Real time (wall-clock time) - total elapsed time including
+        # waiting for I/O (like time.sleep, lock.acquire, e.t.c.).
+        total = perf_counter_ns()
+        # Time spent executing this thread, including kernel time.
+        active = thread_time_ns()
         try:
             return op(*args, **kwargs)
         finally:
