@@ -68,51 +68,7 @@ class Stats:
         return f'{self.__class__.__name__}({fields})'
 
 
-class _AbstractNodeStore[T](Protocol):
-    size: int
-    capacity: int
-
-    def __init__(self, capacity: int) -> None: ...
-    def __len__(self) -> int: ...
-    def __getitem__(self, key: Hashable) -> _Node[T] | None: ...
-    def __setitem__(self, key: Hashable, node: _Node[T]) -> None: ...
-    def keys(self) -> KeysView: ...
-    def clear(self) -> None: ...
-
-
-@dataclass(frozen=True, slots=True, weakref_slot=True)
-class _Cache[T]:
-    store: _AbstractNodeStore[T]
-    make_node: Callable[[T], _Node[T]] = field(repr=False)
-    lock: RLock = field(default_factory=RLock, repr=False)
-
-    def __post_init__(self) -> None:
-        _REFS[id(self)] = self
-
-    def clear(self) -> None:
-        with self.lock:
-            self.store.clear()
-
-    def __iter__(self) -> Iterator:
-        with self.lock:
-            yield from self.store.keys()
-
-    def __len__(self) -> int:
-        return len(self.store)
-
-    def __getitem__(self, key: Hashable) -> T | _Empty:
-        with self.lock:
-            if node := self.store[key]:
-                return node.value
-        return _empty
-
-    def __setitem__(self, key: Hashable, value: T) -> None:
-        with self.lock:
-            self.store[key] = self.make_node(value)
-
-    def __repr__(self) -> str:
-        with self.lock:
-            return repr(self.store)
+# ----------------------------- basic caches ------------------------------
 
 
 def cache_status() -> str:
@@ -121,21 +77,33 @@ def cache_status() -> str:
     )
 
 
-_REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
+_REFS: MutableMapping[int, '_AbstractCache'] = WeakValueDictionary()
 
 
-# --------------- node stores (i.e. get() -> Node[T] | None ) ----------------
+class _AbstractCache[T](Protocol):
+    def __init__(
+        self, capacity: int, make_node: Callable[[T], _Node[T]]
+    ) -> None: ...
+    def __getitem__(self, key: Hashable) -> T | _Empty: ...
+    def __setitem__(self, key: Hashable, value: T) -> None: ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)
-class _NodeStorage[T]:
+class _Cache[T]:
     capacity: int
+    make_node: Callable[[T], _Node[T]] = field(repr=False)
     size: int = 0
     store: dict[Hashable, _Node[T]] = field(default_factory=dict)
     stats: Stats = field(default_factory=Stats)
 
+    def __post_init__(self: _AbstractCache) -> None:
+        _REFS[id(self)] = self
+
     def __len__(self) -> int:
         return len(self.store)
+
+    def __iter__(self) -> Iterator:
+        return iter(self.store)
 
     def keys(self) -> KeysView:
         return self.store.keys()
@@ -156,16 +124,17 @@ class _NodeStorage[T]:
         return f'{type(self).__name__}({", ".join(args)})'
 
 
-class _Heap[T](_NodeStorage[T]):
-    def __getitem__(self, key: Hashable) -> _Node[T] | None:
+class _Heap[T](_Cache[T]):
+    def __getitem__(self, key: Hashable) -> T | _Empty:
         if node := self.store.get(key):
             self.stats.hits += 1
-            return node
+            return node.value
 
         self.stats.misses += 1
-        return None
+        return _empty
 
-    def __setitem__(self, key: Hashable, node: _Node[T]) -> None:
+    def __setitem__(self, key: Hashable, value: T) -> None:
+        node = self.make_node(value)
         if (
             self.capacity >= 0  # bound cache
             and self.size + node.size > self.capacity  # no free place
@@ -175,17 +144,18 @@ class _Heap[T](_NodeStorage[T]):
         self.size += node.size
 
 
-class _LruMruStorage[T](_NodeStorage[T]):
-    def __getitem__(self, key: Hashable) -> _Node[T] | None:
+class _LruMruCache[T](_Cache[T]):
+    def __getitem__(self, key: Hashable) -> T | _Empty:
         if node := self.store.pop(key, None):
             self.stats.hits += 1
             self.store[key] = node
-            return node
+            return node.value
 
         self.stats.misses += 1
-        return None
+        return _empty
 
-    def __setitem__(self, key: Hashable, node: _Node[T]) -> None:
+    def __setitem__(self, key: Hashable, value: T) -> None:
+        node = self.make_node(value)
         nsize = node.size
         if self.capacity >= 0:  # bound cache
             if nsize > self.capacity:  # cache will never fit this
@@ -202,13 +172,13 @@ class _LruMruStorage[T](_NodeStorage[T]):
         raise NotImplementedError
 
 
-class _LruStorage[T](_LruMruStorage[T]):
+class _LruCache[T](_LruMruCache[T]):
     def pop(self) -> _Node:
         """Drop oldest node"""
         return self.store.pop(next(iter(self.store)))
 
 
-class _MruStorage[T](_LruMruStorage[T]):
+class _MruCache[T](_LruMruCache[T]):
     def pop(self) -> _Node:
         """Drop most recently added node"""
         return self.store.popitem()[1]
@@ -221,7 +191,7 @@ class _MruStorage[T](_LruMruStorage[T]):
 class _Memoize[**P, R, R1]:
     fn: Callable[P, R]
     key_fn: _KeyFn
-    cache: _Cache[R1] | None
+    cache: _AbstractCache[R1] | None
     alive: WeakValueDictionary[Hashable, R1] = field(
         default_factory=WeakValueDictionary
     )
@@ -235,14 +205,17 @@ class _SyncMemoize[**P, R](_Memoize[P, R, R]):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         key = self.key_fn(*args, **kwargs)
 
-        # Alive and stored items.
-        # Called first to update cache stats (i.e. MRU/LRU if any).
-        # `cache` has subset of objects from `alive`.
-        if self.cache is not None and (ret := self.cache[key]) is not _empty:
-            return ret
-
         is_owner = False
         with self.lock:
+            # Alive and stored items.
+            # Called first to update cache stats (i.e. MRU/LRU if any).
+            # `cache` has subset of objects from `alive`.
+            if (
+                self.cache is not None
+                and (ret := self.cache[key]) is not _empty
+            ):
+                return ret
+
             # Item could still exist, try reference ...
             if (ret := self.alive.get(key, _empty)) is not _empty:
                 return ret
@@ -257,8 +230,6 @@ class _SyncMemoize[**P, R](_Memoize[P, R, R]):
             return f.result()
         try:
             ret = self.fn(*args, **kwargs)
-            if self.cache is not None:
-                self.cache[key] = ret
         except BaseException as exc:
             f.set_exception(exc)
             with self.lock:
@@ -267,6 +238,8 @@ class _SyncMemoize[**P, R](_Memoize[P, R, R]):
         else:
             f.set_result(ret)
             with self.lock:
+                if self.cache is not None:
+                    self.cache[key] = ret
                 if type(ret).__weakrefoffset__:  # Support weak reference.
                     self.alive[key] = ret
                 self.running.pop(key)
@@ -299,14 +272,14 @@ class _AsyncMemoize[**P, R](_Memoize[P, Awaitable[R], R]):
         # NOTE: but it's async-safe because this `await` is only one here.
         try:
             ret = await self.fn(*args, **kwargs)
-            if self.cache is not None:
-                self.cache[key] = ret
         except BaseException as exc:
             f.set_exception(exc)
             self.running.pop(key)
             raise
         else:
             f.set_result(ret)
+            if self.cache is not None:
+                self.cache[key] = ret
             if type(ret).__weakrefoffset__:  # Support weak reference.
                 self.alive[key] = ret
             self.running.pop(key)
@@ -329,7 +302,7 @@ class _AsyncJob[T, R](NamedTuple):
 @dataclass(kw_only=True)
 class _MemoizeBatched[T, R]:
     key_fn: _KeyFn
-    cache: _Cache[R] | None
+    cache: _AbstractCache[R] | None
     alive: WeakValueDictionary[Hashable, R] = field(
         default_factory=WeakValueDictionary
     )
@@ -344,9 +317,9 @@ class _MemoizeBatched[T, R]:
         hits: dict[Hashable, R] = {}
         misses: dict[Hashable, T] = {}
         for k, t in dict(keyed_tokens).items():
-            if self.cache is not None and (node := self.cache.store[k]):
-                hits[k] = node.value
-            elif r := self.alive.get(k):
+            if (
+                self.cache is not None and (r := self.cache[k]) is not _empty
+            ) or (r := self.alive.get(k)):
                 hits[k] = r
             else:
                 misses[k] = t
@@ -361,7 +334,7 @@ class _MemoizeBatched[T, R]:
         for k, r in it:
             hits[k] = r
             if self.cache is not None:
-                self.cache.store[k] = self.cache.make_node(r)
+                self.cache[k] = r
             if type(r).__weakrefoffset__:  # Support weak reference.
                 self.alive[k] = r
         return [hits[k] for k, _ in keyed_tokens]
@@ -433,7 +406,7 @@ class _AsyncMemoizeBatched[T, R](_MemoizeBatched[T, R]):
     )
     queue: dict[Hashable, _AsyncJob[T, R]] = field(default_factory=dict)
 
-    async def _adispatch(self) -> None:
+    async def _dispatch(self) -> None:
         jobs = {**self.queue}
         self.queue.clear()
 
@@ -464,7 +437,7 @@ class _AsyncMemoizeBatched[T, R](_MemoizeBatched[T, R]):
         self.running[key] = future = loop.create_future()
         self.queue[key] = _AsyncJob(token, future)
         if len(self.queue) == 1:
-            await self._adispatch()
+            await self._dispatch()
 
         return await future
 
@@ -482,7 +455,7 @@ class _AsyncMemoizeBatched[T, R](_MemoizeBatched[T, R]):
 
 
 def _memoize[**P, R](
-    cache: _Cache | None,
+    cache: _AbstractCache | None,
     key_fn: _KeyFn,
     batched: bool,
     fn: Callable[P, R],
@@ -500,7 +473,9 @@ def _memoize[**P, R](
         wrapper = cast(
             Callable[P, R],
             _SyncMemoizeBatched(
-                cast(_BatchedFn, fn), key_fn=key_fn, cache=cache
+                cast(_BatchedFn, fn),
+                key_fn=key_fn,
+                cache=cache,
             ),
         )
     elif iscoroutinefunction(fn):
@@ -544,26 +519,25 @@ def memoize[**P, T, R](
     if int(capacity) == 0:
         return functools.partial(_memoize, None, key_fn, batched)
 
-    if storage_cls := _STORAGES.get(policy):
+    if cache_cls := _CACHES.get(policy):
         make_node = _make_node
         # count/nbytes in -/- (unbound), -/+ (bytes), +/- (count)
         if capacity < 0:
-            storage_cls = _Heap
+            cache_cls = _Heap
         # count/nbytes in -/+ (bytes), +/- (count)
         elif nbytes > 0:
             make_node = _make_sized_node
 
-        node_storage = storage_cls(capacity)
-        store = _Cache(node_storage, make_node)
-        return functools.partial(_memoize, store, key_fn, batched)
+        cache = cache_cls(capacity, make_node)
+        return functools.partial(_memoize, cache, key_fn, batched)
 
     raise ValueError(
-        f'Unknown cache policy: "{policy}". Available: "{set(_STORAGES)}"'
+        f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
     )
 
 
-_STORAGES: dict[_Policy, type[_AbstractNodeStore]] = {
+_CACHES: dict[_Policy, type[_AbstractCache]] = {
     None: _Heap,
-    'lru': _LruStorage,
-    'mru': _MruStorage,
+    'lru': _LruCache,
+    'mru': _MruCache,
 }

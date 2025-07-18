@@ -1,16 +1,13 @@
-from collections.abc import Callable, Hashable, Iterable
-from typing import Literal, Protocol, overload
+from collections.abc import Callable, Coroutine, Hashable, Iterable
+from typing import Any, Literal, Protocol, overload
 
 type _Policy = Literal['lru', 'mru'] | None
 type _KeyFn = Callable[..., Hashable]
+type _Coro[T] = Coroutine[Any, Any, T]
+type _BatchedFn[T, R] = Callable[[list[T]], Iterable[R]]
+type _AsyncBatchedFn[T, R] = Callable[[list[T]], _Coro[Iterable[R]]]
 
 def cache_status() -> str: ...
-
-class _BatchedFn[T, R]:
-    def __call__(self, _args: list[T], /) -> Iterable[R]: ...
-
-class _AsyncBatchedFn[T, R]:
-    async def __call__(self, _args: list[T], /) -> Iterable[R]: ...
 
 class _Decorator(Protocol):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
