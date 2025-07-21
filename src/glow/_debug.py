@@ -1,43 +1,50 @@
 __all__ = ['lock_seed', 'trace', 'trace_module', 'whereami']
 
 import gc
-import inspect
 import os
 import random
 import types
 from collections.abc import Iterator
 from contextlib import suppress
+from inspect import currentframe, getmodule, isfunction
 from itertools import islice
 from types import FrameType
 
 import numpy as np
 import wrapt
 
+from ._cache import memoize
 from ._import_hook import register_post_import_hook
 
 
-def _get_module(frame: FrameType) -> str:
-    if (module := inspect.getmodule(frame)) and module.__spec__:
-        return module.__spec__.name
-    return '__main__'
+def _frame_hash(frame: FrameType) -> tuple[str, int]:
+    return frame.f_code.co_filename, frame.f_lineno
 
 
-def _get_function(frame: FrameType) -> str:
-    function = frame.f_code.co_name
-    function = next(
-        (
-            f.__qualname__
-            for f in gc.get_referrers(frame.f_code)
-            if inspect.isfunction(f)
-        ),
-        function,
+@memoize(100, policy='lru', key_fn=_frame_hash)
+def _get_source(frame: FrameType) -> str:
+    # Get source module name
+    modname = (
+        spec.name
+        if (module := getmodule(frame)) and (spec := module.__spec__)
+        else '__main__'
     )
-    return '' if function == '<module>' else function
+
+    # Get source code name (method or function name)
+    code = frame.f_code
+    codename = next(
+        (f.__qualname__ for f in gc.get_referrers(code) if isfunction(f)),
+        code.co_name,
+    )
+    if codename == '<module>':
+        codename = ''
+
+    return f'{modname}:{codename}:{frame.f_lineno}'
 
 
-def _stack(frame: FrameType | None) -> Iterator[str]:
+def _get_source_calls(frame: FrameType | None) -> Iterator[str]:
     while frame:
-        yield f'{_get_module(frame)}:{_get_function(frame)}:{frame.f_lineno}'
+        yield _get_source(frame)
         if frame.f_code.co_name == '<module>':  # Stop on module-level scope
             return
         frame = frame.f_back
@@ -45,8 +52,8 @@ def _stack(frame: FrameType | None) -> Iterator[str]:
 
 def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
     """Returns iterator of FrameInfos, stopping on module-level scope"""
-    frame = inspect.currentframe()
-    calls = _stack(frame)
+    frame = currentframe()
+    calls = _get_source_calls(frame)
     calls = islice(calls, skip + 1, None)  # Skip 'skip' outerless frames
     if not limit:
         return calls
