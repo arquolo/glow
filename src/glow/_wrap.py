@@ -15,6 +15,20 @@ class _Wrapper(Protocol):
     @property
     def calls(self) -> count: ...
 
+    # This one start right after function was called,
+    # and stops right before it's called again.
+    # Usage:
+    #   fn(*args, **kwargs)
+    #   resume = wrapper.suspend()
+    #   ...
+    #   resume()
+    #   fn(*args, **kwargs)
+    def suspend(self) -> Callable[[], None]: ...
+
+    # This one start right before function was called,
+    # and stops right after it returned.
+    # Usage:
+    #   return wrapper(fn, *args, **kwargs)
     def __call__[**P, R](
         self, fn: Callable[P, R], /, *args: P.args, **kwds: P.kwargs
     ) -> R: ...

@@ -14,7 +14,7 @@ from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import NoReturn
+from typing import Never
 from warnings import warn
 
 from loguru import logger
@@ -138,7 +138,7 @@ def _start_fetch_compute(func, workers, batch_size, timeout):
     q = SimpleQueue()  # type: ignore[var-annotated]
     lock = Lock()
 
-    def loop() -> NoReturn:
+    def loop() -> Never:
         while True:
             # Because of lock, _fetch_batch could be inlined into wrapper,
             # and dispatch to thread pool could be done from there,
