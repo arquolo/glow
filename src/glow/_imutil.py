@@ -46,6 +46,8 @@ def _ensure_image(i: _AnyImage, /) -> _U8 | None:
             i = _ensure_u8(i)
             i = _ensure_rgb(i)
             return i
+        case _:
+            return None
 
 
 def _ensure_rgb(image: _U8, /) -> _U8:

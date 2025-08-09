@@ -155,8 +155,10 @@ def _int_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
             yield f'{dtype}∈{uniq} @ {_fmt_1d(weights)}'
 
     else:  # Wide range - low/high + mean/std + nuniq (opt) + gradient
-        yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
-        yield f'X∈[{lo} ... {hi}]'
+        yield from (
+            f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})',
+            f'X∈[{lo} ... {hi}]',
+        )
 
         # Not much uniqs
         if (range_ < 1_000 or arr.size < 1_000_000 or arr.itemsize <= 2) and (
@@ -178,8 +180,10 @@ def _float_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
             yield f'{num_invalid / arr.size:.2%} invalid'
 
         if lo < hi:
-            yield f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})'
-            yield f'X∈[{lo:.3g} ... {hi:.3g}]'
+            yield from (
+                f'{dtype}({arr.mean():.3g} ± {arr.std():.3g})',
+                f'X∈[{lo:.3g} ... {hi:.3g}]',
+            )
         else:
             yield f'{dtype}({lo:.3g})'
 
@@ -228,7 +232,7 @@ class _ReprArray(NamedTuple):
             return f'np.{dtype}({arr})'
 
         # Try to collapse
-        shape = f'{arr.shape if arr.ndim != 1 else arr.size}'
+        shape = f'{arr.size if arr.ndim == 1 else arr.shape}'
         if dtype.kind in 'buifc':
             lo, hi = arr.min(), arr.max()
             if np.isfinite([lo, hi]).all() and lo == hi:  # "full" array
@@ -286,7 +290,7 @@ def ic_repr(obj: Any, width: int | None = None) -> str:
     line = pprint.pformat(obj_repr, width=width)
 
     # Preserve string newlines in output.
-    return line.replace('\\n', '\n')
+    return line.replace(r'\n', '\n')
 
 
 def _format_time() -> str:
@@ -364,15 +368,16 @@ def _format(frame: FrameType, *args) -> str:
     if not args:
         return PREFIX + context + _format_time()
 
-    if call_node is not None:
+    pairs: Iterable[tuple[str, Any]]
+    if call_node is None:
+        pairs = ((f'{i}', arg) for i, arg in enumerate(args))
+    else:
         source: Source = Source.for_frame(frame)  # type: ignore[assignment]
         sanitized_arg_strs = [
             source.get_text_with_indentation(arg)
             for arg in call_node.args  # type: ignore[attr-defined]
         ]
         pairs = zip(sanitized_arg_strs, args)
-    else:
-        pairs = ((f'{i}', arg) for i, arg in enumerate(args))
 
     return _construct_argument_output(context, pairs)
 

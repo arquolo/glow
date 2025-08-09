@@ -14,7 +14,7 @@ class _HashedSeq:
     hashvalue: int
 
     def __eq__(self, value: object) -> bool:
-        return type(value) is _HashedSeq and self.items == value.items
+        return isinstance(value, _HashedSeq) and self.items == value.items
 
     def __hash__(self) -> int:
         return self.hashvalue

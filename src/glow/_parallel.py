@@ -81,8 +81,7 @@ class _Manager(Protocol):
 def _get_cpu_count_limits(
     upper_bound: int = sys.maxsize, mp: bool = False
 ) -> Iterator[int]:
-    yield upper_bound
-    yield _TOTAL_CPUS or 1
+    yield from (upper_bound, _TOTAL_CPUS or 1)
 
     # Windows platform lacks memory overcommit, so it's sensitive to VMS growth
     if not mp or sys.platform != 'win32' or 'torch' not in sys.modules:
@@ -139,11 +138,9 @@ else:
 
 def _result_or_cancel[T](f: Future[T]) -> T:
     try:
-        try:
-            return _result(f)
-        finally:
-            f.cancel()
+        return _result(f)
     finally:
+        f.cancel()
         del f
 
 

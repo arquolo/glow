@@ -79,10 +79,10 @@ def register_post_import_hook(hook: _Hook, name: str) -> None:
             _INITIALIZED = True
             sys.meta_path.insert(0, _ImportHookFinder())
 
-        if (module := sys.modules.get(name)) is not None:
-            hook(module)
-        else:
+        if (module := sys.modules.get(name)) is None:
             _HOOKS.setdefault(name, []).append(hook)
+        else:
+            hook(module)
 
 
 def when_imported[H: _Hook](name: str) -> Callable[[H], H]:

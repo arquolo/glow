@@ -192,9 +192,7 @@ def _visit_field(
     flags = [f] if (f := fd.metadata.get('flag')) else []
 
     default = (
-        fd.default_factory()
-        if fd.default_factory is not MISSING
-        else fd.default
+        fd.default if fd.default_factory is MISSING else fd.default_factory()
     )
 
     if cls is bool:  # Optional

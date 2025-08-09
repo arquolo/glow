@@ -21,8 +21,8 @@ def test_chunked():
     assert [*it] == [range(0, 3), range(3, 5)]
     assert len(it) == 0
 
-    it = chunked(iter(range(5)), 3)
-    assert [*it] == [(0, 1, 2), (3, 4)]
+    it2 = chunked(iter(range(5)), 3)
+    assert [*it2] == [(0, 1, 2), (3, 4)]
 
 
 def test_ichunked():
