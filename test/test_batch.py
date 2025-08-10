@@ -1,3 +1,4 @@
+import asyncio
 import random
 from unittest.mock import MagicMock
 
@@ -40,6 +41,7 @@ async def test_as_is_async():
 
     @glow.memoize(8192, batched=True)
     async def load_batch(xs):
+        await asyncio.sleep(0)
         return [load(x) for x in xs]
 
     for _ in range(5):
@@ -56,6 +58,7 @@ async def test_as_is_async():
 async def test_thread_safe_async(max_workers):
     @glow.memoize(8192, batched=True)
     async def load_batch(xs):
+        await asyncio.sleep(0)
         return [*xs]
 
     numbers = random.choices(range(100), k=100)

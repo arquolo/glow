@@ -78,7 +78,7 @@ def azip() -> AsyncIterator[Any]: ...
 @overload
 def azip[T](
     iter1: _AnyIterable[T], /
-) -> AsyncIterator[tuple[T]]: ...  # noqa: Y090,RUF100
+) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100
 @overload
 def azip[T, T2](
     iter1: _AnyIterable[T], iter2: _AnyIterable[T2], /
