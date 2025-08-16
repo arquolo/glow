@@ -9,8 +9,8 @@ from .. import repr_as_obj
 
 class _Env(ChainMap):
     """Environment with scopes.
-    The outermost scope takes highest priority.
 
+    The outermost scope takes highest priority.
     As example:
 
         >>> print(env)  # Empty in global scope

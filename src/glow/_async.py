@@ -69,7 +69,8 @@ async def astarmap[*Ts, R](
 async def _iter_results_unordered[T](
     ts: _AnyIterator[Task[T]], limit: int
 ) -> AsyncIterator[T]:
-    """
+    """Fetch and run async tasks.
+
     Runs exactly `limit` tasks simultaneously (less in the end of iteration).
     Order of results is arbitrary.
     """
@@ -113,7 +114,8 @@ async def _iter_results_unordered[T](
 async def _iter_results[T](
     ts: _AnyIterator[Task[T]], limit: int
 ) -> AsyncIterator[T]:
-    """
+    """Fetch and run async tasks.
+
     Runs up to `limit` tasks simultaneously (less in the end of iteration).
     Order of results is preserved.
     """

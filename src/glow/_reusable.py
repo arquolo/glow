@@ -41,7 +41,7 @@ class Reusable[T]:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def __call__(self) -> T:
-        """Returns inner object, or recreates it"""
+        """Retrieve or recreate inner object."""
         fut = asyncio.run_coroutine_threadsafe(self._get(), self._loop)
         return fut.result()
 

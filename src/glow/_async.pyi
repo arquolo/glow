@@ -76,9 +76,7 @@ def amap[R](
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
-def azip[T](
-    iter1: _AnyIterable[T], /
-) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100
+def azip[T](iter1: _AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...
 @overload
 def azip[T, T2](
     iter1: _AnyIterable[T], iter2: _AnyIterable[T2], /

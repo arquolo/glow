@@ -99,9 +99,7 @@ class Svg:
 
     @staticmethod
     def load(path: Path) -> dict[str, list[np.ndarray]]:
-        """
-        Yields contours, contour is 2d numpy array of shape [count, (x, y)]
-        """
+        """Yield contours as 2d numpy array of shape [count, (x, y)]."""
         tree = ElementTree()
         tree.parse(path.with_suffix('.svg').as_posix())
 

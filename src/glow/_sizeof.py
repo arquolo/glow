@@ -3,7 +3,7 @@ __all__ = ['sizeof']
 import ctypes
 import functools
 import sys
-from collections import abc
+from collections.abc import Callable, Collection
 from ctypes import pythonapi
 from enum import Enum
 from inspect import isgetsetdescriptor, ismemberdescriptor
@@ -22,10 +22,12 @@ pythonapi._PyObject_GetDictPtr.argtypes = (ctypes.py_object,)
 pythonapi._PyObject_GetDictPtr.restype = ctypes.POINTER(ctypes.py_object)
 
 
-def unique_only(fn):
-    """Protection from self-referencing"""
+def unique_only[T](
+    fn: Callable[[T, set[int]], int],
+) -> Callable[[T, set[int]], int]:
+    """Protection from self-referencing."""
 
-    def wrapper(obj, seen: set[int]) -> int:
+    def wrapper(obj: T, seen: set[int]) -> int:
         if (id_ := id(obj)) not in seen:
             seen.add(id_)
             return fn(obj, seen)
@@ -52,7 +54,7 @@ def true_vars(obj) -> dict[str, object] | None:
 
         # if offset := tp.__dictoffset__:
         #     if offset < 0:
-        #         offset += tp.__sizeof__(obj)  # type: ignore
+        #         offset += tp.__sizeof__(obj)
         #     addr = id(obj) + offset
         #     ptr = ctypes.cast(addr, ctypes.POINTER(ctypes.py_object))
         #     return ptr.contents.value
@@ -92,7 +94,7 @@ def _sizeof(obj, seen: set[int]) -> int:
     if issubclass(tp, dict):
         size += sum(_sizeof(k, seen) for k in obj)
         size += sum(_sizeof(v, seen) for v in obj.values())
-    elif issubclass(tp, abc.Collection):
+    elif issubclass(tp, Collection):
         size += sum(_sizeof(item, seen) for item in obj)
 
     if hasattr(obj, '__slots__'):
@@ -126,7 +128,7 @@ when_imported('torch')(
 
 
 def sizeof(obj, /) -> int:
-    """Computes size of object, no matter how complex it is.
+    """Compute size of object, no matter how complex it is.
 
     Inspired by
     [PySize](https://github.com/bosswissam/pysize/blob/master/pysize.py)

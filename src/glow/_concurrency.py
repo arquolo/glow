@@ -17,8 +17,6 @@ from time import monotonic, sleep
 from typing import Never
 from warnings import warn
 
-from loguru import logger
-
 from ._cache import memoize
 
 type _BatchFn[T, R] = Callable[[list[T]], Iterable[R]]
@@ -29,7 +27,7 @@ _PATIENCE = 0.01
 def threadlocal[T](
     fn: Callable[..., T], /, *args: object, **kwargs: object
 ) -> Callable[[], T]:
-    """Thread-local singleton factory, mimics `functools.partial`"""
+    """Create thread-local singleton factory function (functools.partial)."""
     local_ = threading.local()
 
     def wrapper() -> T:
@@ -43,10 +41,11 @@ def threadlocal[T](
 
 
 def call_once[T](fn: Callable[[], T], /) -> Callable[[], T]:
-    """Makes callable a singleton.
+    """Make callable a singleton.
 
     Supports async-def functions (but not async-gen functions).
-    DO NOT USE with recursive functions"""
+    DO NOT USE with recursive functions
+    """
     warn(
         'Deprecated. Use `@memoize()` for this',
         DeprecationWarning,
@@ -56,10 +55,11 @@ def call_once[T](fn: Callable[[], T], /) -> Callable[[], T]:
 
 
 def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
-    """Merges duplicate parallel invocations of callable to a single one.
+    """Merge duplicate parallel invocations of callable to a single one.
 
     Supports async-def functions (but not async-gen functions).
-    DO NOT USE with recursive functions"""
+    DO NOT USE with recursive functions
+    """
     warn(
         'Deprecated. Use `@memoize(0)` for this',
         DeprecationWarning,
@@ -69,7 +69,7 @@ def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 
 def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
-    """Preserves each result of each call until they are garbage collected."""
+    """Preserve each result of each call until they are garbage collected."""
     warn(
         'Deprecated. Use `@memoize(0)` for this',
         DeprecationWarning,
@@ -120,10 +120,11 @@ def _batch_invoke[T, R](
     try:
         results = [*func([x for _, x in batch])]
         if len(results) != len(batch):
-            raise RuntimeError(  # noqa: TRY301
+            msg = (
                 'Input batch size is not equal to output: '
                 f'{len(results)} != {len(batch)}'
             )
+            raise RuntimeError(msg)  # noqa: TRY301
 
     except BaseException as exc:  # noqa: BLE001
         for f, _ in batch:
@@ -159,8 +160,8 @@ def _start_fetch_compute(func, workers, batch_size, timeout):
 def streaming(
     func=None, /, *, batch_size, timeout=0.1, workers=1, pool_timeout=20.0
 ):
-    """
-    Delays start of computation to until batch is collected.
+    """Delay start of computation to until batch is collected.
+
     Accepts two timeouts (in seconds):
     - `timeout` is a time to wait till the batch is full, i.e. latency.
     - `pool_timeout` is time to wait for results.

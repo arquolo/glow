@@ -8,7 +8,7 @@ from wrapt import ObjectProxy
 
 
 def mangle() -> Callable[[str], str | None]:
-    """Appends number to already seen strings, making them distinct
+    """Append number to already seen strings, making them distinct.
 
     >>> mangled = mangle()
     >>> mangled('a')
@@ -34,7 +34,7 @@ def mangle() -> Callable[[str], str | None]:
 
 
 def countable() -> Callable[[object], int]:
-    """Accumulates and enumerates objects. Readable alternative to id().
+    """Accumulate and enumerate objects. Readable alternative to id().
 
     >>> id_ = countable()
     >>> id_('a')
@@ -49,7 +49,7 @@ def countable() -> Callable[[object], int]:
 
 
 def repr_as_obj(d: dict, /) -> str:
-    """Returns pretty representation of dict.
+    """Format dict.
 
     >>> repr_as_obj({'a': 1, 'b': 2})
     'a=1, b=2'
@@ -63,9 +63,7 @@ _PREFIXES = 'qryzafpnum kMGTPEZYRQ'
 _PREFIXES_BIN = _PREFIXES[_PREFIXES.index(' ') :].upper()
 
 
-def _find_prefix(
-    value: float | int, base: int, prefixes: str
-) -> tuple[float, str]:
+def _find_prefix(value: float, base: int, prefixes: str) -> tuple[float, str]:
     threshold = base - 0.5
     origin = prefixes.find(' ') + 1
     value *= base**origin
@@ -78,7 +76,7 @@ def _find_prefix(
     return value, prefixes[-1]
 
 
-def _num_repr(value: float | int, binary: bool = False) -> tuple[float, str]:
+def _num_repr(value: float, *, binary: bool = False) -> tuple[float, str]:
     if value == 0:
         return 0, ('B' if binary else '')
 
@@ -100,14 +98,14 @@ class _Value(ObjectProxy):  # type: ignore[misc]
     binary: bool = False
 
     def __str__(self) -> str:
-        value, unit = _num_repr(self.__wrapped__, self.binary)
+        value, unit = _num_repr(self.__wrapped__, binary=self.binary)
         return f'{value:{_autospec(value)}}{unit}'
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}({self})'
 
     def __format__(self, format_spec: str) -> str:
-        value, unit = _num_repr(self.__wrapped__, self.binary)
+        value, unit = _num_repr(self.__wrapped__, binary=self.binary)
         if not format_spec:
             return f'{value:{_autospec(value)}}{unit}'
         if format_spec.endswith('s'):
@@ -123,19 +121,17 @@ class _BinaryValue(_Value):
 
 
 def si[T: (int, float)](value: T) -> T:
-    """Mix value with human-readable formatting,
-    uses metric prefixes. Returns exact subtype of value.
+    """Create human-readable value with metric prefixes.
 
     >>> s = si(10_000)
     >>> print(s)
     10k
     """
-    return cast(T, _Value(value))
+    return cast('T', _Value(value))
 
 
 def si_bin[T: (int, float)](value: T) -> T:
-    """Treats value as size in bytes, mixes it with binary prefix.
-    Returns exact subtype of value.
+    """Create binary value, human-readable with binary prefixes.
 
     >>> s = si_bin(4096)
     >>> print(s, s + 5)
@@ -144,4 +140,4 @@ def si_bin[T: (int, float)](value: T) -> T:
     .. _Human readable bytes count
        https://programming.guide/java/formatting-byte-size-to-human-readable-format.html
     """
-    return cast(T, _BinaryValue(value))
+    return cast('T', _BinaryValue(value))

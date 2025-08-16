@@ -1,9 +1,11 @@
 __all__ = ['register_post_import_hook', 'when_imported']
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from importlib import abc, util
+from importlib.machinery import ModuleSpec
 from threading import RLock
+from types import ModuleType
 from typing import Any
 
 type _Hook = Callable[[Any], object]
@@ -14,10 +16,10 @@ _HOOKS: dict[str, list[_Hook]] = {}
 
 
 class _ImportHookChainedLoader(abc.Loader):
-    def __init__(self, loader) -> None:
+    def __init__(self, loader: abc.Loader) -> None:
         self.loader = loader
 
-    def _set_loader(self, module) -> None:
+    def _set_loader(self, module: ModuleType) -> None:
         undefined = object()
         if getattr(module, '__loader__', undefined) in (None, self):
             try:
@@ -30,10 +32,10 @@ class _ImportHookChainedLoader(abc.Loader):
         ) is self:
             spec.loader = self.loader
 
-    def create_module(self, spec):
+    def create_module(self, spec: ModuleSpec) -> ModuleType | None:
         return self.loader.create_module(spec)
 
-    def exec_module(self, module) -> None:
+    def exec_module(self, module: ModuleType) -> None:
         self._set_loader(module)
         self.loader.exec_module(module)
 
@@ -45,7 +47,13 @@ class _ImportHookChainedLoader(abc.Loader):
 
 
 class _ImportHookFinder(abc.MetaPathFinder, set[str]):
-    def find_spec(self, fullname: str, path, target=None):
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None,
+        target: ModuleType | None = None,
+        /,
+    ) -> ModuleSpec | None:
         with _LOCK:
             if fullname not in _HOOKS or fullname in self:
                 return None
@@ -86,9 +94,7 @@ def register_post_import_hook(hook: _Hook, name: str) -> None:
 
 
 def when_imported[H: _Hook](name: str) -> Callable[[H], H]:
-    """
-    Decorator for marking that a function should be called as a post
-    import hook when the target module is imported.
+    """Create decorator making a function a post import hook for a module.
 
     Simplified version of wrapt.when_imported.
     """

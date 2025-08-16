@@ -1,7 +1,4 @@
-"""
-Patches builtin `print` function to be compatible with `tqdm`.
-Adds some thread safety.
-"""
+"""Patch builtin `print` function to be thread-safe and `tqdm`-compatible."""
 
 __all__ = ['apply']
 

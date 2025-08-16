@@ -175,7 +175,7 @@ def _print_stats(*names: str) -> None:
 
 
 def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
-    """Log function and/or generator timings at program exit"""
+    """Log function and/or generator timings at program exit."""
     if fn is None:
         return partial(time_this, name=name, disable=disable)
     if disable:

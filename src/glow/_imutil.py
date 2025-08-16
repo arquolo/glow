@@ -13,8 +13,7 @@ type _AnyImage = Path | str | Image | _F32 | _U8
 
 
 def imhash_hist(x: _AnyImage, /, *, bins: int = 4) -> _F32 | None:
-    """
-    Computes histogram-based L2-normalized image hash.
+    """Compute histogram-based L2-normalized image hash.
 
     To measure distance use dot product (i.e. `hash1 @ hash2`).
     Large dot product means images have similar color distribution.
@@ -44,8 +43,7 @@ def _ensure_image(i: _AnyImage, /) -> _U8 | None:
             return np.asarray(i.convert('RGB'), 'B')
         case np.ndarray():
             i = _ensure_u8(i)
-            i = _ensure_rgb(i)
-            return i
+            return _ensure_rgb(i)
         case _:
             return None
 
@@ -57,7 +55,8 @@ def _ensure_rgb(image: _U8, /) -> _U8:
         case (_, _, 3):
             return image
         case _ as unsupported:
-            raise ValueError(f'Input is not image. Got shape {unsupported}')
+            msg = f'Input is not image. Got shape {unsupported}'
+            raise ValueError(msg)
 
 
 def _ensure_u8(image: _F32 | _U8, /) -> _U8:
@@ -66,4 +65,5 @@ def _ensure_u8(image: _F32 | _U8, /) -> _U8:
         return image  # type: ignore
     if dt == 'f':
         return (image * 255).clip(0, 255).astype('B')  # assume [0 .. 1]
-    raise NotImplementedError(f'Unsupported image dtype. Got {dt}')
+    msg = f'Unsupported image dtype. Got {dt}'
+    raise NotImplementedError(msg)

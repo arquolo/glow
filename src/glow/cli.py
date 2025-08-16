@@ -67,8 +67,8 @@ def arg(
     help=None,  # noqa: A002
     compare=True,
     metadata=None,
-):
-    """Convinient alias for dataclass.field with extra metadata (like help)"""
+) -> Field:
+    """Annotate dataclass.field with extra metadata (like help)."""
     metadata = metadata or {}
     for k, v in {'flag': flag, 'help': help}.items():
         if v:
@@ -86,7 +86,8 @@ def arg(
 
 def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
     if tp is list:
-        raise ValueError('Type list should be parametrized')
+        msg = 'Type list should be parametrized'
+        raise ValueError(msg)
 
     origin = get_origin(tp)
     args = [*get_args(tp)]
@@ -108,16 +109,16 @@ def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
     if origin is Literal:  # `Literal[x, y]`
         choices = get_args(tp)
         if len(tps := {type(c) for c in choices}) != 1:
-            raise ValueError(
-                f'Literal parameters should have the same type. Got: {tps}'
-            )
+            msg = f'Literal parameters should have the same type. Got: {tps}'
+            raise ValueError(msg)
         (cls,) = tps
         return cls, {'type': cls, 'choices': choices}
 
-    raise ValueError(
+    msg = (
         'Only list, Optional and Literal are supported as generic types. '
         f'Got: {tp}'
     )
+    raise ValueError(msg)
 
 
 def _get_fields(fn: Callable) -> Iterator[Field]:
@@ -127,9 +128,11 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
 
     for p in signature(fn).parameters.values():
         if p.kind is p.KEYWORD_ONLY and p.default is p.empty:
-            raise ValueError(f'Keyword "{p.name}" must have default')
+            msg = f'Keyword "{p.name}" must have default'
+            raise ValueError(msg)
         if p.kind in {p.POSITIONAL_ONLY, p.VAR_POSITIONAL, p.VAR_KEYWORD}:
-            raise ValueError(f'Unsupported parameter type: {p.kind}')
+            msg = f'Unsupported parameter type: {p.kind}'
+            raise ValueError(msg)
 
         if isinstance(p.default, Field):
             fd = p.default
@@ -164,11 +167,12 @@ def _visit_nested(
 
     for name, usages in seen.items():
         if len(usages) > 1:
-            raise ValueError(
+            msg = (
                 f'Field name "{name}" occured multiple times: '
                 + ', '.join(f'{c.__module__}.{c.__qualname__}' for c in usages)
                 + '. All field names should be unique'
             )
+            raise ValueError(msg)
     return nodes
 
 
@@ -197,7 +201,8 @@ def _visit_field(
 
     if cls is bool:  # Optional
         if default is MISSING:
-            raise ValueError(f'Boolean field "{fd.name}" should have default')
+            msg = f'Boolean field "{fd.name}" should have default'
+            raise ValueError(msg)
         parser.add_argument(
             f'--{snake}',
             *flags,
@@ -216,16 +221,16 @@ def _visit_field(
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
         if flags:
-            raise ValueError(
-                f'Positional-only field "{fd.name}" should not have flag'
-            )
+            msg = f'Positional-only field "{fd.name}" should not have flag'
+            raise ValueError(msg)
         parser.add_argument(snake, **opts, help=help_)
 
     else:
-        raise ValueError(
+        msg = (
             'Positional-only fields are forbidden for nested types. '
             f'Please set default value for "{fd.name}"'
         )
+        raise ValueError(msg)
 
     return fd.name
 
@@ -247,7 +252,7 @@ def parse_args[T](
     args: Sequence[str] | None = None,
     prog: str | None = None,
 ) -> tuple[T, ArgumentParser]:
-    """Create parser from type hints of callable, parse args and do call"""
+    """Create parser from type hints of callable, parse args and do call."""
     # TODO: Rename to `run`
     parser = ArgumentParser(prog)
     nodes = _visit_nested(parser, fn, {})

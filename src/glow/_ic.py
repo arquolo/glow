@@ -1,5 +1,4 @@
-"""
-IceCream - Never use print() to debug again
+"""IceCream - Never use print() to debug again.
 
 Ansgar Grunseid
 grunseid.com
@@ -212,7 +211,8 @@ def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
             yield from _grad_info(arr)
 
         case _:
-            raise NotImplementedError(f'Unknown dtype: {dtype}')
+            msg = f'Unknown dtype: {dtype}'
+            raise NotImplementedError(msg)
 
 
 class _ReprArray(NamedTuple):
@@ -232,6 +232,7 @@ class _ReprArray(NamedTuple):
             return f'np.{dtype}({arr})'
 
         # Try to collapse
+        lo = hi = None
         shape = f'{arr.size if arr.ndim == 1 else arr.shape}'
         if dtype.kind in 'buifc':
             lo, hi = arr.min(), arr.max()
@@ -391,7 +392,7 @@ def ic[T](x: T, /) -> T: ...
 
 
 @overload
-def ic[*Ts](*xs: *Ts) -> tuple[*Ts]: ...
+def ic[T, T2, *Ts](x: T, x2: T2, /, *xs: *Ts) -> tuple[T, T2, *Ts]: ...
 
 
 def ic(*args):

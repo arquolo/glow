@@ -17,7 +17,7 @@ from .. import chunked
 def _play(
     arr: np.ndarray, rate: int, blocksize: int = 1024, bufsize: int = 20
 ) -> None:
-    """Plays audio from array. Supports interruption via Crtl-C."""
+    """Play audio from array. Crtl-C to interrupt."""
     import sounddevice as sd
 
     q: Queue[np.ndarray | None] = Queue(bufsize)
@@ -53,7 +53,7 @@ def _play(
 
 @dataclass(repr=False, frozen=True)
 class Sound[S: np.number]:
-    """Wraps numpy.array to be playable as sound
+    """Wrap numpy.array to be playable as sound.
 
     Parameters:
     - rate - sample rate to use for playback
@@ -88,20 +88,21 @@ class Sound[S: np.number]:
 
     def __post_init__(self) -> None:
         if self.data.ndim not in (1, 2):
-            raise ValueError(
-                f'Sound must be 1d (mono) or 2d array, got {self.data.shape}'
-            )
+            msg = f'Sound must be 1d (mono) or 2d array, got {self.data.shape}'
+            raise ValueError(msg)
         if self.data.ndim == 1:
             object.__setattr__(self, 'data', self.data[:, None])
         if self.data.shape[-1] not in (1, 2):
-            raise ValueError(
+            msg = (
                 f'Only mono/stereo is supported, got {self.channels} channels'
             )
+            raise ValueError(msg)
         if self.data.dtype not in ('i1', 'i2', 'i4', 'f4'):
-            raise ValueError(
+            msg = (
                 'Only int8/int16/int32/float32 sound dtype is supported. '
                 f'Got {self.data.dtype}'
             )
+            raise ValueError(msg)
 
     @property
     def channels(self) -> int:
@@ -121,7 +122,7 @@ class Sound[S: np.number]:
         return self.data
 
     def play(self, blocksize=1024) -> None:
-        """Plays audio from array. Supports interruption via Crtl-C."""
+        """Play audio from array. Supports interruption via Crtl-C."""
         _play(self.data, self.rate, blocksize=blocksize)
 
     @classmethod
@@ -142,4 +143,5 @@ class Sound[S: np.number]:
 def _check_fmt(path: Path | str) -> None:
     fmt = Path(path).suffix.lower()
     if fmt not in ('.flac', '.wav'):
-        raise ValueError(f'Only FLAC/WAV is supported, got {fmt}')
+        msg = f'Only FLAC/WAV is supported, got {fmt}'
+        raise ValueError(msg)

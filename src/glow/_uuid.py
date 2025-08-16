@@ -29,7 +29,8 @@ def base57_encode(number: int) -> str:
 @lru_cache  # Small performance optimization
 def base57_decode(shortuuid: str) -> int:
     if not _REGEX.fullmatch(shortuuid):
-        raise ValueError('invalid shortuuid format')
+        msg = 'invalid shortuuid format'
+        raise ValueError(msg)
     out = 0
     for char in shortuuid:
         out = out * _BASE + _NUMBERS[char]
@@ -66,14 +67,10 @@ class Uid(UUID):
     """
 
     def __init__(self, obj: str | SupportsInt) -> None:
-        """
-        Creates Uid either from str (parsing it as short-uuid) or
-        from int()-compatible type
-        """
+        """Create Uid from str (parsing it as short-uuid) or int-compatible."""
         if not isinstance(obj, str | SupportsInt):
-            raise TypeError(
-                f'Either int, string or UUID required. Got {type(obj)}'
-            )
+            msg = f'Either int, string or UUID required. Got {type(obj)}'
+            raise TypeError(msg)
 
         value = base57_decode(obj) if isinstance(obj, str) else int(obj)
         super().__init__(int=value)
@@ -116,5 +113,5 @@ class Uid(UUID):
 
     @classmethod
     def v4(cls) -> Self:
-        """Alias for Uid(uuid.uuid4())"""
+        """Generate a random UUID. Alias for Uid(uuid.uuid4())."""
         return cls(uuid4())

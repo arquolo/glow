@@ -8,7 +8,7 @@ _KWD_MARK = object()
 
 @dataclass(frozen=True, slots=True)
 class _HashedSeq:
-    """Memorizes hash to not recompute it on cache search/update"""
+    """Memorizes hash to not recompute it on cache search/update."""
 
     items: tuple
     hashvalue: int
@@ -21,7 +21,10 @@ class _HashedSeq:
 
 
 def make_key(*args, **kwargs) -> Hashable:
-    """Copied from functools._make_key, as private function"""
+    """Make hashable key from function arguments.
+
+    Copied from functools._make_key, as private function.
+    """
     if kwargs:
         args = sum(kwargs.items(), (*args, _KWD_MARK))
     if len(args) == 1 and type(args[0]) in {int, str}:

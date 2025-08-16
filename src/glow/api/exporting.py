@@ -11,9 +11,9 @@ class ExportError(Exception):
 
 
 def export[F: Callable](obj: F) -> F:
-    """Exposes obj to __all__ in module parent to where it was defined,
-    although breaking intellisense.
+    """Expose obj to __all__ in module parent to where it was defined.
 
+    Intellisense could break.
     Usage:
 
     In package/subpackage.py:
@@ -60,21 +60,21 @@ def export[F: Callable](obj: F) -> F:
 
 
 def import_tree(pkg: str) -> None:
-    """Imports all subpackages.
+    """Import all subpackages.
 
     Usage:
     ```
     __import__('glow.api', fromlist=['api']).import_tree(__name__)
     ```
     """
-    path: str = sys.modules[pkg].__path__  # type: ignore
+    path: str = sys.modules[pkg].__path__  # type: ignore[assignment]
     for _, name, _ in pkgutil.walk_packages(path):
         subpkg = pkg + '.' + name
         __import__(subpkg)
 
 
 def get_wild_imports(module: ModuleType) -> tuple[str, ...]:
-    """Get contents of module.__all__ if possible"""
+    """Get contents of module.__all__ if possible."""
     __all__ = getattr(module, '__all__', None)
     if __all__ is not None:
         return __all__

@@ -34,12 +34,12 @@ def init_loguru(
     **logger_add_kwargs: Unpack[_LoggerAddKwds],
 ) -> None:
     """
-    Configure loguru to:
+    Configure loguru.
 
+    Does:
     - remap all `logging.Logger` to `loguru` calls
     - remap all warnings to `logger.warning`
     - configure `uvicorn`, `hypercorn` and `websockets` loggers.
-
     """
     logging.basicConfig(
         level=level,

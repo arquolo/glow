@@ -99,7 +99,7 @@ class _SendThrowClose[Y, S](_WrapStop):
     def throw(self, value: BaseException, /) -> Y:  # ! + time
         return self._wrap_stop(self.__wrapped__.throw, value)
 
-    def close(self) -> None:  # ! + time
+    def close(self) -> Any | None:  # ! + time
         return self._wrap_stop(self.__wrapped__.close)
 
 

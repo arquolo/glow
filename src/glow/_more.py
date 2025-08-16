@@ -25,7 +25,7 @@ from typing import Protocol, overload
 
 
 class SupportsSlice[T](Sized, Protocol):
-    def __getitem__(self, __s: slice) -> T: ...
+    def __getitem__(self, s: slice, /) -> T: ...
 
 
 # ----------------------------------------------------------------------------
@@ -34,7 +34,7 @@ class SupportsSlice[T](Sized, Protocol):
 def as_iter[T](
     obj: Iterable[T] | T, /, limit: int | None = None
 ) -> Iterator[T]:
-    """Make iterator with at most `limit` items"""
+    """Make iterator with at most `limit` items."""
     if isinstance(obj, Iterable):
         return islice(obj, limit)
     return repeat(obj) if limit is None else repeat(obj, limit)
@@ -118,6 +118,7 @@ def windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 
 def windowed(it, size, /):
     """Retrieve overlapped windows from iterable.
+
     Tries to use slicing if possible.
 
     >>> [*windowed(range(6), 3)]
@@ -138,8 +139,8 @@ def chunked[T](__it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 
 
 def chunked(it, size):
-    """
-    Splits iterable to chunks of at most size items each.
+    """Split iterable to chunks of at most size items each.
+
     Uses slicing if possible.
     Each next() on result will advance passed iterable to size items.
 
@@ -209,8 +210,8 @@ def ilen(iterable: Iterable, /) -> int:
     return next(counter)
 
 
-def eat(iterable: Iterable, /, daemon: bool = False) -> None:
-    """Consume iterable, daemonize if needed (move to background thread)"""
+def eat(iterable: Iterable, /, *, daemon: bool = False) -> None:
+    """Consume iterable, daemonize if needed (move to background thread)."""
     if daemon:
         threading.Thread(target=deque, args=(iterable, 0), daemon=True).start()
     else:

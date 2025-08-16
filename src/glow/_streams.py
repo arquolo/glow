@@ -21,7 +21,8 @@ class Stream[Y, S]:
 
 
 def cumsum() -> Stream[int, int]:
-    """
+    """Stream running cumulative sum.
+
     Coroutine version of:
         >>> numbers = [-1, -2, 3, -4, 5, 7]
         ... np.cumsum(numbers)
@@ -42,7 +43,8 @@ def cumsum() -> Stream[int, int]:
 
 
 def maximum_cumsum() -> Stream[int, int]:
-    """
+    """Stream running maximum cumulative sum.
+
     Coroutine version of:
         >>> numbers = [1, -1, 1, 1, -1, -1]
         ... np.maximum.accumulate(np.cumsum(numbers))

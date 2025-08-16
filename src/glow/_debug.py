@@ -51,7 +51,7 @@ def _get_source_calls(frame: FrameType | None) -> Iterator[str]:
 
 
 def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
-    """Returns iterator of FrameInfos, stopping on module-level scope"""
+    """Return iterator of FrameInfos, stopping on module-level scope."""
     frame = currentframe()
     calls = _get_source_calls(frame)
     calls = islice(calls, skip + 1, None)  # Skip 'skip' outerless frames
@@ -114,7 +114,7 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
 
 
 def trace_module(name):
-    """Enables call logging for each callable inside module name"""
+    """Enable call logging for each callable inside module name."""
     register_post_import_hook(_set_trace, name)
 
 
@@ -122,12 +122,12 @@ def trace_module(name):
 
 
 def lock_seed(seed: int) -> None:
-    """Set seed for all modules: random/numpy/torch"""
+    """Set seed for all modules: random/numpy/torch."""
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
 
-    def _torch_seed(torch):
+    def _torch_seed(torch) -> None:
         torch.manual_seed(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False

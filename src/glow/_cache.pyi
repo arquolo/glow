@@ -14,16 +14,10 @@ class _Decorator(Protocol):
 
 class _BatchedDecorator(Protocol):
     @overload
-    def __call__[T, R](
-        self,
-        fn: _BatchedFn[T, R],
-        /,
-    ) -> _BatchedFn[T, R]: ...
+    def __call__[T, R](self, fn: _BatchedFn[T, R], /) -> _BatchedFn[T, R]: ...
     @overload
     def __call__[T, R](
-        self,
-        fn: _AsyncBatchedFn[T, R],
-        /,
+        self, fn: _AsyncBatchedFn[T, R], /
     ) -> _AsyncBatchedFn[T, R]: ...
 
 # Unbound

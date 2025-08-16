@@ -1,5 +1,6 @@
-"""
-Fix for strange bug in SciPy on Anaconda for Windows
+"""Fix for strange bug in SciPy on Anaconda for Windows.
+
+See:
 https://stackoverflow.com/questions/15457786/ctrl-c-crashes-python-after-importing-scipy-stats
 
 Combines both:
@@ -21,7 +22,7 @@ _FORTRAN_FLAG = 'FOR_DISABLE_CONSOLE_CTRL_HANDLER'
 
 
 def _get_conda_libs() -> Iterator[ctypes.CDLL]:
-    """Preload DLLs from icc_rt conda package"""
+    """Preload DLLs from icc_rt conda package."""
     root = Path(sys.prefix)
     if (root / 'conda-meta').exists() and find_spec('scipy'):
         for dllname in ('libmmd.dll', 'libifcoremd.dll'):

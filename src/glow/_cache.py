@@ -77,7 +77,7 @@ def cache_status() -> str:
     )
 
 
-_REFS: MutableMapping[int, '_AbstractCache'] = WeakValueDictionary()
+_REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
 
 
 class _AbstractCache[T](Protocol):
@@ -96,7 +96,7 @@ class _Cache[T]:
     store: dict[Hashable, _Node[T]] = field(default_factory=dict)
     stats: Stats = field(default_factory=Stats)
 
-    def __post_init__(self: _AbstractCache) -> None:
+    def __post_init__(self) -> None:
         _REFS[id(self)] = self
 
     def __len__(self) -> int:
@@ -174,13 +174,13 @@ class _LruMruCache[T](_Cache[T]):
 
 class _LruCache[T](_LruMruCache[T]):
     def pop(self) -> _Node:
-        """Drop oldest node"""
+        """Drop oldest node."""
         return self.store.pop(next(iter(self.store)))
 
 
 class _MruCache[T](_LruMruCache[T]):
     def pop(self) -> _Node:
-        """Drop most recently added node"""
+        """Drop most recently added node."""
         return self.store.popitem()[1]
 
 
@@ -317,12 +317,15 @@ class _MemoizeBatched[T, R]:
         hits: dict[Hashable, R] = {}
         misses: dict[Hashable, T] = {}
         for k, t in dict(keyed_tokens).items():
-            if (
-                self.cache is not None and (r := self.cache[k]) is not _empty
-            ) or (r := self.alive.get(k)):
+            if self.cache is not None and (r := self.cache[k]) is not _empty:
                 hits[k] = r
             else:
-                misses[k] = t
+                try:
+                    r = self.alive[k]
+                except KeyError:
+                    misses[k] = t
+                else:
+                    hits[k] = r
         return keyed_tokens, hits, misses
 
     def _get_results(
@@ -357,10 +360,11 @@ class _SyncMemoizeBatched[T, R](_MemoizeBatched[T, R]):
             values = [*self.fn([job.token for job in jobs.values()])]
 
             if len(values) != len(jobs):
-                raise RuntimeError(  # noqa: TRY301
+                msg = (
                     'Input batch size is not equal to output: '
                     f'{len(values)} != {len(jobs)}'
                 )
+                raise RuntimeError(msg)  # noqa: TRY301
 
         except BaseException as exc:  # noqa: BLE001
             for key, job in jobs.items():
@@ -414,10 +418,11 @@ class _AsyncMemoizeBatched[T, R](_MemoizeBatched[T, R]):
             values = [*await self.fn([job.token for job in jobs.values()])]
 
             if len(values) != len(jobs):
-                raise RuntimeError(  # noqa: TRY301
+                msg = (
                     'Input batch size is not equal to output: '
                     f'{len(values)} != {len(jobs)}'
                 )
+                raise RuntimeError(msg)  # noqa: TRY301
 
         except BaseException as exc:  # noqa: BLE001
             for key, job in jobs.items():
@@ -455,33 +460,30 @@ class _AsyncMemoizeBatched[T, R](_MemoizeBatched[T, R]):
 
 
 def _memoize[**P, R](
-    cache: _AbstractCache | None,
-    key_fn: _KeyFn,
-    batched: bool,
     fn: Callable[P, R],
+    *,
+    cache: _AbstractCache | None = None,
+    key_fn: _KeyFn = make_key,
+    batched: bool,
 ) -> Callable[P, R]:
     if batched and iscoroutinefunction(fn):
         wrapper = cast(
-            Callable[P, R],
+            'Callable[P, R]',
             _AsyncMemoizeBatched(
-                cast(_AsyncBatchedFn, fn),
-                key_fn=key_fn,
-                cache=cache,
+                cast('_AsyncBatchedFn', fn), key_fn=key_fn, cache=cache
             ),
         )
     elif batched:
         wrapper = cast(
-            Callable[P, R],
+            'Callable[P, R]',
             _SyncMemoizeBatched(
-                cast(_BatchedFn, fn),
-                key_fn=key_fn,
-                cache=cache,
+                cast('_BatchedFn', fn), key_fn=key_fn, cache=cache
             ),
         )
     elif iscoroutinefunction(fn):
-        wrapper = cast(Callable[P, R], _AsyncMemoize(fn, key_fn, cache))
+        wrapper = cast('Callable[P, R]', _AsyncMemoize(fn, key_fn, cache))
     else:
-        wrapper = cast(Callable[P, R], _SyncMemoize(fn, key_fn, cache))
+        wrapper = cast('Callable[P, R]', _SyncMemoize(fn, key_fn, cache))
 
     return functools.update_wrapper(wrapper, fn)
 
@@ -500,7 +502,7 @@ def memoize[**P, T, R](
     Callable[[Callable[P, R]], Callable[P, R]]
     | Callable[[_BatchedFn[T, R]], _BatchedFn[T, R]]
 ):
-    """Returns dict-cache decorator.
+    """Create caching decorator.
 
     Parameters:
     - count - max objects to store or None for unbound cache.
@@ -512,12 +514,15 @@ def memoize[**P, T, R](
     count = -1 if count is None else int(count)
     nbytes = -1 if nbytes is None else si_bin(int(nbytes))
     if count >= 0 and nbytes >= 0:
-        raise ValueError('Only one of `count`/`nbytes` can be used. Not both')
+        msg = 'Only one of `count`/`nbytes` can be used. Not both'
+        raise ValueError(msg)
 
     # count/nbytes in -/- (unbound), -/0 or 0/- (off), -/+ (bytes), +/- (count)
     capacity = max(count, nbytes)
     if int(capacity) == 0:
-        return functools.partial(_memoize, None, key_fn, batched)
+        return functools.partial(  # type: ignore[return-value]
+            _memoize, key_fn=key_fn, batched=batched
+        )
 
     if cache_cls := _CACHES.get(policy):
         make_node = _make_node
@@ -529,11 +534,12 @@ def memoize[**P, T, R](
             make_node = _make_sized_node
 
         cache = cache_cls(capacity, make_node)
-        return functools.partial(_memoize, cache, key_fn, batched)
+        return functools.partial(  # type: ignore[return-value]
+            _memoize, cache=cache, key_fn=key_fn, batched=batched
+        )
 
-    raise ValueError(
-        f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
-    )
+    msg = f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
+    raise ValueError(msg)
 
 
 _CACHES: dict[_Policy, type[_AbstractCache]] = {

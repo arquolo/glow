@@ -28,7 +28,7 @@ from pstats import Stats
 from queue import Empty, SimpleQueue
 from threading import Lock
 from time import perf_counter, sleep
-from typing import Final, Protocol, cast
+from typing import Final, Protocol, Self, cast
 
 import loky
 
@@ -79,7 +79,7 @@ class _Manager(Protocol):
 
 
 def _get_cpu_count_limits(
-    upper_bound: int = sys.maxsize, mp: bool = False
+    upper_bound: int = sys.maxsize, *, mp: bool = False
 ) -> Iterator[int]:
     yield from (upper_bound, _TOTAL_CPUS or 1)
 
@@ -107,8 +107,8 @@ def _get_cpu_count_limits(
     yield free_vms // vms
 
 
-def max_cpu_count(upper_bound: int = sys.maxsize, mp: bool = False) -> int:
-    return min(_get_cpu_count_limits(upper_bound, mp))
+def max_cpu_count(upper_bound: int = sys.maxsize, *, mp: bool = False) -> int:
+    return min(_get_cpu_count_limits(upper_bound, mp=mp))
 
 
 _PATIENCE = 0.01
@@ -154,7 +154,7 @@ def _q_get_fn[T](q: _Queue[T]) -> Callable[[], T]:
 
 
 def _mp_profile() -> None:
-    """Multiprocessed profiler"""
+    """Multiprocessed profiler."""
     prof = Profile()
     prof.enable()
 
@@ -174,7 +174,7 @@ def _initializer() -> None:
 
 
 @contextmanager
-def get_executor(max_workers: int, mp: bool) -> Iterator[Executor]:
+def get_executor(max_workers: int, *, mp: bool) -> Iterator[Executor]:
     if mp:
         processes: loky.ProcessPoolExecutor = loky.get_reusable_executor(
             max_workers,
@@ -224,10 +224,7 @@ def _consume[T](
 
 
 class buffered[T](Iterator[T]):  # noqa: N801
-    """
-    Iterates over `iterable` in background thread with at most `latency`
-    items ahead from caller
-    """
+    """Iterate in background thread with at most `latency` items ahead."""
 
     __slots__ = ('__weakref__', '_consume', '_next', 'close')
 
@@ -243,7 +240,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
         if isinstance(mp, Executor):
             executor = mp
         else:
-            executor = s.enter_context(get_executor(1, mp))
+            executor = s.enter_context(get_executor(1, mp=mp))
 
         mgr = _get_manager(executor)
         if isinstance(mgr, BaseManager):
@@ -266,7 +263,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
 
         self.close = weakref.finalize(self, s.close)
 
-    def __iter__(self) -> Iterator[T]:
+    def __iter__(self) -> Self:
         return self
 
     def __next__(self) -> T:
@@ -377,13 +374,12 @@ def _get_unwrap_iter[T](
 
         # Unwrap 1st / schedule `N-qsize` / unwrap `qsize-1`
         for _ in chain([None], fs_scheduler, range(qsize - 1)):
-
             # Retrieve done task, exactly `N` calls
             yield _result_or_cancel(get_done_f())
 
 
 def _unwrap[T](
-    s: ExitStack, fs: Iterable[Future[T]], qsize: int | None, order: bool
+    s: ExitStack, fs: Iterable[Future[T]], *, qsize: int | None, order: bool
 ) -> Iterator[T]:
     q = SimpleQueue[Future[T]]()
 
@@ -391,7 +387,7 @@ def _unwrap[T](
     # otherwise it only has "DONE" tasks.
     # FIXME: order=False -> random freezes (in q.get -> Empty)
     q_put = cast(
-        Callable[[Future[T]], None],
+        'Callable[[Future[T]], None]',
         q.put if order else methodcaller('add_done_callback', q.put),
     )
 
@@ -427,14 +423,12 @@ def starmap_n[T](
     chunksize: int | None = None,
     order: bool = True,
 ) -> Iterator[T]:
-    """
-    Equivalent to itertools.starmap(fn, iterable).
+    """Equivalent to itertools.starmap(fn, iterable).
 
     Return an iterator whose values are returned from the function evaluated
     with an argument tuple taken from the given sequence.
 
     Options:
-
     - workers - Count of workers, by default all hardware threads are occupied.
     - prefetch - Extra count of scheduled jobs, if not set equals to infinity.
     - mp - Whether use processes or threads.
@@ -444,7 +438,6 @@ def starmap_n[T](
     - order - Whether keep results order, or ignore it to increase performance.
 
     Unlike multiprocessing.Pool or concurrent.futures.Executor this one:
-
     - never deadlocks on any exception or Ctrl-C interruption.
     - accepts infinite iterables due to lazy task creation (option prefetch).
     - has single interface for both threads and processes.
@@ -453,7 +446,6 @@ def starmap_n[T](
       to warmup pool of workers.
 
     Notes:
-
     - To reduce latency set order to False, order of results will be arbitrary.
     - To increase CPU usage increase prefetch or set it to None.
     - In terms of CPU usage there's no difference between
@@ -463,22 +455,21 @@ def starmap_n[T](
     TODO: replace `order=True` with `heap=False`
     """
     if max_workers is None:
-        max_workers = max_cpu_count(_NUM_CPUS, mp)
+        max_workers = max_cpu_count(_NUM_CPUS, mp=mp)
 
     if not max_workers or not _NUM_CPUS:
         return starmap(func, iterable)  # Fallback to single thread
 
     if mp and chunksize is None and prefetch is None:
-        raise ValueError(
-            'With multiprocessing either chunksize or prefetch should be set'
-        )
+        msg = 'With multiprocessing either chunksize or prefetch should be set'
+        raise ValueError(msg)
 
     if prefetch is not None:
         prefetch = max(prefetch + max_workers, 1)
 
     it = iter(iterable)
     s = ExitStack()
-    submit = s.enter_context(get_executor(max_workers, mp)).submit
+    submit = s.enter_context(get_executor(max_workers, mp=mp)).submit
 
     if mp:
         func = move_to_shmem(func)
@@ -486,11 +477,11 @@ def starmap_n[T](
         chunksize = chunksize or 1
 
     if chunksize == 1:
-        submit_one = cast(Callable[..., Future[T]], partial(submit, func))
-        return _unwrap(s, starmap(submit_one, it), prefetch, order)
+        submit_one = cast('Callable[..., Future[T]]', partial(submit, func))
+        return _unwrap(s, starmap(submit_one, it), qsize=prefetch, order=order)
 
     submit_many = cast(
-        Callable[..., Future[list[T]]], partial(submit, _batch_invoke, func)
+        'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
     )
     if chunksize is not None:
         # Fixed chunksize
@@ -502,7 +493,7 @@ def starmap_n[T](
         # Dynamic chunksize scaling
         fs = _schedule_auto_v2(submit_many, it)
 
-    chunks = _unwrap(s, fs, prefetch, order)
+    chunks = _unwrap(s, fs, qsize=prefetch, order=order)
     return chain.from_iterable(chunks)
 
 
@@ -516,8 +507,7 @@ def map_n[T](
     chunksize: int | None = None,
     order: bool = True,
 ) -> Iterator[T]:
-    """
-    Returns iterator equivalent to map(func, *iterables).
+    """Return iterator equivalent to map(func, *iterables).
 
     Make an iterator that computes the function using arguments from
     each of the iterables. Stops when the shortest iterable is exhausted.
@@ -545,8 +535,8 @@ def map_n_dict[K, T1, T2](
     mp: bool = False,
     chunksize: int | None = None,
 ) -> dict[K, T2]:
-    """
-    Apply `func` to each value in a mapping in parallel way.
+    """Apply `func` to each value in a mapping in parallel way.
+
     For extra options, see starmap_n, which is used under hood.
     """
     iter_values = map_n(

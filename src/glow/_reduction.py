@@ -64,7 +64,7 @@ class _Mmap:
         mv.buf[:] = data
         return mv
 
-    def __init__(self, size, tag, create=False) -> None:
+    def __init__(self, size: int, tag: str, *, create: bool = False) -> None:
         self.size = size
         self.tag = tag
         if create:
@@ -92,7 +92,7 @@ class _Mmap:
     def __reduce__(self):
         return type(self), (self.size, self.tag)
 
-    def __sizeof__(self):
+    def __sizeof__(self) -> int:
         return self.size
 
 

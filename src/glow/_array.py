@@ -9,7 +9,8 @@ def _force_int(
 ) -> npt.NDArray[np.integer]:
     dtype = np.dtype(dtype)
     if dtype.kind not in 'iu':
-        raise ValueError(f'Cannot cast to non-integer dtype: {dtype}')
+        msg = f'Cannot cast to non-integer dtype: {dtype}'
+        raise ValueError(msg)
 
     match a.dtype.kind:
         case 'b' | 'u' | 'i':
@@ -17,27 +18,28 @@ def _force_int(
         case 'f':
             return op(a, out=np.empty_like(a, dtype), casting='unsafe')
         case _:
-            raise ValueError(f'Unsupported dtype: {a.dtype}')
+            msg = f'Unsupported dtype: {a.dtype}'
+            raise ValueError(msg)
 
 
 def around(
     x: npt.NDArray[np.number], dtype: npt.DTypeLike = int
 ) -> npt.NDArray[np.integer]:
-    """Faster alternative to `np.round(x).astype(int)`"""
+    """Faster alternative to `np.round(x).astype(int)`."""
     return _force_int(np.rint, x, dtype)
 
 
 def aceil(
     x: npt.NDArray[np.number], dtype: npt.DTypeLike = int
 ) -> npt.NDArray[np.integer]:
-    """Faster alternative to `np.ceil(x).astype(int)`"""
+    """Faster alternative to `np.ceil(x).astype(int)`."""
     return _force_int(np.ceil, x, dtype)
 
 
 def afloor(
     x: npt.NDArray[np.number], dtype: npt.DTypeLike = int
 ) -> npt.NDArray[np.integer]:
-    """Faster alternative to `np.floor(x).astype(int)`"""
+    """Faster alternative to `np.floor(x).astype(int)`."""
     return _force_int(np.floor, x, dtype)
 
 
@@ -53,10 +55,11 @@ def apack(
     a_min: int | None = None,
     a_max: int | None = None,
 ) -> npt.NDArray[np.integer]:
-    """Convert integer array to smallest dtype"""
+    """Convert integer array to smallest dtype."""
     a = np.asarray(a)
     if a.dtype.kind != 'i':
-        raise ValueError(f'Cannot pack non-integer array: {a.dtype}')
+        msg = f'Cannot pack non-integer array: {a.dtype}'
+        raise ValueError(msg)
     if not a.size:
         return a
 
@@ -74,7 +77,8 @@ def apack(
 
 def pascal(n: int) -> npt.NDArray[np.int64]:
     if n < 1 or n > 67:
-        raise ValueError('`n` must in 1..67 range')
+        msg = '`n` must in 1..67 range'
+        raise ValueError(msg)
     a = np.zeros(n, 'q')
     a[0] = 1
     for _ in range(n - 1):

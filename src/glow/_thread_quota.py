@@ -111,7 +111,8 @@ class ThreadQuota(Executor):
     ) -> None:
         with self._shutdown_lock, _shutdown_lock:
             if self._shutdown or _shutdown:
-                raise RuntimeError('cannot schedule futures after shutdown')
+                msg = 'cannot schedule futures after shutdown'
+                raise RuntimeError(msg)
 
             self._work_queue.append(_WorkItem(f, fn, args, kwargs))
 

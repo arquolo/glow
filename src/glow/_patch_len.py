@@ -1,5 +1,4 @@
-"""
-Makes builtin iterators compatible with `len`.
+"""Make builtin iterators compatible with `len`.
 
 Supports:
 - str, bytes, range, tuple, list, set, deque iterators
@@ -92,5 +91,5 @@ def _len_odict_iter(x) -> int:
     return len(items)
 
 
-def apply():
+def apply() -> None:
     builtins.len = len_hint
