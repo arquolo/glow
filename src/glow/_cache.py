@@ -13,26 +13,23 @@ from collections.abc import (
     KeysView,
     MutableMapping,
 )
-from contextlib import ExitStack
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from threading import RLock
-from typing import Final, Literal, NamedTuple, Protocol, SupportsInt, cast
+from types import CodeType
+from typing import Final, Protocol, SupportsInt, cast
 from weakref import WeakValueDictionary
 
+from ._dev import declutter_tb
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
+from ._types import ABatchFn, AnyFuture, BatchFn, CachePolicy, KeyFn
 
 
 class _Empty(enum.Enum):
     token = 0
 
-
-type _BatchedFn[T, R] = Callable[[list[T]], Iterable[R]]
-type _AsyncBatchedFn[T, R] = Callable[[list[T]], Awaitable[Iterable[R]]]
-type _Policy = Literal['lru', 'mru'] | None
-type _KeyFn = Callable[..., Hashable]
 
 _empty: Final = _Empty.token
 
@@ -81,11 +78,14 @@ _REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
 
 
 class _AbstractCache[T](Protocol):
-    def __init__(
-        self, capacity: int, make_node: Callable[[T], _Node[T]]
-    ) -> None: ...
     def __getitem__(self, key: Hashable) -> T | _Empty: ...
     def __setitem__(self, key: Hashable, value: T) -> None: ...
+
+
+class _CacheMaker[T](Protocol):
+    def __call__(
+        self, capacity: int, make_node: Callable[[T], _Node[T]]
+    ) -> '_AbstractCache[T]': ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)
@@ -134,6 +134,8 @@ class _Heap[T](_Cache[T]):
         return _empty
 
     def __setitem__(self, key: Hashable, value: T) -> None:
+        if key in self.store:
+            return
         node = self.make_node(value)
         if (
             self.capacity >= 0  # bound cache
@@ -155,6 +157,8 @@ class _LruMruCache[T](_Cache[T]):
         return _empty
 
     def __setitem__(self, key: Hashable, value: T) -> None:
+        if key in self.store:
+            return
         node = self.make_node(value)
         nsize = node.size
         if self.capacity >= 0:  # bound cache
@@ -184,86 +188,111 @@ class _MruCache[T](_LruMruCache[T]):
         return self.store.popitem()[1]
 
 
-# -------------------------------- wrapping --------------------------------
+# --------------------------------- utilities --------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class _WeakCache[T]:
+    """Retrieve items via weak references from everywhere."""
+
+    alive: WeakValueDictionary[Hashable, T] = field(
+        default_factory=WeakValueDictionary
+    )
+
+    def __getitem__(self, key: Hashable) -> T | _Empty:
+        return self.alive.get(key, _empty)
+
+    def __setitem__(self, key: Hashable, value: T) -> None:
+        if type(value).__weakrefoffset__:  # Support weak reference.
+            self.alive[key] = value
+
+
+@dataclass(frozen=True, kw_only=True)
+class _StrongCache[R](_WeakCache[R]):
+    cache: _AbstractCache[R]
+
+    def __getitem__(self, key: Hashable) -> R | _Empty:
+        # Alive and stored items.
+        # Called first to update cache stats (i.e. MRU/LRU if any).
+        # `cache` has subset of objects from `alive`.
+        if (ret := self.cache[key]) is not _empty:
+            return ret
+        # Item could still exist, try reference ...
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: Hashable, value: R) -> None:
+        self.cache[key] = value
+        super().__setitem__(key, value)
+
+
+@dataclass(frozen=True, slots=True)
+class _CacheState[R]:
+    cache: _AbstractCache[R]
+    code: CodeType  # for short tracebacks
+    key_fn: KeyFn
+    futures: WeakValueDictionary[Hashable, AnyFuture[R]] = field(
+        default_factory=WeakValueDictionary
+    )
+
+
+# --------------------------------- wrapping ---------------------------------
 
 
 def _sync_memoize[**P, R](
-    fn: Callable[P, R],
-    key_fn: _KeyFn,
-    cache: _AbstractCache[R] | None,
+    fn: Callable[P, R], cs: _CacheState[R]
 ) -> Callable[P, R]:
-    alive = WeakValueDictionary[Hashable, R]()
-    running: dict[Hashable, cf.Future[R]] = {}
     lock = RLock()
 
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = key_fn(*args, **kwargs)
+        key = cs.key_fn(*args, **kwargs)
 
         is_owner = False
         with lock:
-            # Alive and stored items.
-            # Called first to update cache stats (i.e. MRU/LRU if any).
-            # `cache` has subset of objects from `alive`.
-            if cache is not None and (ret := cache[key]) is not _empty:
+            if (ret := cs.cache[key]) is not _empty:
                 return ret
 
-            # Item could still exist, try reference ...
-            if (ret := alive.get(key, _empty)) is not _empty:
-                return ret
             # ... or it could be computed somewhere else, join there.
-            f = running.get(key)
+            f = cs.futures.get(key)
             if not f:
-                running[key] = f = cf.Future()
+                cs.futures[key] = f = cf.Future[R]()
                 is_owner = True
 
         # Release lock to allow function to run
         if not is_owner:
             return f.result()
+
         try:
             ret = fn(*args, **kwargs)
         except BaseException as exc:
             f.set_exception(exc)
             with lock:
-                running.pop(key)
+                cs.futures.pop(key)
             raise
         else:
             f.set_result(ret)
             with lock:
-                if cache is not None:
-                    cache[key] = ret
-                if type(ret).__weakrefoffset__:  # Support weak reference.
-                    alive[key] = ret
-                running.pop(key)
+                cs.cache[key] = ret
+                cs.futures.pop(key)
             return ret
 
-    return functools.update_wrapper(wrapper, fn)
+    return wrapper
 
 
 def _async_memoize[**P, R](
     fn: Callable[P, Awaitable[R]],
-    key_fn: _KeyFn,
-    cache: _AbstractCache[R] | None,
+    cs: _CacheState[R],
 ) -> Callable[P, Awaitable[R]]:
-    alive = WeakValueDictionary[Hashable, R]()
-    running: dict[Hashable, asyncio.Future[R]] = {}
-
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = key_fn(*args, **kwargs)
+        key = cs.key_fn(*args, **kwargs)
 
-        # Alive and stored items.
-        # Called first to update cache stats (i.e. MRU/LRU if any).
-        # `cache` has subset of objects from `alive`.
-        if cache is not None and (ret := cache[key]) is not _empty:
-            return ret
-
-        # Item could still exist, try reference ...
-        if (ret := alive.get(key, _empty)) is not _empty:
+        if (ret := cs.cache[key]) is not _empty:
             return ret
 
         # ... or it could be computed somewhere else, join there.
-        if f := running.get(key):
+        if f := cs.futures.get(key):
+            assert isinstance(f, asyncio.Future)
             return await f
-        running[key] = f = asyncio.Future()
+        cs.futures[key] = f = asyncio.Future[R]()
 
         # NOTE: fn() is not within threading.Lock, thus it's not thread safe
         # NOTE: but it's async-safe because this `await` is only one here.
@@ -271,189 +300,185 @@ def _async_memoize[**P, R](
             ret = await fn(*args, **kwargs)
         except BaseException as exc:
             f.set_exception(exc)
-            running.pop(key)
+            cs.futures.pop(key)
             raise
         else:
             f.set_result(ret)
-            if cache is not None:
-                cache[key] = ret
-            if type(ret).__weakrefoffset__:  # Support weak reference.
-                alive[key] = ret
-            running.pop(key)
+            cs.cache[key] = ret
+            cs.futures.pop(key)
             return ret
 
-    return functools.update_wrapper(wrapper, fn)
+    return wrapper
 
 
 # ----------------------- wrapper with batching support ----------------------
 
 
-class _Job[T, R](NamedTuple):
-    token: T
-    future: cf.Future[R]
+@dataclass(slots=True, frozen=True)
+class _Arg[T]:
+    arg: T
 
 
-class _AsyncJob[T, R](NamedTuple):
-    token: T
-    future: asyncio.Future[R]
+class _BatchedQuery[T, R]:
+    def __init__(
+        self, cs: _CacheState[R], *tokens: T, aio: bool = False
+    ) -> None:
+        self._cs = cs
+        self._keys = [cs.key_fn(t) for t in tokens]  # All keys with duplicates
 
+        self._jobs: list[tuple[Hashable, _Arg[T] | None, AnyFuture[R]]] = []
+        self._stash: list[tuple[Hashable, R]] = []
+        self._done: dict[Hashable, R] = {}
 
-@dataclass(frozen=True)
-class _Adapter[T, R]:
-    key_fn: _KeyFn
-    cache: _AbstractCache[R] | None
-    alive: WeakValueDictionary[Hashable, R] = field(
-        default_factory=WeakValueDictionary
-    )
+        for k, t in dict(zip(self._keys, tokens)).items():
+            # If this key is processing right now, wait till its done ...
+            if f := cs.futures.get(k):  # ! Requires sync
+                self._jobs.append((k, None, f))  # Wait for this
 
-    def merge_inputs(self, tokens: Iterable[T]) -> tuple[
-        tuple[
-            list[tuple[Hashable, T]],
-            dict[Hashable, R],
-        ],
-        dict[Hashable, T],
-    ]:
-        keyed_tokens = [(self.key_fn(t), t) for t in tokens]
+            # ... else check if it's done ...
+            elif (r := cs.cache[k]) is not _empty:  # ! Requires sync
+                self._done[k] = r
 
-        hits: dict[Hashable, R] = {}
-        misses: dict[Hashable, T] = {}
-        for k, t in dict(keyed_tokens).items():
-            if self.cache is not None and (r := self.cache[k]) is not _empty:
-                hits[k] = r
+            # ... otherwise schedule a new job.
             else:
-                try:
-                    r = self.alive[k]
-                except KeyError:
-                    misses[k] = t
-                else:
-                    hits[k] = r
-        return (keyed_tokens, hits), misses
+                f = asyncio.Future[R]() if aio else cf.Future[R]()
+                self._jobs.append((k, _Arg(t), f))  # Resolve this manually
+                cs.futures[k] = f  # ! Requires sync
 
-    def get_results(
-        self,
-        keyed_tokens_n_hits: tuple[
-            list[tuple[Hashable, T]],
-            dict[Hashable, R],
-        ],
-        done: dict[Hashable, R],
-    ) -> list[R]:
-        keyed_tokens, hits = keyed_tokens_n_hits
-        for k, r in done.items():
-            hits[k] = r
-            if self.cache is not None:
-                self.cache[k] = r
-            if type(r).__weakrefoffset__:  # Support weak reference.
-                self.alive[k] = r
-        return [hits[k] for k, _ in keyed_tokens]
+        self._errors: dict[BaseException, None] = {}
+        self._default_tp: type[BaseException] | None = None
+
+    def __bool__(self) -> bool:
+        return bool(self._jobs)
+
+    @property
+    def result(self) -> list[R] | BaseException:
+        match list(self._errors):
+            case []:
+                if self._default_tp:
+                    return self._default_tp()
+                return [self._done[k] for k in self._keys]
+            case [e]:
+                return e
+            case excs:
+                msg = 'Got multiple exceptions'
+                if all(isinstance(e, Exception) for e in excs):
+                    return ExceptionGroup(msg, excs)  # type: ignore[type-var]
+                return BaseExceptionGroup(msg, excs)
+
+    @result.setter
+    def result(self, obj: list[R] | BaseException) -> None:
+        done_jobs = [(k, f) for k, a, f in self._jobs if a]
+
+        if not isinstance(obj, BaseException):
+            if len(obj) == len(done_jobs):
+                for (k, f), value in zip(done_jobs, obj):
+                    f.set_result(value)
+                    self._stash.append((k, value))
+                return
+
+            obj = RuntimeError(
+                f'Call with {len(done_jobs)} arguments '
+                f'incorrectly returned {len(obj)} results'
+            )
+
+        for _, f in done_jobs:
+            f.set_exception(obj)
+            if isinstance(f, asyncio.Future):
+                f.exception()  # Mark exception as retrieved
+        self._errors[obj] = None
+
+    @property
+    def args(self) -> list[T]:
+        return [a.arg for _, a, _ in self._jobs if a]
+
+    def fs_as[F: AnyFuture](self, tp: type[F]) -> set[F]:
+        return {f for _, a, f in self._jobs if not a and isinstance(f, tp)}
+
+    def finalize_fs(self) -> None:
+        cerr = cf.CancelledError
+        aerr = asyncio.CancelledError
+        for k, a, f in self._jobs:
+            if a:
+                continue  # Our task, not "borrowed" one
+            if f.cancelled():
+                self._default_tp = cerr if isinstance(f, cf.Future) else aerr
+            elif e := f.exception():
+                self._errors[e] = None
+            else:
+                self._stash.append((k, f.result()))
+
+    def sync(self) -> None:
+        for e in self._errors:
+            declutter_tb(e, self._cs.code)
+
+        for k, r in self._stash:
+            self._done[k] = self._cs.cache[k] = r
+
+        # Force next callers to use cache  # ! optional
+        for k in self._jobs:
+            self._cs.futures.pop(k, None)
 
 
-def _sync_memoize_batched[T, R](  # noqa: C901
-    fn: _BatchedFn[T, R], adapter: _Adapter[T, R]
-) -> _BatchedFn[T, R]:
+def _sync_memoize_batched[T, R](
+    fn: BatchFn[T, R], cs: _CacheState[R]
+) -> BatchFn[T, R]:
     lock = RLock()
-    running = WeakValueDictionary[Hashable, cf.Future[R]]()
-    queue: dict[Hashable, _Job[T, R]] = {}
-
-    def _dispatch() -> None:
-        jobs = {**queue}
-        queue.clear()
-
-        try:
-            values = [*fn([job.token for job in jobs.values()])]
-
-            if len(values) != len(jobs):
-                msg = (
-                    'Input batch size is not equal to output: '
-                    f'{len(values)} != {len(jobs)}'
-                )
-                raise RuntimeError(msg)  # noqa: TRY301
-
-        except BaseException as exc:  # noqa: BLE001
-            for key, job in jobs.items():
-                running.pop(key)
-                job.future.set_exception(exc)
-
-        else:
-            for job, value in zip(jobs.values(), values):
-                job.future.set_result(value)
-
-    def _load(stack: ExitStack, key: Hashable, token: T) -> cf.Future[R]:
-        if f := running.get(key):
-            return f
-
-        running[key] = f = cf.Future[R]()
-        queue[key] = _Job(token, f)
-        if len(queue) == 1:
-            stack.callback(_dispatch)
-
-        return f
 
     def wrapper(tokens: Iterable[T]) -> list[R]:
-        futs: dict[Hashable, cf.Future] = {}
-
-        with ExitStack() as stack, lock:
-            keyed_tokens_hits, misses = adapter.merge_inputs(tokens)
-            futs |= {k: _load(stack, k, t) for k, t in misses.items()}
-
-        cf.wait(futs.values(), return_when='FIRST_EXCEPTION')
-
-        # Process misses
-        done = {k: f.result() for k, f in zip(misses, futs.values())}
         with lock:
-            return adapter.get_results(keyed_tokens_hits, done)
-
-    return functools.update_wrapper(wrapper, fn)
-
-
-def _async_memoize_batched[T, R](  # noqa: C901
-    fn: _AsyncBatchedFn[T, R], adapter: _Adapter[T, R]
-) -> _AsyncBatchedFn[T, R]:
-    running = WeakValueDictionary[Hashable, asyncio.Future[R]]()
-    queue: dict[Hashable, _AsyncJob[T, R]] = {}
-
-    async def _dispatch() -> None:
-        jobs = {**queue}
-        queue.clear()
+            q = _BatchedQuery(cs, *tokens)
 
         try:
-            values = [*await fn([job.token for job in jobs.values()])]
+            # Run tasks we are first to schedule
+            if args := q.args:
+                try:
+                    q.result = list(fn(args))
+                except BaseException as exc:  # noqa: BLE001
+                    q.result = exc
 
-            if len(values) != len(jobs):
-                msg = (
-                    'Input batch size is not equal to output: '
-                    f'{len(values)} != {len(jobs)}'
-                )
-                raise RuntimeError(msg)  # noqa: TRY301
+            # Wait for completion of tasks scheduled by neighbour calls
+            if fs := q.fs_as(cf.Future):
+                cf.wait(fs)
+                q.finalize_fs()
+        finally:
+            if q:
+                with lock:
+                    q.sync()
 
-        except BaseException as exc:  # noqa: BLE001
-            for key, job in jobs.items():
-                running.pop(key)
-                job.future.set_exception(exc)
+        if isinstance(ret := q.result, BaseException):
+            raise ret
+        return ret
 
-        else:
-            for job, value in zip(jobs.values(), values):
-                job.future.set_result(value)
+    return wrapper
 
-    async def _load(key: Hashable, token: T) -> R:
-        if f := running.get(key):
-            return await f
 
-        running[key] = f = asyncio.Future[R]()
-        queue[key] = _AsyncJob(token, f)
-        if len(queue) == 1:
-            await _dispatch()
-
-        return await f
-
+def _async_memoize_batched[T, R](
+    fn: ABatchFn[T, R], cs: _CacheState[R]
+) -> ABatchFn[T, R]:
     async def wrapper(tokens: Iterable[T]) -> list[R]:
-        keyed_tokens_hits, misses = adapter.merge_inputs(tokens)
-        rs = await asyncio.gather(*(_load(k, t) for k, t in misses.items()))
+        q = _BatchedQuery(cs, *tokens, aio=True)
 
-        # Process misses
-        done = dict(zip(misses, rs))
-        return adapter.get_results(keyed_tokens_hits, done)
+        try:
+            # Run tasks we are first to schedule
+            if args := q.args:
+                try:
+                    q.result = list(await fn(args))
+                except BaseException as exc:  # noqa: BLE001
+                    q.result = exc  # Raise later in `q.exception()`
 
-    return functools.update_wrapper(wrapper, fn)
+            # Wait for completion of tasks scheduled by neighbour calls
+            if fs := q.fs_as(asyncio.Future):
+                await asyncio.wait(fs)
+                q.finalize_fs()
+        finally:
+            q.sync()
+
+        if isinstance(ret := q.result, BaseException):
+            raise ret
+        return ret
+
+    return wrapper
 
 
 # ------------------------------- decorations --------------------------------
@@ -462,50 +487,48 @@ def _async_memoize_batched[T, R](  # noqa: C901
 def _memoize[**P, R](
     fn: Callable[P, R],
     *,
-    cache: _AbstractCache | None = None,
-    key_fn: _KeyFn = make_key,
+    cache: _AbstractCache,
+    key_fn: KeyFn,
     batched: bool,
 ) -> Callable[P, R]:
-    if batched:
-        adapter = _Adapter(key_fn, cache)
+    cs = _CacheState(cache, fn.__code__, key_fn)
 
-        if iscoroutinefunction(fn):
-            w = cast(
-                'Callable[P, R]',
-                _async_memoize_batched(
-                    cast('_AsyncBatchedFn', fn), adapter=adapter
-                ),
-            )
-        else:
-            w = cast(
-                'Callable[P, R]',
-                _sync_memoize_batched(cast('_BatchedFn', fn), adapter=adapter),
-            )
-
+    if batched and iscoroutinefunction(fn):
+        w = cast(
+            'Callable[P, R]',
+            _async_memoize_batched(cast('ABatchFn', fn), cs=cs),
+        )
+    elif batched:
+        w = cast(
+            'Callable[P, R]',
+            _sync_memoize_batched(cast('BatchFn', fn), cs=cs),
+        )
     elif iscoroutinefunction(fn):
-        w = cast('Callable[P, R]', _async_memoize(fn, key_fn, cache))
-
+        w = cast('Callable[P, R]', _async_memoize(fn, cs=cs))
     else:
-        w = _sync_memoize(fn, key_fn, cache)
+        w = _sync_memoize(fn, cs=cs)
 
+    while isinstance(cache, _StrongCache):
+        cache = cache.cache
     w.cache = cache  # type: ignore[attr-defined]
-    return w
+    return functools.update_wrapper(w, fn)
 
 
 # ----------------------------- factory wrappers -----------------------------
 
 
-def memoize[**P, T, R](
+class _Decorator(Protocol):
+    def __call__[F: Callable](self, f: F) -> F: ...
+
+
+def memoize(
     count: SupportsInt | None = None,
     *,
     nbytes: SupportsInt | None = None,
     batched: bool = False,
-    policy: _Policy = None,
-    key_fn: _KeyFn = make_key,
-) -> (
-    Callable[[Callable[P, R]], Callable[P, R]]
-    | Callable[[_BatchedFn[T, R]], _BatchedFn[T, R]]
-):
+    policy: CachePolicy = None,
+    key_fn: KeyFn = make_key,
+) -> _Decorator:
     """Create caching decorator.
 
     Parameters:
@@ -525,7 +548,7 @@ def memoize[**P, T, R](
     capacity = max(count, nbytes)
     if int(capacity) == 0:
         return functools.partial(  # type: ignore[return-value]
-            _memoize, key_fn=key_fn, batched=batched
+            _memoize, cache=_WeakCache(), batched=batched, key_fn=key_fn
         )
 
     if cache_cls := _CACHES.get(policy):
@@ -539,14 +562,17 @@ def memoize[**P, T, R](
 
         cache = cache_cls(capacity, make_node)
         return functools.partial(  # type: ignore[return-value]
-            _memoize, cache=cache, key_fn=key_fn, batched=batched
+            _memoize,
+            cache=_StrongCache(cache=cache),
+            key_fn=key_fn,
+            batched=batched,
         )
 
     msg = f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
     raise ValueError(msg)
 
 
-_CACHES: dict[_Policy, type[_AbstractCache]] = {
+_CACHES: dict[CachePolicy, _CacheMaker] = {
     None: _Heap,
     'lru': _LruCache,
     'mru': _MruCache,

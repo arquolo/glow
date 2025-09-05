@@ -9,7 +9,7 @@ __all__ = [
 import sys
 import threading
 from collections.abc import Callable, Iterable, Sequence
-from concurrent.futures import Future, wait
+from concurrent.futures import CancelledError, Future, wait
 from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
@@ -18,8 +18,7 @@ from typing import Never
 from warnings import warn
 
 from ._cache import memoize
-
-type _BatchFn[T, R] = Callable[[list[T]], Iterable[R]]
+from ._types import BatchFn
 
 _PATIENCE = 0.01
 
@@ -111,27 +110,28 @@ def _fetch_batch[T](
 
 
 def _batch_invoke[T, R](
-    func: _BatchFn[T, R], batch: Sequence[tuple[Future[R], T]]
+    func: BatchFn[T, R], batch: Sequence[tuple[Future[R], T]]
 ) -> None:
     batch = [(f, x) for f, x in batch if f.set_running_or_notify_cancel()]
     if not batch:
         return
 
+    obj: list[R] | BaseException
     try:
-        results = [*func([x for _, x in batch])]
-        if len(results) != len(batch):
-            msg = (
-                'Input batch size is not equal to output: '
-                f'{len(results)} != {len(batch)}'
+        obj = [*func([x for _, x in batch])]
+        if len(obj) != len(batch):
+            obj = RuntimeError(
+                f'Call with {len(batch)} arguments '
+                f'incorrectly returned {len(obj)} results'
             )
-            raise RuntimeError(msg)  # noqa: TRY301
-
     except BaseException as exc:  # noqa: BLE001
-        for f, _ in batch:
-            f.set_exception(exc)
+        obj = exc
 
+    if isinstance(obj, BaseException):
+        for f, _ in batch:
+            f.set_exception(obj)
     else:
-        for (f, _), r in zip(batch, results):
+        for (f, _), r in zip(batch, obj):
             f.set_result(r)
 
 
@@ -208,10 +208,38 @@ def streaming(
         if dnd.not_done:  # Some tasks timed out
             del dnd, fs  # ? Break reference cycle
             raise TimeoutError
-        return [f.result() for f in fs]  # Cannot time out - all are done
+
+        # Cannot time out - all are done
+        if isinstance(obj := _gather(fs), BaseException):
+            raise obj
+        return obj
 
     # TODO: if func is instance method - recreate wrapper per instance
     # TODO: find how to distinguish between
     # TODO:  not yet bound method and plain function
     # TODO:  maybe implement __get__ on wrapper
     return update_wrapper(wrapper, func)
+
+
+def _gather[R](fs: Iterable[Future[R]]) -> list[R] | BaseException:
+    cancel: CancelledError | None = None
+    errors: dict[BaseException, None] = {}
+    results: list[R] = []
+    for f in fs:
+        if f.cancelled():
+            cancel = CancelledError()
+        elif exc := f.exception():
+            errors[exc] = None
+        else:
+            results.append(f.result())
+
+    match list(errors):
+        case []:
+            return cancel or results
+        case [err]:
+            return err
+        case errs:
+            msg = 'Got multiple exceptions'
+            if all(isinstance(e, Exception) for e in errs):
+                return ExceptionGroup(msg, errs)  # type: ignore[type-var]
+            return BaseExceptionGroup(msg, errs)

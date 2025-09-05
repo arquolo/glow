@@ -2,15 +2,12 @@ __all__ = ['Reusable']
 
 import asyncio
 import weakref
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
 from threading import Thread
 
 from ._cache import memoize
-
-type _Get[T] = Callable[[], T]
-type _Callback[T] = Callable[[T], object]
+from ._types import Callback, Get
 
 
 @memoize()
@@ -20,20 +17,20 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-async def _await[T](fn: _Get[T]) -> T:
+async def _await[T](fn: Get[T]) -> T:
     return fn()
 
 
-def _trampoline[T](callback: _Callback[T], ref: weakref.ref[T]) -> None:
+def _trampoline[T](callback: Callback[T], ref: weakref.ref[T]) -> None:
     if (obj := ref()) is not None:
         callback(obj)
 
 
 @dataclass
 class Reusable[T]:
-    make: _Get[T]
+    make: Get[T]
     delay: float
-    finalize: _Callback[T] | None = None
+    finalize: Callback[T] | None = None
 
     _loop: asyncio.AbstractEventLoop = field(default_factory=make_loop)
     _deleter: asyncio.TimerHandle | None = None

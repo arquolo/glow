@@ -6,9 +6,8 @@ from importlib import abc, util
 from importlib.machinery import ModuleSpec
 from threading import RLock
 from types import ModuleType
-from typing import Any
 
-type _Hook = Callable[[Any], object]
+type _Hook = Callable[[ModuleType], object]
 
 _INITIALIZED = False
 _LOCK = RLock()

@@ -1,24 +1,18 @@
-from collections.abc import Callable, Coroutine, Hashable, Iterable
-from typing import Any, Literal, Protocol, overload
+from collections.abc import Callable
+from typing import Literal, Protocol, overload
 
-type _Policy = Literal['lru', 'mru'] | None
-type _KeyFn = Callable[..., Hashable]
-type _Coro[T] = Coroutine[Any, Any, T]
-type _BatchedFn[T, R] = Callable[[list[T]], Iterable[R]]
-type _AsyncBatchedFn[T, R] = Callable[[list[T]], _Coro[Iterable[R]]]
+from ._types import ABatchFn, BatchFn, CachePolicy, KeyFn
 
 def cache_status() -> str: ...
 
 class _Decorator(Protocol):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
 
-class _BatchedDecorator(Protocol):
+class _BatchDecorator(Protocol):
     @overload
-    def __call__[T, R](self, fn: _BatchedFn[T, R], /) -> _BatchedFn[T, R]: ...
+    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
     @overload
-    def __call__[T, R](
-        self, fn: _AsyncBatchedFn[T, R], /
-    ) -> _AsyncBatchedFn[T, R]: ...
+    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
 # Unbound
 @overload
@@ -26,7 +20,7 @@ def memoize(
     count: None = ...,
     *,
     policy: None = ...,
-    key_fn: _KeyFn = ...,
+    key_fn: KeyFn = ...,
 ) -> _Decorator: ...
 
 # Unbound batched
@@ -36,16 +30,16 @@ def memoize(
     *,
     policy: None = ...,
     batched: Literal[True],
-    key_fn: _KeyFn = ...,
-) -> _BatchedDecorator: ...
+    key_fn: KeyFn = ...,
+) -> _BatchDecorator: ...
 
 # Count-capped
 @overload
 def memoize(
     count: int,
     *,
-    policy: _Policy = ...,
-    key_fn: _KeyFn = ...,
+    policy: CachePolicy = ...,
+    key_fn: KeyFn = ...,
 ) -> _Decorator: ...
 
 # Count-capped batched
@@ -54,17 +48,17 @@ def memoize(
     count: int,
     *,
     batched: Literal[True],
-    policy: _Policy = ...,
-    key_fn: _KeyFn = ...,
-) -> _BatchedDecorator: ...
+    policy: CachePolicy = ...,
+    key_fn: KeyFn = ...,
+) -> _BatchDecorator: ...
 
 # Byte-capped
 @overload
 def memoize(
     *,
     nbytes: int,
-    policy: _Policy = ...,
-    key_fn: _KeyFn = ...,
+    policy: CachePolicy = ...,
+    key_fn: KeyFn = ...,
 ) -> _Decorator: ...
 
 # Byte-capped batched
@@ -73,6 +67,6 @@ def memoize(
     *,
     nbytes: int,
     batched: Literal[True],
-    policy: _Policy = ...,
-    key_fn: _KeyFn = ...,
-) -> _BatchedDecorator: ...
+    policy: CachePolicy = ...,
+    key_fn: KeyFn = ...,
+) -> _BatchDecorator: ...

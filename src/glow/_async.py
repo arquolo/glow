@@ -4,7 +4,6 @@ import asyncio
 from asyncio import Queue, Task
 from collections import deque
 from collections.abc import (
-    AsyncIterable,
     AsyncIterator,
     Callable,
     Collection,
@@ -14,14 +13,13 @@ from collections.abc import (
 )
 from typing import Any, TypeGuard
 
-type _AnyIterable[T] = AsyncIterable[T] | Iterable[T]
-type _AnyIterator[T] = AsyncIterator[T] | Iterator[T]
+from ._types import AnyIterable, AnyIterator
 
 
 def amap[R](
     func: Callable[..., Coroutine[Any, Any, R]],
     /,
-    *iterables: _AnyIterable,
+    *iterables: AnyIterable,
     limit: int,
     unordered: bool = False,
 ) -> AsyncIterator[R]:
@@ -31,7 +29,7 @@ def amap[R](
 
 async def astarmap[*Ts, R](
     func: Callable[[*Ts], Coroutine[Any, Any, R]],
-    iterable: _AnyIterable[tuple[*Ts]],
+    iterable: AnyIterable[tuple[*Ts]],
     /,
     *,
     limit: int,
@@ -67,7 +65,7 @@ async def astarmap[*Ts, R](
 
 
 async def _iter_results_unordered[T](
-    ts: _AnyIterator[Task[T]], limit: int
+    ts: AnyIterator[Task[T]], limit: int
 ) -> AsyncIterator[T]:
     """Fetch and run async tasks.
 
@@ -112,7 +110,7 @@ async def _iter_results_unordered[T](
 
 
 async def _iter_results[T](
-    ts: _AnyIterator[Task[T]], limit: int
+    ts: AnyIterator[Task[T]], limit: int
 ) -> AsyncIterator[T]:
     """Fetch and run async tasks.
 
@@ -143,7 +141,7 @@ async def _iter_results[T](
             yield todo.popleft().result()
 
 
-async def azip(*iterables: _AnyIterable) -> AsyncIterator[tuple]:
+async def azip(*iterables: AnyIterable) -> AsyncIterator[tuple]:
     if _all_sync_iters(iterables):
         for x in zip(*iterables):
             yield x
@@ -163,7 +161,7 @@ async def azip(*iterables: _AnyIterable) -> AsyncIterator[tuple]:
 
 
 def _all_sync_iters(
-    iterables: Collection[_AnyIterable],
+    iterables: Collection[AnyIterable],
 ) -> TypeGuard[Collection[Iterable]]:
     return all(isinstance(it, Iterable) for it in iterables)
 

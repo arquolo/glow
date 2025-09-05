@@ -4,9 +4,12 @@ import logging
 import sys
 from collections.abc import Iterable
 from types import FrameType, ModuleType
-from typing import Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from loguru import FilterDict, FilterFunction
 
 _DEFAULT_FMT = (
     '<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green>'
@@ -24,6 +27,7 @@ class _LoggerAddKwds(TypedDict, total=False):
     serialize: bool
     backtrace: bool
     diagnose: bool
+    filter: 'str | FilterFunction | FilterDict'
 
 
 def init_loguru(
@@ -92,7 +96,7 @@ class _InterceptHandler(logging.Handler):
 
         # Find caller from where originated the logged message.
         frame: FrameType | None = logging.currentframe()
-        depth = 1
+        depth = 0
         while frame and 'logging' in frame.f_code.co_filename:
             frame = frame.f_back
             depth += 1

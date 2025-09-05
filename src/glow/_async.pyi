@@ -1,18 +1,11 @@
-from collections.abc import (
-    AsyncIterable,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Iterable,
-)
+from collections.abc import AsyncIterator, Callable
 from typing import Any, overload
 
-type _AnyIterable[T] = Iterable[T] | AsyncIterable[T]
-type _Coro[T] = Coroutine[Any, Any, T]
+from ._types import AnyIterable, Coro
 
 def astarmap[*Ts, R](
-    func: Callable[[*Ts], _Coro[R]],
-    iterable: _AnyIterable[tuple[*Ts]],
+    func: Callable[[*Ts], Coro[R]],
+    iterable: AnyIterable[tuple[*Ts]],
     /,
     *,
     limit: int,
@@ -20,8 +13,8 @@ def astarmap[*Ts, R](
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, R](
-    func: Callable[[T], _Coro[R]],
-    iter1: _AnyIterable[T],
+    func: Callable[[T], Coro[R]],
+    iter1: AnyIterable[T],
     /,
     *,
     limit: int,
@@ -29,9 +22,9 @@ def amap[T, R](
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, T2, R](
-    func: Callable[[T, T2], _Coro[R]],
-    iter1: _AnyIterable[T],
-    iter2: _AnyIterable[T2],
+    func: Callable[[T, T2], Coro[R]],
+    iter1: AnyIterable[T],
+    iter2: AnyIterable[T2],
     /,
     *,
     limit: int,
@@ -39,10 +32,10 @@ def amap[T, T2, R](
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, T2, T3, R](
-    func: Callable[[T, T2, T3], _Coro[R]],
-    iter1: _AnyIterable[T],
-    iter2: _AnyIterable[T2],
-    iter3: _AnyIterable[T3],
+    func: Callable[[T, T2, T3], Coro[R]],
+    iter1: AnyIterable[T],
+    iter2: AnyIterable[T2],
+    iter3: AnyIterable[T3],
     /,
     *,
     limit: int,
@@ -50,11 +43,11 @@ def amap[T, T2, T3, R](
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, T2, T3, T4, R](
-    func: Callable[[T, T2, T3, T4], _Coro[R]],
-    iter1: _AnyIterable[T],
-    iter2: _AnyIterable[T2],
-    iter3: _AnyIterable[T3],
-    iter4: _AnyIterable[T4],
+    func: Callable[[T, T2, T3, T4], Coro[R]],
+    iter1: AnyIterable[T],
+    iter2: AnyIterable[T2],
+    iter3: AnyIterable[T3],
+    iter4: AnyIterable[T4],
     /,
     *,
     limit: int,
@@ -62,44 +55,44 @@ def amap[T, T2, T3, T4, R](
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[R](
-    func: Callable[..., _Coro[R]],
-    iter1: _AnyIterable,
-    iter2: _AnyIterable,
-    iter3: _AnyIterable,
-    iter4: _AnyIterable,
-    iter5: _AnyIterable,
+    func: Callable[..., Coro[R]],
+    iter1: AnyIterable,
+    iter2: AnyIterable,
+    iter3: AnyIterable,
+    iter4: AnyIterable,
+    iter5: AnyIterable,
     /,
-    *iters: _AnyIterable,
+    *iters: AnyIterable,
     limit: int,
     unordered: bool = ...,
 ) -> AsyncIterator[R]: ...
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
-def azip[T](iter1: _AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...
+def azip[T](iter1: AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...
 @overload
 def azip[T, T2](
-    iter1: _AnyIterable[T], iter2: _AnyIterable[T2], /
+    iter1: AnyIterable[T], iter2: AnyIterable[T2], /
 ) -> AsyncIterator[tuple[T, T2]]: ...
 @overload
 def azip[T, T2, T3](
-    iter1: _AnyIterable[T], iter2: _AnyIterable[T2], iter3: _AnyIterable[T3], /
+    iter1: AnyIterable[T], iter2: AnyIterable[T2], iter3: AnyIterable[T3], /
 ) -> AsyncIterator[tuple[T, T2, T3]]: ...
 @overload
 def azip[T, T2, T3, T4](
-    iter1: _AnyIterable[T],
-    iter2: _AnyIterable[T2],
-    iter3: _AnyIterable[T3],
-    iter4: _AnyIterable[T4],
+    iter1: AnyIterable[T],
+    iter2: AnyIterable[T2],
+    iter3: AnyIterable[T3],
+    iter4: AnyIterable[T4],
     /,
 ) -> AsyncIterator[tuple[T, T2, T3, T4]]: ...
 @overload
 def azip(
-    iter1: _AnyIterable,
-    iter2: _AnyIterable,
-    iter3: _AnyIterable,
-    iter4: _AnyIterable,
-    iter5: _AnyIterable,
+    iter1: AnyIterable,
+    iter2: AnyIterable,
+    iter3: AnyIterable,
+    iter4: AnyIterable,
+    iter5: AnyIterable,
     /,
-    *iters: _AnyIterable,
+    *iters: AnyIterable,
 ) -> AsyncIterator[tuple]: ...

@@ -28,6 +28,7 @@ from pstats import Stats
 from queue import Empty, SimpleQueue
 from threading import Lock
 from time import perf_counter, sleep
+from types import CodeType
 from typing import Final, Protocol, Self, cast
 
 import loky
@@ -37,9 +38,11 @@ try:
 except ImportError:
     psutil = None
 
+from ._dev import declutter_tb
 from ._more import chunked, ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
+from ._types import Some
 
 _TOTAL_CPUS = (
     os.process_cpu_count() if sys.version_info >= (3, 13) else os.cpu_count()
@@ -129,18 +132,22 @@ def _retry_call[T](fn: Callable[..., T], *exc: type[BaseException]) -> T:
 
 if sys.platform == 'win32':
 
-    def _result[T](f: Future[T], /) -> T:
-        return _retry_call(f.result, _TimeoutError)
+    def _exception[T](f: Future[T], /) -> BaseException | None:
+        return _retry_call(f.exception, _TimeoutError)
 
 else:
-    _result = Future.result
+    _exception = Future.exception
 
 
-def _result_or_cancel[T](f: Future[T]) -> T:
+def _result[T](
+    f: Future[T], code: CodeType, cancel: bool = True
+) -> Some[T] | BaseException:
     try:
-        return _result(f)
+        exc = _exception(f)
+        return declutter_tb(exc, code) if exc else Some(f.result())
     finally:
-        f.cancel()
+        if cancel:
+            f.cancel()
         del f
 
 
@@ -273,7 +280,9 @@ class buffered[T](Iterator[T]):  # noqa: N801
 
             self.close()
             # Reraise exception from source iterable if any
-            _result(self._consume)
+            obj = _result(self._consume, _consume.__code__, cancel=False)
+            if not isinstance(obj, Some):
+                raise obj
 
         raise StopIteration
 
@@ -367,6 +376,7 @@ def _get_unwrap_iter[T](
     qsize: int,
     get_done_f: Callable[[], Future[T]],
     fs_scheduler: Iterator,
+    code: CodeType,
 ) -> Iterator[T]:
     with s:
         if not qsize:  # No tasks to do
@@ -375,11 +385,19 @@ def _get_unwrap_iter[T](
         # Unwrap 1st / schedule `N-qsize` / unwrap `qsize-1`
         for _ in chain([None], fs_scheduler, range(qsize - 1)):
             # Retrieve done task, exactly `N` calls
-            yield _result_or_cancel(get_done_f())
+            obj = _result(get_done_f(), code)
+            if not isinstance(obj, Some):
+                raise obj
+            yield obj.x
 
 
 def _unwrap[T](
-    s: ExitStack, fs: Iterable[Future[T]], *, qsize: int | None, order: bool
+    s: ExitStack,
+    fs: Iterable[Future[T]],
+    *,
+    qsize: int | None,
+    order: bool,
+    code: CodeType,
 ) -> Iterator[T]:
     q = SimpleQueue[Future[T]]()
 
@@ -403,7 +421,7 @@ def _unwrap[T](
         raise
 
     else:
-        return _get_unwrap_iter(s, qsize, _q_get_fn(q), fs_scheduler)
+        return _get_unwrap_iter(s, qsize, _q_get_fn(q), fs_scheduler, code)
 
 
 def _batch_invoke[*Ts, R](
@@ -471,6 +489,7 @@ def starmap_n[T](
     s = ExitStack()
     submit = s.enter_context(get_executor(max_workers, mp=mp)).submit
 
+    code = func.__code__
     if mp:
         func = move_to_shmem(func)
     else:
@@ -478,7 +497,8 @@ def starmap_n[T](
 
     if chunksize == 1:
         submit_one = cast('Callable[..., Future[T]]', partial(submit, func))
-        return _unwrap(s, starmap(submit_one, it), qsize=prefetch, order=order)
+        f1s = starmap(submit_one, it)
+        return _unwrap(s, f1s, qsize=prefetch, order=order, code=code)
 
     submit_many = cast(
         'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
@@ -493,7 +513,7 @@ def starmap_n[T](
         # Dynamic chunksize scaling
         fs = _schedule_auto_v2(submit_many, it)
 
-    chunks = _unwrap(s, fs, qsize=prefetch, order=order)
+    chunks = _unwrap(s, fs, qsize=prefetch, order=order, code=code)
     return chain.from_iterable(chunks)
 
 

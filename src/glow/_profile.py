@@ -117,7 +117,7 @@ class _Profiler:
         self.idle_ns.send(+perf_counter_ns())
 
     def __call__[**P, R](
-        self, op: Callable[P, R], *args: P.args, **kwargs: P.kwargs
+        self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
         self.active_calls.send(+1)
         t_cpu = thread_time_ns()
@@ -184,8 +184,9 @@ def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
     if name is None:
         name = _to_fname(fn)
 
-    time_this.finalizers[fn] = fn.log_timing = partial(_print_stats, name)
+    fin = fn.log_timing = partial(_print_stats, name)
+    time_this.finalizers[fn] = fin  # type: ignore[attr-defined]
     return wrap(fn, _profilers[name])
 
 
-time_this.finalizers = {}
+time_this.finalizers = {}  # type: ignore[attr-defined]
