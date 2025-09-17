@@ -18,7 +18,7 @@ from typing import Never
 from warnings import warn
 
 from ._cache import memoize
-from ._types import BatchFn
+from ._types import AnyFuture, BatchFn
 
 _PATIENCE = 0.01
 
@@ -221,7 +221,7 @@ def streaming(
     return update_wrapper(wrapper, func)
 
 
-def _gather[R](fs: Iterable[Future[R]]) -> list[R] | BaseException:
+def _gather[R](fs: Iterable[AnyFuture[R]]) -> list[R] | BaseException:
     cancel: CancelledError | None = None
     errors: dict[BaseException, None] = {}
     results: list[R] = []

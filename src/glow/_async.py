@@ -10,10 +10,15 @@ from collections.abc import (
     Coroutine,
     Iterable,
     Iterator,
+    Sequence,
 )
-from typing import Any, TypeGuard
+from contextlib import suppress
+from typing import Any, TypeGuard, cast
 
-from ._types import AnyIterable, AnyIterator
+from ._dev import declutter_tb
+from ._types import ABatchFn, AnyFuture, AnyIterable, AnyIterator
+
+type _Job[T, R] = tuple[T, AnyFuture[R]]
 
 
 def amap[R](
@@ -169,3 +174,85 @@ def _all_sync_iters(
 async def _wrapgen[T](it: Iterable[T]) -> AsyncIterator[T]:
     for x in it:
         yield x
+
+
+def astreaming[F: ABatchFn](
+    batch_size: int = 10, timeout: float = 0.1
+) -> Callable[[F], F]:
+    assert batch_size >= 1
+    assert timeout > 0
+
+    def deco[T, R](fn: ABatchFn[T, R], /) -> ABatchFn[T, R]:
+        buf: list[_Job[T, R]] = []
+        deadline = float('-inf')
+        not_last = asyncio.Event()
+        lock = asyncio.Lock()
+        ncalls = 0
+
+        async def wrapper(items: Sequence[T]) -> list[R]:
+            nonlocal ncalls, deadline
+            if not items:
+                return []
+
+            # There's another handling call with tail, wake it up
+            if not ncalls and buf:
+                not_last.set()
+
+            ncalls += 1
+            fs: list[asyncio.Future[R]] = []
+            try:
+                for x in items:
+                    f = asyncio.Future[R]()
+                    fs.append(f)
+                    buf.append((x, f))
+
+                    if len(buf) == 1:  # Got first job, reset deadline
+                        deadline = asyncio.get_running_loop().time() + timeout
+
+                    if len(buf) == batch_size:  # Full batch, dispatch
+                        batch, buf[:] = buf[:], []
+                        async with lock:
+                            await _adispatch(fn, *batch)
+            finally:
+                ncalls -= 1
+
+            if not ncalls and buf:  # Was last call, wait for another
+                not_last.clear()
+
+                notified = False
+                with suppress(TimeoutError):
+                    async with asyncio.timeout_at(deadline):
+                        notified = await not_last.wait()
+
+                if not notified:
+                    batch, buf[:] = buf[:], []
+                    async with lock:
+                        await _adispatch(fn, *batch)
+
+            return await asyncio.gather(*fs)
+
+        return wrapper
+
+    return cast('Callable[[F], F]', deco)
+
+
+async def _adispatch[T, R](fn: ABatchFn[T, R], *xs: _Job[T, R]) -> None:
+    if not xs:
+        return
+    obj: list[R] | BaseException
+    try:
+        obj = list(await fn([x for x, _ in xs]))
+        if len(obj) != len(xs):
+            obj = RuntimeError(
+                f'Call with {len(xs)} arguments '
+                f'incorrectly returned {len(obj)} results'
+            )
+    except BaseException as exc:  # noqa: BLE001
+        obj = declutter_tb(exc, fn.__code__)
+
+    if isinstance(obj, BaseException):
+        for _, f in xs:
+            f.set_exception(obj)
+    else:
+        for (_, f), res in zip(xs, obj):
+            f.set_result(res)

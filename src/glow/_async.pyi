@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Callable
 from typing import Any, overload
 
-from ._types import AnyIterable, Coro
+from ._types import ABatchFn, AnyIterable, Coro
 
 def astarmap[*Ts, R](
     func: Callable[[*Ts], Coro[R]],
@@ -96,3 +96,6 @@ def azip(
     /,
     *iters: AnyIterable,
 ) -> AsyncIterator[tuple]: ...
+def astreaming[F: ABatchFn](
+    batch_size: int = ..., timeout: float = ...
+) -> Callable[[F], F]: ...
