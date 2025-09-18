@@ -14,11 +14,11 @@ from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Never
+from typing import Never, cast
 from warnings import warn
 
 from ._cache import memoize
-from ._types import AnyFuture, BatchFn
+from ._types import AnyFuture, BatchDecorator, BatchFn
 
 _PATIENCE = 0.01
 
@@ -79,9 +79,11 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 # ----------------------------- batch collation ------------------------------
 
+type _Job[T, R] = tuple[T, Future[R]]
+
 
 def _fetch_batch[T](
-    q: SimpleQueue[T], batch_size: int, timeout: float
+    q: SimpleQueue[T], batch_size: int | None, timeout: float
 ) -> list[T]:
     batch: list[T] = []
 
@@ -101,24 +103,26 @@ def _fetch_batch[T](
         batch.append(q.get())
 
     endtime = monotonic() + timeout
-    while len(batch) < batch_size and (waittime := endtime - monotonic()) > 0:
+    remaining = timeout
+    while remaining > 0 and (batch_size is None or len(batch) < batch_size):
         try:
-            batch.append(q.get(timeout=waittime))
+            batch.append(q.get(timeout=remaining))
         except Empty:
             break
+        remaining = endtime - monotonic()
     return batch
 
 
 def _batch_invoke[T, R](
-    func: BatchFn[T, R], batch: Sequence[tuple[Future[R], T]]
+    func: BatchFn[T, R], batch: Sequence[_Job[T, R]]
 ) -> None:
-    batch = [(f, x) for f, x in batch if f.set_running_or_notify_cancel()]
+    batch = [(x, f) for x, f in batch if f.set_running_or_notify_cancel()]
     if not batch:
         return
 
     obj: list[R] | BaseException
     try:
-        obj = [*func([x for _, x in batch])]
+        obj = [*func([x for x, _ in batch])]
         if len(obj) != len(batch):
             obj = RuntimeError(
                 f'Call with {len(batch)} arguments '
@@ -128,14 +132,19 @@ def _batch_invoke[T, R](
         obj = exc
 
     if isinstance(obj, BaseException):
-        for f, _ in batch:
+        for _, f in batch:
             f.set_exception(obj)
     else:
-        for (f, _), r in zip(batch, obj):
+        for (_, f), r in zip(batch, obj):
             f.set_result(r)
 
 
-def _start_fetch_compute(func, workers, batch_size, timeout):
+def _start_fetch_compute[T, R](
+    func: BatchFn[T, R],
+    workers: int,
+    batch_size: int | None,
+    timeout: float,
+) -> SimpleQueue[_Job[T, R]]:
     q = SimpleQueue()  # type: ignore[var-annotated]
     lock = Lock()
 
@@ -157,9 +166,15 @@ def _start_fetch_compute(func, workers, batch_size, timeout):
     return q
 
 
-def streaming(
-    func=None, /, *, batch_size, timeout=0.1, workers=1, pool_timeout=20.0
-):
+def streaming[T, R](
+    func: BatchFn[T, R] | None = None,
+    /,
+    *,
+    batch_size: int | None = None,
+    timeout: float = 0.1,
+    workers: int = 1,
+    pool_timeout: float = 20.0,
+) -> BatchDecorator | BatchFn[T, R]:
     """Delay start of computation to until batch is collected.
 
     Accepts two timeouts (in seconds):
@@ -182,23 +197,24 @@ def streaming(
       and notifies all waiters
     """
     if func is None:
-        return partial(
+        deco = partial(
             streaming,
             batch_size=batch_size,
             timeout=timeout,
             workers=workers,
             pool_timeout=pool_timeout,
         )
+        return cast('BatchDecorator', deco)
 
     assert callable(func)
     assert workers >= 1
     q = _start_fetch_compute(func, workers, batch_size, timeout)
 
-    def wrapper(items):
+    def wrapper(items: Sequence[T]) -> Sequence[R]:
         fs = {Future(): item for item in items}  # type: ignore[var-annotated]
         try:
-            for f_x in fs.items():
-                q.put(f_x)  # Schedule task
+            for f, x in fs.items():
+                q.put((x, f))  # Schedule task
             dnd = wait(fs, pool_timeout, return_when='FIRST_EXCEPTION')
 
         finally:  # Cancel all not-yet-running tasks, we're beyond deadline

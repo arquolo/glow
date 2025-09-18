@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, Required, TypedDict, Unpack, overload
 
-from ._types import ABatchFn, AnyIterable, Coro
+from ._types import ABatchDecorator, ABatchFn, AnyIterable, Coro
 
 class _AmapKwargs(TypedDict, total=False):
     limit: Required[int]
@@ -94,6 +94,15 @@ def azip(
     /,
     *iters: AnyIterable,
 ) -> AsyncIterator[tuple]: ...
-def astreaming[F: ABatchFn](
-    batch_size: int = ..., timeout: float = ...
-) -> Callable[[F], F]: ...
+@overload
+def astreaming(
+    *, batch_size: int | None = ..., timeout: float = ...
+) -> ABatchDecorator: ...
+@overload
+def astreaming[T, R](
+    fn: ABatchFn[T, R],
+    /,
+    *,
+    batch_size: int | None = ...,
+    timeout: float = ...,
+) -> ABatchFn[T, R]: ...

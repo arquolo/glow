@@ -24,7 +24,7 @@ from ._dev import declutter_tb
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import ABatchFn, AnyFuture, BatchFn, CachePolicy, KeyFn
+from ._types import ABatchFn, AnyFuture, BatchFn, CachePolicy, Decorator, KeyFn
 
 
 class _Empty(enum.Enum):
@@ -517,10 +517,6 @@ def _memoize[**P, R](
 # ----------------------------- factory wrappers -----------------------------
 
 
-class _Decorator(Protocol):
-    def __call__[F: Callable](self, f: F) -> F: ...
-
-
 def memoize(
     count: SupportsInt | None = None,
     *,
@@ -528,7 +524,7 @@ def memoize(
     batched: bool = False,
     policy: CachePolicy = None,
     key_fn: KeyFn = make_key,
-) -> _Decorator:
+) -> Decorator:
     """Create caching decorator.
 
     Parameters:
