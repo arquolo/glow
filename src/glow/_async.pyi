@@ -1,24 +1,24 @@
-from collections.abc import AsyncIterator, Callable
-from typing import Any, overload
+from collections.abc import AsyncIterator, Callable, Mapping
+from typing import Any, Required, TypedDict, Unpack, overload
 
 from ._types import ABatchFn, AnyIterable, Coro
+
+class _AmapKwargs(TypedDict, total=False):
+    limit: Required[int]
+    unordered: bool
 
 def astarmap[*Ts, R](
     func: Callable[[*Ts], Coro[R]],
     iterable: AnyIterable[tuple[*Ts]],
     /,
-    *,
-    limit: int,
-    unordered: bool = ...,
+    **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, R](
     func: Callable[[T], Coro[R]],
     iter1: AnyIterable[T],
     /,
-    *,
-    limit: int,
-    unordered: bool = ...,
+    **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, T2, R](
@@ -26,9 +26,7 @@ def amap[T, T2, R](
     iter1: AnyIterable[T],
     iter2: AnyIterable[T2],
     /,
-    *,
-    limit: int,
-    unordered: bool = ...,
+    **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, T2, T3, R](
@@ -37,9 +35,7 @@ def amap[T, T2, T3, R](
     iter2: AnyIterable[T2],
     iter3: AnyIterable[T3],
     /,
-    *,
-    limit: int,
-    unordered: bool = ...,
+    **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[T, T2, T3, T4, R](
@@ -49,9 +45,7 @@ def amap[T, T2, T3, T4, R](
     iter3: AnyIterable[T3],
     iter4: AnyIterable[T4],
     /,
-    *,
-    limit: int,
-    unordered: bool = ...,
+    **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
 @overload
 def amap[R](
@@ -63,13 +57,17 @@ def amap[R](
     iter5: AnyIterable,
     /,
     *iters: AnyIterable,
-    limit: int,
-    unordered: bool = ...,
+    **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
+async def amap_dict[K, T1, T2](
+    func: Callable[[T1], Coro[T2]], obj: Mapping[K, T1], /, *, limit: int
+) -> dict[K, T2]: ...
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
-def azip[T](iter1: AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...
+def azip[T](
+    iter1: AnyIterable[T], /
+) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,Y090
 @overload
 def azip[T, T2](
     iter1: AnyIterable[T], iter2: AnyIterable[T2], /

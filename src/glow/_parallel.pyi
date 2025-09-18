@@ -1,7 +1,16 @@
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Executor
 from contextlib import AbstractContextManager
-from typing import overload
+from typing import TypedDict, Unpack, overload
+
+class _MapKwargs(TypedDict, total=False):
+    max_workers: int | None
+    prefetch: int | None
+    mp: bool
+    chunksize: int | None
+
+class _MapIterKwargs(_MapKwargs, total=False):
+    order: bool
 
 def max_cpu_count(upper_bound: int = ..., *, mp: bool = ...) -> int: ...
 def get_executor(
@@ -14,24 +23,14 @@ def starmap_n[R](
     __func: Callable[..., R],
     __iter: Iterable[Iterable],
     /,
-    *,
-    max_workers: int | None = ...,
-    prefetch: int | None = ...,
-    mp: bool = ...,
-    chunksize: int | None = ...,
-    order: bool = ...,
+    **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 @overload
 def map_n[T, R](
     __func: Callable[[T], R],
     __iter1: Iterable[T],
     /,
-    *,
-    max_workers: int | None = ...,
-    prefetch: int | None = ...,
-    mp: bool = ...,
-    chunksize: int | None = ...,
-    order: bool = ...,
+    **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 @overload
 def map_n[T1, T2, R](
@@ -39,12 +38,7 @@ def map_n[T1, T2, R](
     __iter1: Iterable[T1],
     __iter2: Iterable[T2],
     /,
-    *,
-    max_workers: int | None = ...,
-    prefetch: int | None = ...,
-    mp: bool = ...,
-    chunksize: int | None = ...,
-    order: bool = ...,
+    **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 @overload
 def map_n[T1, T2, T3, R](
@@ -53,12 +47,7 @@ def map_n[T1, T2, T3, R](
     __iter2: Iterable[T2],
     __iter3: Iterable[T3],
     /,
-    *,
-    max_workers: int | None = ...,
-    prefetch: int | None = ...,
-    mp: bool = ...,
-    chunksize: int | None = ...,
-    order: bool = ...,
+    **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 @overload
 def map_n[R](
@@ -69,19 +58,8 @@ def map_n[R](
     __iter4: Iterable,
     /,
     *__iters: Iterable,
-    max_workers: int | None = ...,
-    prefetch: int | None = ...,
-    mp: bool = ...,
-    chunksize: int | None = ...,
-    order: bool = ...,
+    **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 def map_n_dict[T, K, R](
-    func: Callable[[T], R],
-    obj: Mapping[K, T],
-    /,
-    *,
-    max_workers: int | None = None,
-    prefetch: int | None = 2,
-    mp: bool = False,
-    chunksize: int | None = None,
+    func: Callable[[T], R], obj: Mapping[K, T], /, **kwargs: Unpack[_MapKwargs]
 ) -> dict[K, R]: ...

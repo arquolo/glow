@@ -1,4 +1,4 @@
-__all__ = ['amap', 'astarmap', 'azip']
+__all__ = ['amap', 'amap_dict', 'astarmap', 'azip']
 
 import asyncio
 from asyncio import Queue, Task
@@ -7,39 +7,71 @@ from collections.abc import (
     AsyncIterator,
     Callable,
     Collection,
-    Coroutine,
     Iterable,
     Iterator,
+    Mapping,
     Sequence,
 )
 from contextlib import suppress
-from typing import Any, TypeGuard, cast
+from typing import TypeGuard, cast
 
 from ._dev import declutter_tb
-from ._types import ABatchFn, AnyFuture, AnyIterable, AnyIterator
+from ._types import ABatchFn, AnyFuture, AnyIterable, AnyIterator, Coro
 
 type _Job[T, R] = tuple[T, AnyFuture[R]]
 
 
+async def amap_dict[K, T1, T2](
+    func: Callable[[T1], Coro[T2]],
+    obj: Mapping[K, T1],
+    /,
+    *,
+    limit: int,
+) -> dict[K, T2]:
+    """Asynchronously apply `func` to each value in a mapping.
+
+    For extra options, see astarmap, which is used under hood.
+    """
+    aiter_values = amap(func, obj.values(), limit=limit)
+    values = [v async for v in aiter_values]
+    return dict(zip(obj.keys(), values, strict=True))
+
+
 def amap[R](
-    func: Callable[..., Coroutine[Any, Any, R]],
+    func: Callable[..., Coro[R]],
     /,
     *iterables: AnyIterable,
     limit: int,
     unordered: bool = False,
 ) -> AsyncIterator[R]:
+    """Async version of map(func, *iterables).
+
+    Make an iterator that computes the function using arguments from
+    each of the iterables. Stops when the shortest iterable is exhausted.
+
+    For extra options, see `astarmap`.
+    """
     it = zip(*iterables) if _all_sync_iters(iterables) else azip(*iterables)
     return astarmap(func, it, limit=limit, unordered=unordered)
 
 
 async def astarmap[*Ts, R](
-    func: Callable[[*Ts], Coroutine[Any, Any, R]],
+    func: Callable[[*Ts], Coro[R]],
     iterable: AnyIterable[tuple[*Ts]],
     /,
     *,
     limit: int,
     unordered: bool = False,
 ) -> AsyncIterator[R]:
+    """Async version of itertools.starmap(fn, iterable).
+
+    Return an iterator whose values are returned from the function evaluated
+    with an argument tuple taken from the given sequence.
+
+    Options:
+    - limit - Maximum number of simultaneously running tasks.
+    - unordered - Set to get yield results as soon as they are ready.
+    """
     assert callable(func)
 
     # optimization: Plain loop if concurrency is unnecessary
