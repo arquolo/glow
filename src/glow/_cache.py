@@ -12,19 +12,27 @@ from collections.abc import (
     Iterator,
     KeysView,
     MutableMapping,
+    Sequence,
 )
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from threading import RLock
-from types import CodeType
 from typing import Final, Protocol, SupportsInt, cast
 from weakref import WeakValueDictionary
 
-from ._dev import declutter_tb
+from ._dev import hide_frame
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import ABatchFn, AnyFuture, BatchFn, CachePolicy, Decorator, KeyFn
+from ._types import (
+    ABatchFn,
+    AnyFuture,
+    BatchFn,
+    CachePolicy,
+    Decorator,
+    KeyFn,
+    Some,
+)
 
 
 class _Empty(enum.Enum):
@@ -228,7 +236,6 @@ class _StrongCache[R](_WeakCache[R]):
 @dataclass(frozen=True, slots=True)
 class _CacheState[R]:
     cache: _AbstractCache[R]
-    code: CodeType  # for short tracebacks
     key_fn: KeyFn
     futures: WeakValueDictionary[Hashable, AnyFuture[R]] = field(
         default_factory=WeakValueDictionary
@@ -261,19 +268,20 @@ def _sync_memoize[**P, R](
         if not is_owner:
             return f.result()
 
-        try:
-            ret = fn(*args, **kwargs)
-        except BaseException as exc:
-            f.set_exception(exc)
-            with lock:
-                cs.futures.pop(key)
-            raise
-        else:
-            f.set_result(ret)
-            with lock:
-                cs.cache[key] = ret
-                cs.futures.pop(key)
-            return ret
+        with hide_frame:
+            try:
+                ret = fn(*args, **kwargs)
+            except BaseException as exc:
+                f.set_exception(exc)
+                with lock:
+                    cs.futures.pop(key)
+                raise
+            else:
+                f.set_result(ret)
+                with lock:
+                    cs.cache[key] = ret
+                    cs.futures.pop(key)
+                return ret
 
     return wrapper
 
@@ -296,17 +304,18 @@ def _async_memoize[**P, R](
 
         # NOTE: fn() is not within threading.Lock, thus it's not thread safe
         # NOTE: but it's async-safe because this `await` is only one here.
-        try:
-            ret = await fn(*args, **kwargs)
-        except BaseException as exc:
-            f.set_exception(exc)
-            cs.futures.pop(key)
-            raise
-        else:
-            f.set_result(ret)
-            cs.cache[key] = ret
-            cs.futures.pop(key)
-            return ret
+        with hide_frame:
+            try:
+                ret = await fn(*args, **kwargs)
+            except BaseException as exc:
+                f.set_exception(exc)
+                cs.futures.pop(key)
+                raise
+            else:
+                f.set_result(ret)
+                cs.cache[key] = ret
+                cs.futures.pop(key)
+                return ret
 
     return wrapper
 
@@ -352,12 +361,12 @@ class _BatchedQuery[T, R]:
         return bool(self._jobs)
 
     @property
-    def result(self) -> list[R] | BaseException:
+    def result(self) -> Some[Sequence[R]] | BaseException:
         match list(self._errors):
             case []:
                 if self._default_tp:
                     return self._default_tp()
-                return [self._done[k] for k in self._keys]
+                return Some([self._done[k] for k in self._keys])
             case [e]:
                 return e
             case excs:
@@ -367,20 +376,25 @@ class _BatchedQuery[T, R]:
                 return BaseExceptionGroup(msg, excs)
 
     @result.setter
-    def result(self, obj: list[R] | BaseException) -> None:
+    def result(self, obj: Some[Sequence[R]] | BaseException) -> None:
         done_jobs = [(k, f) for k, a, f in self._jobs if a]
 
-        if not isinstance(obj, BaseException):
-            if len(obj) == len(done_jobs):
-                for (k, f), value in zip(done_jobs, obj):
-                    f.set_result(value)
-                    self._stash.append((k, value))
-                return
+        if isinstance(obj, Some):
+            if isinstance(obj.x, Sequence):
+                if len(obj.x) == len(done_jobs):
+                    for (k, f), value in zip(done_jobs, obj.x):
+                        f.set_result(value)
+                        self._stash.append((k, value))
+                    return
 
-            obj = RuntimeError(
-                f'Call with {len(done_jobs)} arguments '
-                f'incorrectly returned {len(obj)} results'
-            )
+                obj = RuntimeError(
+                    f'Call with {len(done_jobs)} arguments '
+                    f'incorrectly returned {len(obj.x)} results'
+                )
+            else:
+                obj = TypeError(
+                    f'Call returned non-sequence. Got {type(obj.x).__name__}'
+                )
 
         for _, f in done_jobs:
             f.set_exception(obj)
@@ -409,9 +423,6 @@ class _BatchedQuery[T, R]:
                 self._stash.append((k, f.result()))
 
     def sync(self) -> None:
-        for e in self._errors:
-            declutter_tb(e, self._cs.code)
-
         for k, r in self._stash:
             self._done[k] = self._cs.cache[k] = r
 
@@ -433,7 +444,8 @@ def _sync_memoize_batched[T, R](
             # Run tasks we are first to schedule
             if args := q.args:
                 try:
-                    q.result = list(fn(args))
+                    with hide_frame:
+                        q.result = Some(fn(args))
                 except BaseException as exc:  # noqa: BLE001
                     q.result = exc
 
@@ -446,9 +458,10 @@ def _sync_memoize_batched[T, R](
                 with lock:
                     q.sync()
 
-        if isinstance(ret := q.result, BaseException):
+        if isinstance(ret := q.result, Some):
+            return list(ret.x)
+        with hide_frame:
             raise ret
-        return ret
 
     return wrapper
 
@@ -463,7 +476,8 @@ def _async_memoize_batched[T, R](
             # Run tasks we are first to schedule
             if args := q.args:
                 try:
-                    q.result = list(await fn(args))
+                    with hide_frame:
+                        q.result = Some(await fn(args))
                 except BaseException as exc:  # noqa: BLE001
                     q.result = exc  # Raise later in `q.exception()`
 
@@ -474,9 +488,10 @@ def _async_memoize_batched[T, R](
         finally:
             q.sync()
 
-        if isinstance(ret := q.result, BaseException):
+        if isinstance(ret := q.result, Some):
+            return list(ret.x)
+        with hide_frame:
             raise ret
-        return ret
 
     return wrapper
 
@@ -491,7 +506,7 @@ def _memoize[**P, R](
     key_fn: KeyFn,
     batched: bool,
 ) -> Callable[P, R]:
-    cs = _CacheState(cache, fn.__code__, key_fn)
+    cs = _CacheState(cache, key_fn)
 
     if batched and iscoroutinefunction(fn):
         w = cast(

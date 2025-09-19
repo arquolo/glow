@@ -18,7 +18,8 @@ from typing import Never, cast
 from warnings import warn
 
 from ._cache import memoize
-from ._types import AnyFuture, BatchDecorator, BatchFn
+from ._dev import hide_frame
+from ._types import AnyFuture, BatchDecorator, BatchFn, Some
 
 _PATIENCE = 0.01
 
@@ -120,23 +121,28 @@ def _batch_invoke[T, R](
     if not batch:
         return
 
-    obj: list[R] | BaseException
+    obj: Some[Sequence[R]] | BaseException
     try:
-        obj = [*func([x for x, _ in batch])]
-        if len(obj) != len(batch):
-            obj = RuntimeError(
-                f'Call with {len(batch)} arguments '
-                f'incorrectly returned {len(obj)} results'
-            )
+        with hide_frame:
+            obj = Some(func([x for x, _ in batch]))
+            if not isinstance(obj.x, Sequence):
+                obj = TypeError(
+                    f'Call returned non-sequence. Got {type(obj.x).__name__}'
+                )
+            elif len(obj.x) != len(batch):
+                obj = RuntimeError(
+                    f'Call with {len(batch)} arguments '
+                    f'incorrectly returned {len(obj.x)} results'
+                )
     except BaseException as exc:  # noqa: BLE001
         obj = exc
 
-    if isinstance(obj, BaseException):
+    if isinstance(obj, Some):
+        for (_, f), r in zip(batch, obj.x):
+            f.set_result(r)
+    else:
         for _, f in batch:
             f.set_exception(obj)
-    else:
-        for (_, f), r in zip(batch, obj):
-            f.set_result(r)
 
 
 def _start_fetch_compute[T, R](
@@ -227,7 +233,8 @@ def streaming[T, R](
 
         # Cannot time out - all are done
         if isinstance(obj := _gather(fs), BaseException):
-            raise obj
+            with hide_frame:
+                raise obj
         return obj
 
     # TODO: if func is instance method - recreate wrapper per instance

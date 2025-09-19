@@ -16,7 +16,7 @@ from contextlib import suppress
 from functools import partial
 from typing import TypeGuard, cast, overload
 
-from ._dev import declutter_tb
+from ._dev import hide_frame
 from ._types import (
     ABatchDecorator,
     ABatchFn,
@@ -24,6 +24,7 @@ from ._types import (
     AnyIterable,
     AnyIterator,
     Coro,
+    Some,
 )
 
 type _Job[T, R] = tuple[T, AnyFuture[R]]
@@ -309,7 +310,8 @@ def astreaming[T, R](
                 async with lock:
                     await _adispatch(fn, *batch)
 
-        return await asyncio.gather(*fs)
+        with hide_frame:
+            return await asyncio.gather(*fs)
 
     return wrapper
 
@@ -317,20 +319,25 @@ def astreaming[T, R](
 async def _adispatch[T, R](fn: ABatchFn[T, R], *xs: _Job[T, R]) -> None:
     if not xs:
         return
-    obj: list[R] | BaseException
+    obj: Some[Sequence[R]] | BaseException
     try:
-        obj = list(await fn([x for x, _ in xs]))
-        if len(obj) != len(xs):
-            obj = RuntimeError(
-                f'Call with {len(xs)} arguments '
-                f'incorrectly returned {len(obj)} results'
-            )
+        with hide_frame:
+            obj = Some(await fn([x for x, _ in xs]))
+            if not isinstance(obj.x, Sequence):
+                obj = TypeError(
+                    f'Call returned non-sequence. Got {type(obj.x).__name__}'
+                )
+            elif len(obj.x) != len(xs):
+                obj = RuntimeError(
+                    f'Call with {len(xs)} arguments '
+                    f'incorrectly returned {len(obj.x)} results'
+                )
     except BaseException as exc:  # noqa: BLE001
-        obj = declutter_tb(exc, fn.__code__)
+        obj = exc
 
-    if isinstance(obj, BaseException):
+    if isinstance(obj, Some):
+        for (_, f), res in zip(xs, obj.x):
+            f.set_result(res)
+    else:
         for _, f in xs:
             f.set_exception(obj)
-    else:
-        for (_, f), res in zip(xs, obj):
-            f.set_result(res)
