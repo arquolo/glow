@@ -8,8 +8,13 @@ from glow.cli import parse_args
 
 
 @dataclass
-class Arg:
+class Positional:
     arg: str
+
+
+@dataclass
+class UntypedList:  # Forbidden, as list field should always be typed
+    args: list
 
 
 @dataclass
@@ -18,8 +23,8 @@ class List_:  # noqa: N801
 
 
 @dataclass
-class UntypedList:  # Forbidden, as list field should always be typed
-    args: list
+class UnsupportedTuple:
+    args: tuple[str, int]
 
 
 @dataclass
@@ -54,9 +59,9 @@ class Nested:
 
 
 @dataclass
-class NestedArg:  # Forbidden, as only top level args can be positional
+class NestedPositional:  # Forbidden, as only top level args can be positional
     arg2: str
-    nested: Arg
+    nested: Positional
 
 
 @dataclass
@@ -73,7 +78,7 @@ class NestedAliased:  # Forbidden as all field names must be unique
 @pytest.mark.parametrize(
     ('argv', 'expected'),
     [
-        (['value'], Arg('value')),
+        (['value'], Positional('value')),
         ([], List_([])),
         (['a'], List_(['a'])),
         (['a', 'b'], List_(['a', 'b'])),
@@ -98,12 +103,13 @@ def test_good_class(argv: list[str], expected: Any):
 @pytest.mark.parametrize(
     ('cls', 'exc_type'),
     [
-        (Arg, SystemExit),
+        (Positional, SystemExit),
         (BadBoolean, ValueError),
-        (UnsupportedSet, ValueError),
-        (UntypedList, ValueError),
+        (UnsupportedTuple, TypeError),
+        (UnsupportedSet, TypeError),
+        (UntypedList, TypeError),
         (Nested, SystemExit),
-        (NestedArg, ValueError),
+        (NestedPositional, ValueError),
         (NestedAliased, ValueError),
     ],
 )
@@ -116,15 +122,15 @@ def _no_op():
     return ()
 
 
-def _arg(a: int):
+def _positional(a: int):
     return a
 
 
-def _kwarg(a: int = 4):
+def _keyword(a: int = 4):
     return a
 
 
-def _kwarg_opt(a: int = None):  # type: ignore[assignment]  # noqa: RUF013
+def _kw_nullable(a: int = None):  # type: ignore[assignment]  # noqa: RUF013
     return a
 
 
@@ -140,7 +146,7 @@ def _kwarg_list(a: list[int] = []):  # noqa: B006
     return a
 
 
-def _kwarg_opt_list(a: list[int] | None = None):  # type: ignore[assignment]
+def _kwarg_opt_list(a: list[int] | None = None):
     return a
 
 
@@ -152,11 +158,11 @@ def _arg_kwarg(a: int, b: str = 'hello'):
     ('argv', 'func', 'expected'),
     [
         ([], _no_op, ()),
-        (['42'], _arg, 42),
-        ([], _kwarg, 4),
-        (['--a', '58'], _kwarg, 58),
-        ([], _kwarg_opt, None),
-        (['--a', '73'], _kwarg_opt, 73),
+        (['42'], _positional, 42),
+        ([], _keyword, 4),
+        (['--a', '58'], _keyword, 58),
+        ([], _kw_nullable, None),
+        (['--a', '73'], _kw_nullable, 73),
         ([], _kwarg_literal, 1),
         (['--a', '2'], _kwarg_literal, 2),
         ([], _kwarg_bool, False),

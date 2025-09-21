@@ -43,16 +43,25 @@ Reasons not to use alternatives:
 __all__ = ['arg', 'parse_args']
 
 import argparse
+import importlib
+import sys
 import types
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import MISSING, Field, field, fields, is_dataclass
 from inspect import getmodule, signature, stack
-from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Any,
+    Literal,
+    Required,
+    TypedDict,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 type _Node = str | tuple[str, type, list['_Node']]
-_NoneType = type(None)
-_UNION_TYPES: list = [Union, types.UnionType]
 
 
 def arg(
@@ -84,41 +93,46 @@ def arg(
     )
 
 
-def _unwrap_type(tp: type) -> tuple[type, dict[str, Any]]:
-    if tp is list:
-        msg = 'Type list should be parametrized'
-        raise ValueError(msg)
+class _Opts(TypedDict, total=False):
+    type: Required[Callable]
+    nargs: str
+    choices: Iterable
 
+
+def _unwrap_type(tp: type) -> tuple[type, _Opts]:
     origin = get_origin(tp)
-    args = [*get_args(tp)]
+    args = get_args(tp)
     if not origin or not args:  # Not a generic type
         return tp, {'type': tp}
 
     if origin is list:  # `List[T]`
         cls, opts = _unwrap_type(args[0])
-        return cls, opts | {'nargs': argparse.ZERO_OR_MORE}
+        return cls, {**opts, 'nargs': argparse.ZERO_OR_MORE}
 
-    # `Optional[T]` or `T | None`
-    if origin in _UNION_TYPES and len(args) == 2 and _NoneType in args:
-        args.remove(_NoneType)
-        cls, opts = _unwrap_type(args[0])
+    if (  # `Optional[T]` or `T | None`
+        origin in {Union, types.UnionType}
+        and len(args) == 2
+        and types.NoneType in args
+    ):
+        [tp_] = set(args) - {types.NoneType}
+        cls, opts = _unwrap_type(tp_)
         if opts.get('nargs') == argparse.ZERO_OR_MORE:
             return cls, opts
-        return cls, opts | {'nargs': argparse.OPTIONAL}
+        return cls, {**opts, 'nargs': argparse.OPTIONAL}
 
     if origin is Literal:  # `Literal[x, y]`
         choices = get_args(tp)
         if len(tps := {type(c) for c in choices}) != 1:
             msg = f'Literal parameters should have the same type. Got: {tps}'
-            raise ValueError(msg)
-        (cls,) = tps
+            raise TypeError(msg)
+        [cls] = tps
         return cls, {'type': cls, 'choices': choices}
 
     msg = (
         'Only list, Optional and Literal are supported as generic types. '
         f'Got: {tp}'
     )
-    raise ValueError(msg)
+    raise TypeError(msg)
 
 
 def _get_fields(fn: Callable) -> Iterator[Field]:
@@ -132,7 +146,7 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
             raise ValueError(msg)
         if p.kind in {p.POSITIONAL_ONLY, p.VAR_POSITIONAL, p.VAR_KEYWORD}:
             msg = f'Unsupported parameter type: {p.kind}'
-            raise ValueError(msg)
+            raise TypeError(msg)
 
         if isinstance(p.default, Field):
             fd = p.default
@@ -192,6 +206,13 @@ def _visit_field(
         arg_group = parser.add_argument_group(fd.name)
         return fd.name, cls, _visit_nested(arg_group, cls, seen)
 
+    if (vtp := opts['type']) not in {int, float, str, bool}:
+        msg = (
+            'Only bool, int, float and str are supported as value types. '
+            f'Got: {vtp}'
+        )
+        raise TypeError(msg)
+
     snake = fd.name.replace('_', '-')
     flags = [f] if (f := fd.metadata.get('flag')) else []
 
@@ -236,7 +257,7 @@ def _visit_field(
 
 
 def _construct[T](
-    src: dict[str, Any], fn: Callable[..., T], args: Collection[_Node]
+    src: dict[str, Any], fn: Callable[..., T], args: Iterable[_Node]
 ) -> T:
     kwargs = {}
     for a in args:
@@ -249,17 +270,55 @@ def _construct[T](
 
 def parse_args[T](
     fn: Callable[..., T],
+    /,
     args: Sequence[str] | None = None,
     prog: str | None = None,
 ) -> tuple[T, ArgumentParser]:
     """Create parser from type hints of callable, parse args and do call."""
     # TODO: Rename to `run`
+    if not callable(fn):
+        raise TypeError(f'Expectet callable. Got: {type(fn).__qualname__}')
+
     parser = ArgumentParser(prog)
     nodes = _visit_nested(parser, fn, {})
 
-    if args is not None:  # fool's protection
-        args = line.split(' ') if (line := ' '.join(args).strip()) else []
+    assert args is None or (
+        isinstance(args, Sequence) and not isinstance(args, str)
+    )
 
     namespace = parser.parse_args(args)
     obj = _construct(vars(namespace), fn, nodes)
     return obj, parser
+
+
+def _import_from_string(qualname: str):
+    modname, _, attrname = qualname.partition(":")
+    if not modname or not attrname:
+        msg = (
+            f'Import string "{qualname}" must be '
+            'in format "<module>:<attribute>".'
+        )
+        raise ImportError(msg)
+
+    try:
+        mod = importlib.import_module(modname)
+    except ModuleNotFoundError as exc:
+        if exc.name != modname:
+            raise
+        msg = f'Could not import module "{modname}".'
+        raise ImportError(msg) from None
+
+    obj: Any = mod
+    try:
+        for a in attrname.split('.'):
+            obj = getattr(obj, a)
+    except AttributeError:
+        msg = f'Attribute "{attrname}" not found in module "{modname}".'
+        raise AttributeError(msg)
+    return obj
+
+
+if __name__ == '__main__':
+    qualname, *argv = sys.argv
+    obj = _import_from_string(qualname)
+    parse_args(obj, argv)
