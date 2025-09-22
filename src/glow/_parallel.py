@@ -16,7 +16,6 @@ import warnings
 import weakref
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sized
 from concurrent.futures import Executor, Future
-from concurrent.futures import TimeoutError as _TimeoutError
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
@@ -27,7 +26,7 @@ from operator import methodcaller
 from pstats import Stats
 from queue import Empty, SimpleQueue
 from threading import Lock
-from time import perf_counter, sleep
+from time import monotonic, sleep
 from typing import Final, Protocol, Self, cast
 
 import loky
@@ -132,7 +131,7 @@ def _retry_call[T](fn: Callable[..., T], *exc: type[BaseException]) -> T:
 if sys.platform == 'win32':
 
     def _exception[T](f: Future[T], /) -> BaseException | None:
-        return _retry_call(f.exception, _TimeoutError)
+        return _retry_call(f.exception, TimeoutError)
 
 else:
     _exception = Future.exception
@@ -295,43 +294,49 @@ class _AutoSize:
 
     def __init__(self) -> None:
         self.lock = Lock()
+        assert self.MIN_DURATION * 2 < self.MAX_DURATION, 'Range is too tight'
 
     def suggest(self) -> int:
         with self.lock:
-            if 0 < self.duration < self.MIN_DURATION:
-                self.size *= 2
-                self.duration = 0.0
-                _LOGGER.debug('Doubling batch size to %d', self.size)
-
-            elif self.duration > self.MAX_DURATION:
-                size = int(2 * self.size * self.MIN_DURATION / self.duration)
-                size = max(size, 1)
-                if self.size != size:
-                    self.duration = 0.0
-                    self.size = size
-                    _LOGGER.debug('Reducing batch size to %d', self.size)
-
             return self.size
 
-    def update(self, start_time: float, fut: Future[Sized]) -> None:
+    def update(self, n: int, start_time: float, fut: Future[Sized]) -> None:
         # Compute as soon as future became done, discard later if not needed
-        duration = perf_counter() - start_time
+        duration = monotonic() - start_time
 
-        try:
-            # Cannot time out, as future is always completed at this point.
-            # Though it's unknown whether it succeeded or not, so use EAFP
-            r = fut.result()
-        except BaseException:  # noqa: BLE001
+        if fut.cancelled():  # Job never run, zero load
             return
 
         with self.lock:
-            if len(r) != self.size:
+            if n != self.size:  # Ran with old size
                 return
+
+            # Do EMA smoothing
             self.duration = (
                 (0.8 * self.duration + 0.2 * duration)
                 if self.duration > 0
                 else duration
             )
+            if self.duration <= 0:  # Smh not initialized yet
+                return  # Or duration is less then `monotonic()` precision
+
+            if self.duration < self.MIN_DURATION:  # Too high IPC overhead
+                size = self.size * 2
+                _LOGGER.debug('Doubling batch size to %d', size)
+
+            elif (
+                self.duration <= self.MAX_DURATION  # Range is optimal
+                or self.size == 1  # Cannot reduce already minimal batch
+            ):
+                return
+
+            else:  # Too high latency
+                size = int(2 * self.size * self.MIN_DURATION / self.duration)
+                size = max(size, 1)
+                _LOGGER.debug('Reducing batch size to %d', size)
+
+            self.size = size
+            self.duration = 0.0
 
 
 # ---------------------- map iterable through function ----------------------
@@ -352,8 +357,9 @@ def _schedule_auto[F: Future](
     size = _AutoSize()
     while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
         chunksize = len(tuples) // max_workers or 1
-        for f in starmap(make_future, chunked(tuples, chunksize)):
-            f.add_done_callback(partial(size.update, perf_counter()))
+        for args in chunked(tuples, chunksize):
+            f = make_future(*args)
+            f.add_done_callback(partial(size.update, len(args), monotonic()))
             yield f
 
 
@@ -364,7 +370,7 @@ def _schedule_auto_v2[F: Future](
     size = _AutoSize()
     while args := [*islice(args_zip, size.suggest())]:
         f = make_future(*args)
-        f.add_done_callback(partial(size.update, perf_counter()))
+        f.add_done_callback(partial(size.update, len(args), monotonic()))
         yield f
 
 
