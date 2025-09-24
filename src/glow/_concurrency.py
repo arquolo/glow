@@ -8,8 +8,8 @@ __all__ = [
 
 import sys
 import threading
-from collections.abc import Callable, Iterable, Sequence
-from concurrent.futures import CancelledError, Future, wait
+from collections.abc import Callable, Sequence
+from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
@@ -19,7 +19,8 @@ from warnings import warn
 
 from ._cache import memoize
 from ._dev import hide_frame
-from ._types import AnyFuture, BatchDecorator, BatchFn, Some
+from ._futures import dispatch, gather_fs
+from ._types import BatchDecorator, BatchFn
 
 _PATIENCE = 0.01
 
@@ -114,37 +115,6 @@ def _fetch_batch[T](
     return batch
 
 
-def _batch_invoke[T, R](
-    func: BatchFn[T, R], batch: Sequence[_Job[T, R]]
-) -> None:
-    batch = [(x, f) for x, f in batch if f.set_running_or_notify_cancel()]
-    if not batch:
-        return
-
-    obj: Some[Sequence[R]] | BaseException
-    try:
-        with hide_frame:
-            obj = Some(func([x for x, _ in batch]))
-            if not isinstance(obj.x, Sequence):
-                obj = TypeError(
-                    f'Call returned non-sequence. Got {type(obj.x).__name__}'
-                )
-            elif len(obj.x) != len(batch):
-                obj = RuntimeError(
-                    f'Call with {len(batch)} arguments '
-                    f'incorrectly returned {len(obj.x)} results'
-                )
-    except BaseException as exc:  # noqa: BLE001
-        obj = exc
-
-    if isinstance(obj, Some):
-        for (_, f), r in zip(batch, obj.x):
-            f.set_result(r)
-    else:
-        for _, f in batch:
-            f.set_exception(obj)
-
-
 def _start_fetch_compute[T, R](
     func: BatchFn[T, R],
     workers: int,
@@ -162,8 +132,10 @@ def _start_fetch_compute[T, R](
             # TODO: implement above
             with lock:  # Ensurance that none worker steals tasks from other
                 batch = _fetch_batch(q, batch_size, timeout)
-            if batch:
-                _batch_invoke(func, batch)
+            if batch := [
+                (x, f) for x, f in batch if f.set_running_or_notify_cancel()
+            ]:
+                dispatch(func, *batch)
             else:
                 sleep(0.001)
 
@@ -217,7 +189,7 @@ def streaming[T, R](
     q = _start_fetch_compute(func, workers, batch_size, timeout)
 
     def wrapper(items: Sequence[T]) -> Sequence[R]:
-        fs = {Future(): item for item in items}  # type: ignore[var-annotated]
+        fs = {Future[R](): item for item in items}
         try:
             for f, x in fs.items():
                 q.put((x, f))  # Schedule task
@@ -232,37 +204,14 @@ def streaming[T, R](
             raise TimeoutError
 
         # Cannot time out - all are done
-        if isinstance(obj := _gather(fs), BaseException):
-            with hide_frame:
-                raise obj
-        return obj
+        rs, err = gather_fs(enumerate(fs))
+        if err is None:
+            return list(rs.values())
+        with hide_frame:
+            raise err
 
     # TODO: if func is instance method - recreate wrapper per instance
     # TODO: find how to distinguish between
     # TODO:  not yet bound method and plain function
     # TODO:  maybe implement __get__ on wrapper
     return update_wrapper(wrapper, func)
-
-
-def _gather[R](fs: Iterable[AnyFuture[R]]) -> list[R] | BaseException:
-    cancel: CancelledError | None = None
-    errors: dict[BaseException, None] = {}
-    results: list[R] = []
-    for f in fs:
-        if f.cancelled():
-            cancel = CancelledError()
-        elif exc := f.exception():
-            errors[exc] = None
-        else:
-            results.append(f.result())
-
-    match list(errors):
-        case []:
-            return cancel or results
-        case [err]:
-            return err
-        case errs:
-            msg = 'Got multiple exceptions'
-            if all(isinstance(e, Exception) for e in errs):
-                return ExceptionGroup(msg, errs)  # type: ignore[type-var]
-            return BaseExceptionGroup(msg, errs)

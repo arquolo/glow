@@ -13,7 +13,7 @@ from collections.abc import (
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, overload
 
-type KeyFn = Callable[..., Hashable]
+type KeyFn[H: Hashable] = Callable[..., H]
 
 type Coro[T] = Coroutine[Any, Any, T]
 type AnyIterable[T] = AsyncIterable[T] | Iterable[T]
@@ -23,6 +23,7 @@ type BatchFn[T, R] = Callable[[Sequence[T]], Sequence[R]]
 type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[Sequence[R]]]
 
 type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
+type Job[T, R] = tuple[T, AnyFuture[R]]
 
 type Get[T] = Callable[[], T]
 type Callback[T] = Callable[[T], object]
