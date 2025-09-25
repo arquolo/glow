@@ -2,6 +2,8 @@ from argparse import ArgumentParser
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, overload
 
+from ._types import Get
+
 @overload
 def arg[T](
     default: T,
@@ -18,7 +20,7 @@ def arg[T](
 @overload
 def arg[T](
     *,
-    factory: Callable[[], T],
+    factory: Get[T],
     flag: str = ...,
     init: bool = ...,
     repr: bool = ...,

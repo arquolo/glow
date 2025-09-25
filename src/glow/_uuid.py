@@ -7,6 +7,11 @@ from functools import lru_cache
 from typing import Self, SupportsInt
 from uuid import UUID, uuid4
 
+try:
+    from pydantic_core import core_schema
+except ImportError:
+    core_schema = None  # type: ignore[assignment]
+
 ALPHABET = string.digits + string.ascii_letters
 ALPHABET = ''.join(sorted({*ALPHABET} - {*'0O1Il'}))
 
@@ -84,7 +89,8 @@ class Uid(UUID):
 
     @classmethod  # Pydantic 2.x requirement
     def __get_pydantic_core_schema__(cls, _, handler):
-        from pydantic_core import core_schema
+        if core_schema is None:
+            raise ImportError('Cannot import `pydantic_core` module')
 
         return core_schema.no_info_after_validator_function(
             cls,

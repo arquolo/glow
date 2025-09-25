@@ -21,20 +21,19 @@ from typing import Any, Final, Protocol, SupportsInt, cast
 from weakref import WeakValueDictionary
 
 from ._dev import clone_exc, hide_frame
-from ._futures import adispatch, dispatch, gather_fs
-from ._keys import make_key
-from ._repr import si_bin
-from ._sizeof import sizeof
-from ._types import (
+from ._futures import (
     ABatchFn,
     AnyFuture,
     BatchFn,
-    CachePolicy,
-    Decorator,
     Job,
-    KeyFn,
-    Some,
+    adispatch,
+    dispatch,
+    gather_fs,
 )
+from ._keys import make_key
+from ._repr import si_bin
+from ._sizeof import sizeof
+from ._types import CachePolicy, Decorator, KeyFn, Some
 
 
 class _Empty(enum.Enum):

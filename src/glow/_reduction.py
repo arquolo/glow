@@ -16,6 +16,7 @@ from pathlib import Path
 import loky
 
 from ._import_hook import when_imported
+from ._types import Callback
 
 _SYSTEM_SHM_MIN_SIZE = int(2e9)
 _SYSTEM_SHM = Path('/dev/shm')
@@ -109,7 +110,7 @@ def _torch_hook(torch) -> None:
 
 def _dumps(
     obj: object,
-    callback: Callable[[pickle.PickleBuffer], object] | None = None,
+    callback: Callback[pickle.PickleBuffer] | None = None,
 ) -> bytes:
     fp = io.BytesIO()
     p = pickle.Pickler(fp, -1, buffer_callback=callback)

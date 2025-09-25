@@ -1,16 +1,17 @@
 __all__ = ['Stream', 'cumsum', 'maximum_cumsum']
 
 from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import accumulate
+
+from ._types import Callback, Get
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class Stream[Y, S]:
     init: S
-    push: Callable[[S], None]
-    pop: Callable[[], Y]
+    push: Callback[S]
+    pop: Get[Y]
 
     def send(self, value: S) -> Y:
         self.push(value)

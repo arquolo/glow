@@ -292,7 +292,7 @@ def parse_args[T](
 
 
 def _import_from_string(qualname: str):
-    modname, _, attrname = qualname.partition(":")
+    modname, _, attrname = qualname.partition(':')
     if not modname or not attrname:
         msg = (
             f'Import string "{qualname}" must be '
@@ -300,13 +300,7 @@ def _import_from_string(qualname: str):
         )
         raise ImportError(msg)
 
-    try:
-        mod = importlib.import_module(modname)
-    except ModuleNotFoundError as exc:
-        if exc.name != modname:
-            raise
-        msg = f'Could not import module "{modname}".'
-        raise ImportError(msg) from None
+    mod = importlib.import_module(modname)
 
     obj: Any = mod
     try:
@@ -314,7 +308,7 @@ def _import_from_string(qualname: str):
             obj = getattr(obj, a)
     except AttributeError:
         msg = f'Attribute "{attrname}" not found in module "{modname}".'
-        raise AttributeError(msg)
+        raise AttributeError(msg) from None
     return obj
 
 

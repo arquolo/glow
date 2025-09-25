@@ -40,7 +40,7 @@ from ._dev import hide_frame
 from ._more import chunked, ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
-from ._types import Some
+from ._types import Get, Some
 
 _TOTAL_CPUS = (
     os.process_cpu_count() if sys.version_info >= (3, 13) else os.cpu_count()
@@ -115,12 +115,16 @@ def max_cpu_count(upper_bound: int = sys.maxsize, *, mp: bool = False) -> int:
 _PATIENCE = 0.01
 
 
-def _retry_call[T](fn: Callable[..., T], *exc: type[BaseException]) -> T:
+class _TimeoutCallable[T](Protocol):
+    def __call__(self, *, timeout: float) -> T: ...
+
+
+def _retry_call[T](fn: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
     # See issues
-    # https://bugs.python.org/issue29971
-    # https://github.com/python/cpython/issues/74157
     # https://github.com/dask/dask/pull/2144#issuecomment-290556996
     # https://github.com/dask/dask/pull/2144/files
+    # https://github.com/python/cpython/issues/74157
+    # FIXED in py3.15+
     while True:
         try:
             return fn(timeout=_PATIENCE)
@@ -146,7 +150,7 @@ def _result[T](f: Future[T], cancel: bool = True) -> Some[T] | BaseException:
         del f
 
 
-def _q_get_fn[T](q: _Queue[T]) -> Callable[[], T]:
+def _q_get_fn[T](q: _Queue[T]) -> Get[T]:
     if sys.platform != 'win32':
         return q.get
     return partial(_retry_call, q.get, Empty)
@@ -377,7 +381,7 @@ def _schedule_auto_v2[F: Future](
 def _get_unwrap_iter[T](
     s: ExitStack,
     qsize: int,
-    get_done_f: Callable[[], Future[T]],
+    get_done_f: Get[Future[T]],
     fs_scheduler: Iterator,
 ) -> Iterator[T]:
     with s:

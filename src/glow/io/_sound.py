@@ -13,27 +13,39 @@ from tqdm.auto import tqdm
 
 from .. import chunked
 
+try:
+    from sounddevice import CallbackAbort, CallbackStop, OutputStream
+except ImportError:
+    OutputStream = None
+    CallbackAbort = CallbackStop = Exception
+
+try:
+    import soundfile
+except ImportError:
+    soundfile = None
+
 
 def _play(
     arr: np.ndarray, rate: int, blocksize: int = 1024, bufsize: int = 20
 ) -> None:
     """Play audio from array. Crtl-C to interrupt."""
-    import sounddevice as sd
+    if OutputStream is None:
+        raise ImportError('Cannot import `sounddevice` module')
 
     q: Queue[np.ndarray | None] = Queue(bufsize)
     ev = Event()
 
     def callback(out: np.ndarray, *_) -> None:
         if (data := q.get()) is None:
-            raise sd.CallbackAbort
+            raise CallbackAbort
 
         size = len(data)
         out[:size] = data
         if size < len(out):
             out[size:] = 0
-            raise sd.CallbackStop
+            raise CallbackStop
 
-    stream = sd.OutputStream(
+    stream = OutputStream(
         rate, blocksize, callback=callback, finished_callback=ev.set
     )
 
@@ -127,16 +139,16 @@ class Sound[S: np.number]:
 
     @classmethod
     def load(cls, path: Path | str) -> 'Sound':
+        if soundfile is None:
+            raise ImportError('Cannot import `soundfile` module')
         _check_fmt(path)
-        import soundfile
-
         data, rate = soundfile.read(path)
         return cls(data.astype('f'), rate)
 
     def save(self, path: Path | str) -> None:
+        if soundfile is None:
+            raise ImportError('Cannot import `soundfile` module')
         _check_fmt(path)
-        import soundfile
-
         soundfile.write(path, self.data, self.rate)
 
 

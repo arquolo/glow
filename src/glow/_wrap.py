@@ -6,6 +6,8 @@ from typing import Any, Protocol, Self
 
 from wrapt import ObjectProxy
 
+from ._types import Get
+
 
 def wrap[**P, R](func: Callable[P, R], wrapper: '_Wrapper') -> Callable[P, R]:
     return _Callable(func, wrapper)
@@ -23,7 +25,7 @@ class _Wrapper(Protocol):
     #   ...
     #   resume()
     #   fn(*args, **kwargs)
-    def suspend(self) -> Callable[[], None]: ...
+    def suspend(self) -> Get[None]: ...
 
     # This one start right before function was called,
     # and stops right after it returned.

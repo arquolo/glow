@@ -19,15 +19,15 @@ from warnings import warn
 
 from ._cache import memoize
 from ._dev import hide_frame
-from ._futures import dispatch, gather_fs
-from ._types import BatchDecorator, BatchFn
+from ._futures import BatchDecorator, BatchFn, Job, dispatch, gather_fs
+from ._types import Get
 
 _PATIENCE = 0.01
 
 
-def threadlocal[T](
-    fn: Callable[..., T], /, *args: object, **kwargs: object
-) -> Callable[[], T]:
+def threadlocal[**P, T](
+    fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+) -> Get[T]:
     """Create thread-local singleton factory function (functools.partial)."""
     local_ = threading.local()
 
@@ -41,7 +41,7 @@ def threadlocal[T](
     return update_wrapper(wrapper, fn)
 
 
-def call_once[T](fn: Callable[[], T], /) -> Callable[[], T]:
+def call_once[T](fn: Get[T], /) -> Get[T]:
     """Make callable a singleton.
 
     Supports async-def functions (but not async-gen functions).
@@ -81,8 +81,6 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 # ----------------------------- batch collation ------------------------------
 
-type _Job[T, R] = tuple[T, Future[R]]
-
 
 def _fetch_batch[T](
     q: SimpleQueue[T], batch_size: int | None, timeout: float
@@ -120,7 +118,7 @@ def _start_fetch_compute[T, R](
     workers: int,
     batch_size: int | None,
     timeout: float,
-) -> SimpleQueue[_Job[T, R]]:
+) -> SimpleQueue[Job[T, R]]:
     q = SimpleQueue()  # type: ignore[var-annotated]
     lock = Lock()
 

@@ -7,11 +7,11 @@ from importlib.machinery import ModuleSpec
 from threading import RLock
 from types import ModuleType
 
-type _Hook = Callable[[ModuleType], object]
+from ._types import Callback
 
 _INITIALIZED = False
 _LOCK = RLock()
-_HOOKS: dict[str, list[_Hook]] = {}
+_HOOKS: dict[str, list[Callback[ModuleType]]] = {}
 
 
 class _ImportHookChainedLoader(abc.Loader):
@@ -71,7 +71,7 @@ class _ImportHookFinder(abc.MetaPathFinder, set[str]):
         return None
 
 
-def register_post_import_hook(hook: _Hook, name: str) -> None:
+def register_post_import_hook(hook: Callback[ModuleType], name: str) -> None:
     """Register a new post import hook for the target module name.
 
     This will result in a proxy callback being registered which will defer
@@ -92,7 +92,7 @@ def register_post_import_hook(hook: _Hook, name: str) -> None:
             hook(module)
 
 
-def when_imported[H: _Hook](name: str) -> Callable[[H], H]:
+def when_imported[H: Callback[ModuleType]](name: str) -> Callable[[H], H]:
     """Create decorator making a function a post import hook for a module.
 
     Simplified version of wrapt.when_imported.

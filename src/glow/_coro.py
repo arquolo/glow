@@ -29,7 +29,7 @@ class _Sync[Y, S, R](wrapt.ObjectProxy):  # type: ignore[misc]
         self._self_lock = Lock()
 
     def _call[**P, T](
-        self, op: Callable[P, T], *args: P.args, **kwargs: P.kwargs
+        self, op: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
     ) -> T:
         with self._self_lock:
             return op(*args, **kwargs)

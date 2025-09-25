@@ -17,17 +17,8 @@ from functools import partial
 from typing import TypeGuard, cast, overload
 
 from ._dev import hide_frame
-from ._futures import adispatch
-from ._types import (
-    ABatchDecorator,
-    ABatchFn,
-    AnyFuture,
-    AnyIterable,
-    AnyIterator,
-    Coro,
-)
-
-type _Job[T, R] = tuple[T, AnyFuture[R]]
+from ._futures import ABatchDecorator, ABatchFn, Job, adispatch
+from ._types import AnyIterable, AnyIterator, Coro
 
 
 async def amap_dict[K, T1, T2](
@@ -263,7 +254,7 @@ def astreaming[T, R](
     assert batch_size is None or batch_size >= 1
     assert timeout > 0
 
-    buf: list[_Job[T, R]] = []
+    buf: list[Job[T, R]] = []
     deadline = float('-inf')
     not_last = asyncio.Event()
     lock = asyncio.Lock()

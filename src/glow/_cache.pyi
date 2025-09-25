@@ -1,6 +1,7 @@
 from typing import Literal, overload
 
-from ._types import AnyBatchDecorator, CachePolicy, Decorator, KeyFn
+from ._futures import AnyBatchDecorator
+from ._types import CachePolicy, Decorator, KeyFn
 
 def cache_status() -> str: ...
 

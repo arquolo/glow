@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, Required, TypedDict, Unpack, overload
 
-from ._types import ABatchDecorator, ABatchFn, AnyIterable, Coro
+from ._futures import ABatchDecorator, ABatchFn
+from ._types import AnyIterable, Coro
 
 class _AmapKwargs(TypedDict, total=False):
     limit: Required[int]

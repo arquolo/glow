@@ -3,12 +3,11 @@ __all__ = ['lock_seed', 'trace', 'trace_module', 'whereami']
 import gc
 import os
 import random
-import types
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from inspect import currentframe, getmodule, isfunction
 from itertools import islice
-from types import FrameType
+from types import FrameType, ModuleType
 
 import numpy as np
 import wrapt
@@ -74,12 +73,19 @@ def trace(fn, _, args, kwargs):
     return fn(*args, **kwargs)
 
 
-def _set_trace(obj, seen=None, prefix=None, module=None):
+def _set_trace(
+    obj: ModuleType | Callable,
+    *,
+    seen: set[str] | None = None,
+    prefix: str | None = None,
+    module: ModuleType | None = None,
+) -> None:
     # TODO: rewrite using unittest.mock
-    if isinstance(obj, types.ModuleType):
+    if isinstance(obj, ModuleType):
         if seen is None:
             seen = set()
             prefix = obj.__name__
+        assert isinstance(prefix, str)
         if not obj.__name__.startswith(prefix) or obj.__name__ in seen:
             return
         seen.add(obj.__name__)
@@ -91,6 +97,7 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
     if not callable(obj):
         return
 
+    assert isinstance(module, ModuleType)
     if not hasattr(obj, '__dict__'):
         setattr(module, obj.__qualname__, trace(obj))
         print(f'wraps "{module.__name__}:{obj.__qualname__}"')
@@ -113,7 +120,7 @@ def _set_trace(obj, seen=None, prefix=None, module=None):
             print(f'wraps "{module.__name__}:{obj.__qualname__}.{name}"')
 
 
-def trace_module(name):
+def trace_module(name: str) -> None:
     """Enable call logging for each callable inside module name."""
     register_post_import_hook(_set_trace, name)
 

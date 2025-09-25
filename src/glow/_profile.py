@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from ._debug import whereami
 from ._repr import si, si_bin
 from ._streams import Stream, cumsum, maximum_cumsum
+from ._types import Callback, Get
+
 from ._wrap import wrap
 
 if TYPE_CHECKING:
@@ -25,7 +27,7 @@ _THIS = None
 
 @contextmanager
 def memprof(
-    name_or_callback: str | Callable[[float], object] | None = None, /
+    name_or_callback: str | Callback[float] | None = None, /
 ) -> Iterator[None]:
     global _THIS  # noqa: PLW0603
     if _THIS is None:
@@ -50,9 +52,7 @@ def memprof(
 
 @contextmanager
 def _timer_callback(
-    callback: Callable[[int], object],
-    time: Callable[[], int] = perf_counter_ns,
-    /,
+    callback: Callback[int], time: Get[int] = perf_counter_ns, /
 ) -> Iterator[None]:
     begin = time()
     try:
@@ -63,7 +63,7 @@ def _timer_callback(
 
 @contextmanager
 def _timer_print(
-    name: str | None = None, time: Callable[[], int] = perf_counter_ns, /
+    name: str | None = None, time: Get[int] = perf_counter_ns, /
 ) -> Iterator[None]:
     begin = time()
     try:
@@ -75,8 +75,8 @@ def _timer_print(
 
 
 def timer(
-    name_or_callback: str | Callable[[int], object] | None = None,
-    time: Callable[[], int] = perf_counter_ns,
+    name_or_callback: str | Callback[int] | None = None,
+    time: Get[int] = perf_counter_ns,
     /,
     *,
     disable: bool = False,
@@ -109,7 +109,7 @@ class _Profiler:
     # Idle time - elapsed I/O time (like time.sleep, lock.acquire, e.t.c.).
     idle_ns: Stream[int, int] = field(default_factory=cumsum)
 
-    def suspend(self) -> Callable[[], None]:
+    def suspend(self) -> Get[None]:
         self.idle_ns.send(-perf_counter_ns())
         return self.resume
 
