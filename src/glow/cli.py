@@ -206,9 +206,14 @@ def _visit_field(
         arg_group = parser.add_argument_group(fd.name)
         return fd.name, cls, _visit_nested(arg_group, cls, seen)
 
-    if (vtp := opts['type']) not in {int, float, str, bool}:
+    vtp = opts['type']
+    if (
+        isinstance(vtp, type)
+        and issubclass(vtp, Iterable)
+        and not issubclass(vtp, str)
+    ):
         msg = (
-            'Only bool, int, float and str are supported as value types. '
+            'Iterable value types are supported only as generics. '
             f'Got: {vtp}'
         )
         raise TypeError(msg)

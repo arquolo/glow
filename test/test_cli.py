@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import pytest
@@ -75,6 +76,11 @@ class NestedAliased:  # Forbidden as all field names must be unique
     nested: Aliased
 
 
+@dataclass
+class Custom:
+    arg: Path
+
+
 @pytest.mark.parametrize(
     ('argv', 'expected'),
     [
@@ -91,6 +97,7 @@ class NestedAliased:  # Forbidden as all field names must be unique
         (['--param', 'world'], Optional_('world')),
         (['value'], Nested('value', Optional_())),
         (['value', '--param', 'pvalue'], Nested('value', Optional_('pvalue'))),
+        (['test.txt'], Custom(Path('test.txt'))),
     ],
 )
 def test_good_class(argv: list[str], expected: Any):
