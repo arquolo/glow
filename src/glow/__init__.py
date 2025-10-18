@@ -17,6 +17,7 @@ from ._concurrency import (
 )
 from ._coro import as_actor, coroutine, summary
 from ._debug import lock_seed, trace, trace_module, whereami
+from ._dev import hide_frame
 from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru
 from ._more import (
@@ -91,6 +92,7 @@ __all__ = [
     'eat',
     'get_executor',
     'groupby',
+    'hide_frame',
     'ic',
     'ic_repr',
     'ichunked',
