@@ -1,7 +1,7 @@
-__all__ = ['amap', 'amap_dict', 'astarmap', 'azip']
+__all__ = ['RwLock', 'amap', 'amap_dict', 'astarmap', 'azip']
 
 import asyncio
-from asyncio import Queue, Task
+from asyncio import Event, Future, Lock, Queue, Task, TaskGroup
 from collections import deque
 from collections.abc import (
     AsyncIterator,
@@ -12,7 +12,7 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from functools import partial
 from typing import TypeGuard, cast, overload
 
@@ -84,7 +84,7 @@ async def astarmap[*Ts, R](
                 yield await func(*args)
         return
 
-    async with asyncio.TaskGroup() as tg:
+    async with TaskGroup() as tg:
         ts = (
             (tg.create_task(func(*args)) for args in iterable)
             if isinstance(iterable, Iterable)
@@ -256,8 +256,8 @@ def astreaming[T, R](
 
     buf: list[Job[T, R]] = []
     deadline = float('-inf')
-    not_last = asyncio.Event()
-    lock = asyncio.Lock()
+    not_last = Event()
+    lock = Lock()
     ncalls = 0
 
     async def wrapper(items: Sequence[T]) -> list[R]:
@@ -270,10 +270,10 @@ def astreaming[T, R](
             not_last.set()
 
         ncalls += 1
-        fs: list[asyncio.Future[R]] = []
+        fs: list[Future[R]] = []
         try:
             for x in items:
-                f = asyncio.Future[R]()
+                f = Future[R]()
                 fs.append(f)
                 buf.append((x, f))
 
@@ -305,3 +305,45 @@ def astreaming[T, R](
             return await asyncio.gather(*fs)
 
     return wrapper
+
+
+# ----------------------------- read/write guard -----------------------------
+
+
+class RwLock:
+    """Guard code from concurrent writes.
+
+    Reads are not limited.
+    When write is issued, new reads are delayed until write is finished.
+    """
+
+    def __init__(self) -> None:
+        self._num_reads = 0
+        self._readable = Event()
+        self._readable.set()
+        self._writable = Event()
+        self._writable.set()
+
+    @asynccontextmanager
+    async def read(self) -> AsyncIterator[None]:
+        await self._readable.wait()
+        self._writable.clear()
+        try:
+            yield
+        finally:
+            self._num_reads -= 1
+            if self._num_reads == 0:
+                self._writable.set()
+
+    @asynccontextmanager
+    async def write(self) -> AsyncIterator[None]:
+        self._readable.clear()  # Stop new READs
+        try:
+            await self._writable.wait()  # Wait for all READs or single WRITE
+            self._writable.clear()  # Only single WRITE is allowed
+            try:
+                yield
+            finally:
+                self._writable.set()
+        finally:
+            self._readable.set()

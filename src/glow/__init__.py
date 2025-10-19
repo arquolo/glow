@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from . import _patch_len, _patch_print, _patch_scipy
 from ._array import aceil, afloor, apack, around, pascal
-from ._async import amap, amap_dict, astarmap, astreaming, azip
+from ._async import RwLock, amap, amap_dict, astarmap, astreaming, azip
 from ._cache import cache_status, memoize
 from ._concurrency import (
     call_once,
@@ -70,6 +70,7 @@ else:
 
 __all__ = [
     'Reusable',
+    'RwLock',
     'Uid',
     'aceil',
     'afloor',

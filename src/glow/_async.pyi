@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Required, TypedDict, Unpack, overload
 
 from ._futures import ABatchDecorator, ABatchFn
@@ -107,3 +108,8 @@ def astreaming[T, R](
     batch_size: int | None = ...,
     timeout: float = ...,
 ) -> ABatchFn[T, R]: ...
+
+class RwLock:
+    def __init__(self) -> None: ...
+    def read(self) -> AbstractAsyncContextManager: ...
+    def write(self) -> AbstractAsyncContextManager: ...
