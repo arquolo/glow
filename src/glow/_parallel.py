@@ -9,6 +9,7 @@ __all__ = [
 
 import atexit
 import enum
+import logging
 import os
 import signal
 import sys
@@ -20,7 +21,6 @@ from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
 from itertools import chain, islice, starmap
-from logging import getLogger
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
@@ -42,6 +42,8 @@ from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
 from ._types import Get, Some
 
+_LOGGER = logging.getLogger(__name__)
+
 _TOTAL_CPUS = (
     os.process_cpu_count() if sys.version_info >= (3, 13) else os.cpu_count()
 )
@@ -50,9 +52,11 @@ _NUM_CPUS = _TOTAL_CPUS or 0
 if (_env_cpus := os.getenv('GLOW_CPUS')) is not None:
     _NUM_CPUS = min(_NUM_CPUS, int(_env_cpus))
     _NUM_CPUS = max(_NUM_CPUS, 0)
+
 _IDLE_WORKER_TIMEOUT = 10
-_GRANULAR_SCHEDULING = False  # TODO: investigate whether this improves load
-_LOGGER = getLogger(__name__)
+# TODO: investigate whether this improves load
+_FAST_GROW = False
+_GRANULAR_SCHEDULING = False
 
 
 class _Empty(enum.Enum):
@@ -79,19 +83,16 @@ class _Manager(Protocol):
     def Queue(self, /, maxsize: int) -> _Queue: ...  # noqa: N802
 
 
-def _get_cpu_count_limits(
-    upper_bound: int = sys.maxsize, *, mp: bool = False
-) -> Iterator[int]:
-    yield from (upper_bound, _TOTAL_CPUS or 1)
-
+def _torch_limit() -> int | None:
     # Windows platform lacks memory overcommit, so it's sensitive to VMS growth
-    if not mp or sys.platform != 'win32' or 'torch' not in sys.modules:
-        return
+    if sys.platform != 'win32':
+        return None
 
-    if (sys.modules['torch'].version.cuda or '') >= '11.7.0':
+    torch = sys.modules.get('torch')
+    if torch is None or (torch.version.cuda or '') >= '11.7.0':
         # It's expected that torch will fix .nv_fatb readonly flag in its DLLs
         # See https://stackoverflow.com/a/69489193/9868257
-        return
+        return None
 
     if psutil is None:
         warnings.warn(
@@ -100,16 +101,24 @@ def _get_cpu_count_limits(
             'Install psutil to avoid that',
             stacklevel=3,
         )
-        return
+        return None
 
-    # Overcommit on Windows is forbidden, thus VMS planning is necessary
+    # Windows has no overcommit, checking how much processes fit into VMS
     vms: int = psutil.Process().memory_info().vms
     free_vms: int = psutil.virtual_memory().free + psutil.swap_memory().free
-    yield free_vms // vms
+    return free_vms // vms
 
 
-def max_cpu_count(upper_bound: int = sys.maxsize, *, mp: bool = False) -> int:
-    return min(_get_cpu_count_limits(upper_bound, mp=mp))
+def max_cpu_count(limit: int | None = None, *, mp: bool = False) -> int:
+    limits = [_TOTAL_CPUS or 1]
+
+    if limit is not None:
+        limits.append(limit)
+
+    if mp and (torch_limit := _torch_limit()) is not None:
+        limits.append(torch_limit)
+
+    return min(limits)
 
 
 _PATIENCE = 0.01
@@ -119,7 +128,7 @@ class _TimeoutCallable[T](Protocol):
     def __call__(self, *, timeout: float) -> T: ...
 
 
-def _retry_call[T](fn: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
+def _retrying[T](f: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
     # See issues
     # https://github.com/dask/dask/pull/2144#issuecomment-290556996
     # https://github.com/dask/dask/pull/2144/files
@@ -127,7 +136,7 @@ def _retry_call[T](fn: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
     # FIXED in py3.15+
     while True:
         try:
-            return fn(timeout=_PATIENCE)
+            return f(timeout=_PATIENCE)
         except exc:
             sleep(0)  # Force switch to another thread to proceed
 
@@ -135,7 +144,7 @@ def _retry_call[T](fn: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
 if sys.platform == 'win32':
 
     def _exception[T](f: Future[T], /) -> BaseException | None:
-        return _retry_call(f.exception, TimeoutError)
+        return _retrying(f.exception, TimeoutError)
 
 else:
     _exception = Future.exception
@@ -153,7 +162,7 @@ def _result[T](f: Future[T], cancel: bool = True) -> Some[T] | BaseException:
 def _q_get_fn[T](q: _Queue[T]) -> Get[T]:
     if sys.platform != 'win32':
         return q.get
-    return partial(_retry_call, q.get, Empty)
+    return partial(_retrying, q.get, Empty)
 
 
 # ---------------------------- pool initialization ----------------------------
@@ -325,8 +334,8 @@ class _AutoSize:
                 return  # Or duration is less then `monotonic()` precision
 
             if self.duration < self.MIN_DURATION:  # Too high IPC overhead
-                size = self.size * 2
-                _LOGGER.debug('Doubling batch size to %d', size)
+                size = self._new_scale() if _FAST_GROW else self.size * 2
+                _LOGGER.debug('Increasing batch size to %d', size)
 
             elif (
                 self.duration <= self.MAX_DURATION  # Range is optimal
@@ -335,25 +344,35 @@ class _AutoSize:
                 return
 
             else:  # Too high latency
-                size = int(2 * self.size * self.MIN_DURATION / self.duration)
-                size = max(size, 1)
+                size = self._new_scale()
                 _LOGGER.debug('Reducing batch size to %d', size)
 
             self.size = size
             self.duration = 0.0
+
+    def _new_scale(self) -> int:
+        factor = 2 * self.MIN_DURATION / self.duration
+        factor = min(factor, 32)
+        size = int(self.size * factor)
+        return max(size, 1)
 
 
 # ---------------------- map iterable through function ----------------------
 
 
 def _schedule[F: Future](
-    make_future: Callable[..., F], args_zip: Iterable[Iterable], chunksize: int
+    submit_chunk: Callable[..., F],
+    args_zip: Iterable[Iterable],
+    chunksize: int,
 ) -> Iterator[F]:
-    return starmap(make_future, chunked(args_zip, chunksize))
+    for chunk in chunked(args_zip, chunksize):
+        f = submit_chunk(*chunk)
+        _LOGGER.debug('Submit %d', len(chunk))
+        yield f
 
 
 def _schedule_auto[F: Future](
-    make_future: Callable[..., F],
+    submit_chunk: Callable[..., F],
     args_zip: Iterator[Iterable],
     max_workers: int,
 ) -> Iterator[F]:
@@ -361,28 +380,30 @@ def _schedule_auto[F: Future](
     size = _AutoSize()
     while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
         chunksize = len(tuples) // max_workers or 1
-        for args in chunked(tuples, chunksize):
-            f = make_future(*args)
-            f.add_done_callback(partial(size.update, len(args), monotonic()))
+        for chunk in chunked(tuples, chunksize):
+            f = submit_chunk(*chunk)
+            _LOGGER.debug('Submit %d', len(chunk))
+            f.add_done_callback(partial(size.update, len(chunk), monotonic()))
             yield f
 
 
 def _schedule_auto_v2[F: Future](
-    make_future: Callable[..., F], args_zip: Iterator[Iterable]
+    submit_chunk: Callable[..., F], args_zip: Iterator[Iterable]
 ) -> Iterator[F]:
     # Vary job size from future to future
     size = _AutoSize()
-    while args := [*islice(args_zip, size.suggest())]:
-        f = make_future(*args)
-        f.add_done_callback(partial(size.update, len(args), monotonic()))
+    while chunk := [*islice(args_zip, size.suggest())]:
+        f = submit_chunk(*chunk)
+        _LOGGER.debug('Submit %d', len(chunk))
+        f.add_done_callback(partial(size.update, len(chunk), monotonic()))
         yield f
 
 
 def _get_unwrap_iter[T](
     s: ExitStack,
     qsize: int,
-    get_done_f: Get[Future[T]],
-    fs_scheduler: Iterator,
+    get_f: Get[Future[T]],
+    sched_iter: Iterator,
 ) -> Iterator[T]:
     with s:
         if not qsize:  # No tasks to do
@@ -390,45 +411,47 @@ def _get_unwrap_iter[T](
 
         # Unwrap 1st / schedule `N-qsize` / unwrap `qsize-1`
         with hide_frame:
-            for _ in chain([None], fs_scheduler, range(qsize - 1)):
+            for _ in chain([None], sched_iter, range(qsize - 1)):
                 # Retrieve done task, exactly `N` calls
-                obj = _result(get_done_f())
+                obj = _result(get_f())
                 if not isinstance(obj, Some):
                     with hide_frame:
                         raise obj
                 yield obj.x
 
 
-def _unwrap[T](
-    s: ExitStack,
+def _enqueue[T](
     fs: Iterable[Future[T]],
-    *,
-    qsize: int | None,
-    order: bool,
-) -> Iterator[T]:
+    unordered: bool,
+) -> tuple[Iterator, Get[Future[T]]]:
     q = SimpleQueue[Future[T]]()
 
-    # If `order`, then `q` has "PENDING"/"RUNNING"/"DONE" tasks,
-    # otherwise it only has "DONE" tasks.
-    # FIXME: order=False -> random freezes (in q.get -> Empty)
+    # In `unordered` mode `q` contains only "DONE" tasks,
+    # else there are also "PENDING" and "RUNNING" tasks.
+    # FIXME: unordered=True -> random freezes (in q.get -> Empty)
     q_put = cast(
         'Callable[[Future[T]], None]',
-        q.put if order else methodcaller('add_done_callback', q.put),
+        methodcaller('add_done_callback', q.put) if unordered else q.put,
     )
+    q_get = _q_get_fn(q)
 
     # On each `next()` schedules new task
-    fs_scheduler = map(q_put, fs)
-    try:
-        # Fetch up to `qsize` tasks to pre-fill `q`
-        qsize = ilen(islice(fs_scheduler, qsize))
+    sched_iter = map(q_put, fs)
 
+    return sched_iter, q_get
+
+
+def _prefetch(s: ExitStack, sched_iter: Iterator, prefetch: int | None) -> int:
+    try:
+        # Fetch up to `prefetch` tasks to pre-fill `q`
+        qsize = ilen(islice(sched_iter, prefetch))
     except BaseException:
         # Unwind stack here on an error
         s.close()
         raise
-
     else:
-        return _get_unwrap_iter(s, qsize, _q_get_fn(q), fs_scheduler)
+        _LOGGER.debug('Prefetched %d jobs', qsize)
+        return qsize
 
 
 def _batch_invoke[*Ts, R](
@@ -477,7 +500,7 @@ def starmap_n[T](
       prefetch=None and order=False, so choose wisely.
     - Setting order to False makes no use of prefetch more than 0.
 
-    TODO: replace `order=True` with `heap=False`
+    TODO: replace `order=True` with `unordered=False`
     """
     if max_workers is None:
         max_workers = max_cpu_count(_NUM_CPUS, mp=mp)
@@ -492,6 +515,8 @@ def starmap_n[T](
     if prefetch is not None:
         prefetch = max(prefetch + max_workers, 1)
 
+    unordered = not order
+
     it = iter(iterable)
     s = ExitStack()
     submit = s.enter_context(get_executor(max_workers, mp=mp)).submit
@@ -502,24 +527,28 @@ def starmap_n[T](
         chunksize = chunksize or 1
 
     if chunksize == 1:
-        submit_one = cast('Callable[..., Future[T]]', partial(submit, func))
-        f1s = starmap(submit_one, it)
-        return _unwrap(s, f1s, qsize=prefetch, order=order)
+        submit_1 = cast('Callable[..., Future[T]]', partial(submit, func))
+        f1s = starmap(submit_1, it)
+        sched1_iter, get_f = _enqueue(f1s, unordered)
+        qsize = _prefetch(s, sched1_iter, prefetch)
+        return _get_unwrap_iter(s, qsize, get_f, sched1_iter)
 
-    submit_many = cast(
+    submit_n = cast(
         'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
     )
     if chunksize is not None:
         # Fixed chunksize
-        fs = _schedule(submit_many, it, chunksize)
+        fs = _schedule(submit_n, it, chunksize)
     elif not _GRANULAR_SCHEDULING:
         # Dynamic chunksize scaling, submit tasks in waves
-        fs = _schedule_auto(submit_many, it, max_workers)
+        fs = _schedule_auto(submit_n, it, max_workers)
     else:
         # Dynamic chunksize scaling
-        fs = _schedule_auto_v2(submit_many, it)
+        fs = _schedule_auto_v2(submit_n, it)
 
-    chunks = _unwrap(s, fs, qsize=prefetch, order=order)
+    sched_iter, get_fs = _enqueue(fs, unordered)
+    qsize = _prefetch(s, sched_iter, prefetch)
+    chunks = _get_unwrap_iter(s, qsize, get_fs, sched_iter)
     return chain.from_iterable(chunks)
 
 

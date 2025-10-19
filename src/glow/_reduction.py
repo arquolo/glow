@@ -2,7 +2,6 @@ __all__ = ['move_to_shmem']
 
 import copyreg
 import io
-import logging
 import mmap
 import os
 import pickle
@@ -24,10 +23,6 @@ _SYSTEM_TEMP = Path(tempfile.gettempdir())
 
 reducers: dict[type, Callable] = {}
 loky.set_loky_pickler('pickle')
-
-logger = logging.getLogger(__name__)
-# logger.setLevel(logging.DEBUG)
-# logger.addHandler(logging.StreamHandler())
 
 
 def _get_shm_dir() -> Path:
