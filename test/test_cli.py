@@ -1,11 +1,11 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import pytest
 
-from glow.cli import parse_args
+from glow.cli import Meta, parse_args
 
 
 @dataclass
@@ -81,6 +81,21 @@ class Custom:
     arg: Path
 
 
+@dataclass
+class AnnotatedPositional:
+    arg: Annotated[int, Meta(help='help')]
+
+
+@dataclass
+class FlagKeyword:
+    param: Annotated[int, Meta(help='help', flag='-p')] = 42
+
+
+@dataclass
+class AnnotatedKeyword:
+    param: Annotated[int, Meta(help='help')] = 42
+
+
 @pytest.mark.parametrize(
     ('argv', 'expected'),
     [
@@ -98,6 +113,10 @@ class Custom:
         (['value'], Nested('value', Optional_())),
         (['value', '--param', 'pvalue'], Nested('value', Optional_('pvalue'))),
         (['test.txt'], Custom(Path('test.txt'))),
+        (['5'], AnnotatedPositional(5)),
+        (['--param', '5'], AnnotatedKeyword(5)),
+        ([], AnnotatedKeyword(42)),
+        (['-p', '42'], FlagKeyword(42)),
     ],
 )
 def test_good_class(argv: list[str], expected: Any):

@@ -48,7 +48,7 @@ import sys
 import types
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import MISSING, Field, field, fields, is_dataclass
+from dataclasses import MISSING, Field, dataclass, field, fields, is_dataclass
 from inspect import getmodule, signature, stack
 from typing import (
     Any,
@@ -61,7 +61,24 @@ from typing import (
     get_type_hints,
 )
 
+from typing_inspection.introspection import (
+    UNKNOWN,
+    AnnotationSource,
+    inspect_annotation,
+)
+
 type _Node = str | tuple[str, type, list['_Node']]
+
+
+@dataclass(kw_only=True)
+class Meta:
+    help: str = ''
+    flag: str | None = None
+
+
+@dataclass(kw_only=True)
+class _Meta(Meta):
+    name: str
 
 
 def arg(
@@ -156,19 +173,36 @@ def _get_fields(fn: Callable) -> Iterator[Field]:
         yield fd
 
 
+def _get_metadata(tp: type, fd: Field) -> tuple[type, _Meta]:
+    info = inspect_annotation(tp, annotation_source=AnnotationSource.CLASS)
+
+    flag = fd.metadata.get('flag')
+    name = fd.name.replace('_', '-')
+    help_ = fd.metadata.get('help') or ''
+
+    if info.type is not UNKNOWN:
+        tp = info.type
+        for m in info.metadata:
+            if isinstance(m, Meta):
+                help_ = m.help
+                flag = m.flag
+
+    return tp, _Meta(help=help_, flag=flag, name=name)
+
+
 def _visit_nested(
     parser: ArgumentParser | _ArgumentGroup,
     fn: Callable,
     seen: dict[str, list],
 ) -> list[_Node]:
     try:
-        hints = get_type_hints(fn)
+        hints = get_type_hints(fn, include_extras=True)
     except NameError:
         if fn.__module__ != '__main__':
             raise
         for finfo in stack():
-            if not getmodule(finfo.frame):
-                hints = get_type_hints(fn, finfo.frame.f_globals)
+            if not getmodule(f := finfo.frame):
+                hints = get_type_hints(fn, f.f_globals, include_extras=True)
                 break
         else:
             raise
@@ -196,11 +230,11 @@ def _visit_field(
     fd: Field,
     seen: dict[str, list],
 ) -> _Node:
+    tp, meta = _get_metadata(tp, fd)
     cls, opts = _unwrap_type(tp)
 
-    help_ = fd.metadata.get('help') or ''
     if cls is not bool and fd.default is not MISSING:
-        help_ += f' (default: {fd.default})'
+        meta.help += f' (default: {fd.default})'
 
     if is_dataclass(cls):  # Nested dataclass
         arg_group = parser.add_argument_group(fd.name)
@@ -218,9 +252,7 @@ def _visit_field(
         )
         raise TypeError(msg)
 
-    snake = fd.name.replace('_', '-')
-    flags = [f] if (f := fd.metadata.get('flag')) else []
-
+    flags = [meta.flag] if meta.flag else []
     default = (
         fd.default if fd.default_factory is MISSING else fd.default_factory()
     )
@@ -230,11 +262,11 @@ def _visit_field(
             msg = f'Boolean field "{fd.name}" should have default'
             raise ValueError(msg)
         parser.add_argument(
-            f'--{snake}',
+            f'--{meta.name}',
             *flags,
             action=BooleanOptionalAction,
             default=default,
-            help=help_,
+            help=meta.help,
         )
 
     # Generic optional
@@ -242,14 +274,14 @@ def _visit_field(
         if opts.get('nargs') == argparse.OPTIONAL:
             del opts['nargs']
         parser.add_argument(
-            f'--{snake}', *flags, **opts, default=default, help=help_
+            f'--{meta.name}', *flags, **opts, default=default, help=meta.help
         )
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
-        if flags:
+        if meta.flag:
             msg = f'Positional-only field "{fd.name}" should not have flag'
             raise ValueError(msg)
-        parser.add_argument(snake, **opts, help=help_)
+        parser.add_argument(meta.name, **opts, help=meta.help)
 
     else:
         msg = (

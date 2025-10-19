@@ -33,6 +33,7 @@ dependencies = [
     "lxml",
     "numpy >=1.21, <3",
     "typing-extensions~=4.1; python_version < '3.11'",
+    "typing-inspection~=0.4.1",
     "tqdm",
     "wrapt~=1.15",
 ]

@@ -1,8 +1,14 @@
 from argparse import ArgumentParser
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, overload
 
 from ._types import Get
+
+@dataclass
+class Meta:
+    help: str = ...
+    flag: str | None = ...
 
 @overload
 def arg[T](
