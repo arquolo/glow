@@ -441,10 +441,10 @@ def _enqueue[T](
     return sched_iter, q_get
 
 
-def _prefetch(s: ExitStack, sched_iter: Iterator, prefetch: int | None) -> int:
+def _prefetch(s: ExitStack, sched_iter: Iterator, count: int | None) -> int:
     try:
-        # Fetch up to `prefetch` tasks to pre-fill `q`
-        qsize = ilen(islice(sched_iter, prefetch))
+        # Fetch up to `count` tasks to pre-fill `q`
+        qsize = ilen(islice(sched_iter, count))
     except BaseException:
         # Unwind stack here on an error
         s.close()
@@ -469,7 +469,7 @@ def starmap_n[T](
     prefetch: int | None = 2,
     mp: bool = False,
     chunksize: int | None = None,
-    order: bool = True,
+    unordered: bool = False,
 ) -> Iterator[T]:
     """Equivalent to itertools.starmap(fn, iterable).
 
@@ -478,29 +478,27 @@ def starmap_n[T](
 
     Options:
     - workers - Count of workers, by default all hardware threads are occupied.
-    - prefetch - Extra count of scheduled jobs, if not set equals to infinity.
+    - prefetch - Count of extra jobs to schedule over N workers.
+      Helps with CPU stalls in ordered mode.
+      Increase if job execution time is highly variable.
     - mp - Whether use processes or threads.
     - chunksize - The size of the chunks the iterable will be broken into
-      before being passed to a processes. Estimated automatically.
+      before being passed to a processes.
+      Estimated automatically.
       Ignored when threads are used.
-    - order - Whether keep results order, or ignore it to increase performance.
+    - unordered - Retrieve results in order of completion or in original order.
+      In this mode `prefetch` is meaningless, because when some job became done
+      it yielded immediately releasing buffer for new job to schedule.
+      So no CPU stalls.
 
     Unlike multiprocessing.Pool or concurrent.futures.Executor this one:
     - never deadlocks on any exception or Ctrl-C interruption.
-    - accepts infinite iterables due to lazy task creation (option prefetch).
+    - accepts infinite iterables due to lazy task creation.
     - has single interface for both threads and processes.
     - TODO: serializes array-like data using out-of-band Pickle 5 buffers.
-    - before first `__next__` call it submits at most `prefetch` jobs
-      to warmup pool of workers.
-
-    Notes:
-    - To reduce latency set order to False, order of results will be arbitrary.
-    - To increase CPU usage increase prefetch or set it to None.
-    - In terms of CPU usage there's no difference between
-      prefetch=None and order=False, so choose wisely.
-    - Setting order to False makes no use of prefetch more than 0.
-
-    TODO: replace `order=True` with `unordered=False`
+    - call immediately creates pool ready to yield results
+      (which could take some time cause of serialization for multiprocessing),
+      so first `__next__` runs on warmed up pool.
     """
     if max_workers is None:
         max_workers = max_cpu_count(_NUM_CPUS, mp=mp)
@@ -512,10 +510,10 @@ def starmap_n[T](
         msg = 'With multiprocessing either chunksize or prefetch should be set'
         raise ValueError(msg)
 
-    if prefetch is not None:
+    if unordered:
+        prefetch = max(max_workers, 1)
+    elif prefetch is not None:
         prefetch = max(prefetch + max_workers, 1)
-
-    unordered = not order
 
     it = iter(iterable)
     s = ExitStack()
@@ -560,7 +558,7 @@ def map_n[T](
     prefetch: int | None = 2,
     mp: bool = False,
     chunksize: int | None = None,
-    order: bool = True,
+    unordered: bool = False,
 ) -> Iterator[T]:
     """Return iterator equivalent to map(func, *iterables).
 
@@ -576,7 +574,7 @@ def map_n[T](
         prefetch=prefetch,
         mp=mp,
         chunksize=chunksize,
-        order=order,
+        unordered=unordered,
     )
 
 

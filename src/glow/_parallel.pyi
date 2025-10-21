@@ -10,7 +10,7 @@ class _MapKwargs(TypedDict, total=False):
     chunksize: int | None
 
 class _MapIterKwargs(_MapKwargs, total=False):
-    order: bool
+    unordered: bool
 
 def max_cpu_count(upper_bound: int = ..., *, mp: bool = ...) -> int: ...
 def get_executor(
