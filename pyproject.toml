@@ -62,17 +62,17 @@ all = [
     "matplotlib",
 ]
 dev-core = [
-    "black~=25.1",
+    "black~=26.1",
     "flake8~=7.0",
     "flake8-pie",
     "flake8-pyi",
     "flake8-pyproject",
     "flake8-simplify",
     "isort",
-    "mypy~=1.16",
-    "pytest~=8.0",
+    "mypy~=1.19",
+    "pytest~=9.0",
     "pytest-asyncio",
-    "ruff~=0.12.2",
+    "ruff~=0.15.0",
 ]
 dev = [
     "glow[dev-core]",
