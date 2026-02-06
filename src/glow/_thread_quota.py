@@ -8,6 +8,7 @@
 __all__ = ['ThreadQuota']
 
 import os
+import sys
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Executor, Future
@@ -17,6 +18,13 @@ from queue import Empty, SimpleQueue
 from threading import _register_atexit  # type: ignore[attr-defined]
 from threading import Lock, Thread
 from weakref import WeakSet
+
+if sys.version_info >= (3, 14):
+    from concurrent.futures.thread import WorkerContext
+
+    _worker_ctx = WorkerContext(lambda: None, ())
+else:
+    _worker_ctx = None
 
 # TODO: investigate hangups when _TIMEOUT <= .01
 _TIMEOUT = 1
@@ -64,7 +72,10 @@ def _worker(q: _Pipe) -> None:
     try:
         while executor := _safe_call(q.get, timeout=_TIMEOUT):
             while work_item := _safe_call(executor._work_queue.popleft):
-                work_item.run()  # Process task
+                if sys.version_info >= (3, 14):
+                    work_item.run(_worker_ctx)  # Process task
+                else:
+                    work_item.run()
                 if _shutdown:
                     executor._shutdown = True
                     return
@@ -114,7 +125,10 @@ class ThreadQuota(Executor):
                 msg = 'cannot schedule futures after shutdown'
                 raise RuntimeError(msg)
 
-            self._work_queue.append(_WorkItem(f, fn, args, kwargs))
+            if sys.version_info >= (3, 14):
+                self._work_queue.append(_WorkItem(f, (fn, args, kwargs)))
+            else:
+                self._work_queue.append(_WorkItem(f, fn, args, kwargs))
 
             if _safe_call(self._idle.pop):  # Pool is not maximized yet
                 if q := _safe_call(_idle.pop):  # Use idle worker
