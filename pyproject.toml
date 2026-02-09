@@ -7,7 +7,7 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.15.8"
+version = "0.15.9"
 description = "Functional Python tools"
 readme = "README.md"
 requires-python = ">=3.13, <3.15"
@@ -32,7 +32,6 @@ dependencies = [
     "loky~=3.1",
     "lxml",
     "numpy >=1.21, <3",
-    "typing-extensions~=4.1; python_version < '3.11'",
     "typing-inspection~=0.4.1",
     "tqdm",
     "wrapt~=1.15",
