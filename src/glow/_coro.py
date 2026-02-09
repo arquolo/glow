@@ -59,7 +59,7 @@ def threadsafe_iter[**P, Y, S, R](
 
 @threadsafe_iter
 @coroutine
-def summary() -> Generator[None, Hashable | None, None]:
+def summary() -> Generator[None, Hashable | None]:
     # ? delete this or find use case
     state = Counter[Hashable]()
     while True:
@@ -75,7 +75,7 @@ def summary() -> Generator[None, Hashable | None, None]:
 @coroutine
 def as_actor[T, R](
     transform: Callable[[Iterable[T]], Iterator[R]],
-) -> Generator[R, T, None]:
+) -> Generator[R, T]:
     buf = deque[T]()
     gen = transform(_deiter(buf))  # infinite
 

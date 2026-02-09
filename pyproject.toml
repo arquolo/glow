@@ -10,7 +10,7 @@ name = "glow"
 version = "0.15.8"
 description = "Functional Python tools"
 readme = "README.md"
-requires-python = ">=3.12, <3.15"
+requires-python = ">=3.13, <3.15"
 license = {file = "LICENSE"}
 keywords = []
 authors = [
@@ -24,7 +24,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
@@ -90,7 +89,7 @@ dev-wemake = [
 
 [tool.ruff]
 line-length = 79
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
@@ -166,5 +165,5 @@ warn_unused_ignores = true
 
 [tool.black]
 line-length = 79
-target-version = ['py312']
+target-version = ['py313']
 skip-string-normalization = true

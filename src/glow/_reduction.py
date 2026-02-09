@@ -137,7 +137,11 @@ class _MmapProxy[*Ts, R](_Proxy[*Ts, R]):
 
 
 def _shn_reconstruct(data: bytes, memos: list[tuple[SharedMemory, int]]):
-    buffers = [sm.buf[:size] for sm, size in memos]
+    buffers = []
+    for sm, size in memos:
+        if sm.buf is None:
+            raise RuntimeError(f'{sm} is not initialized')
+        buffers.append(sm.buf[:size])
     return pickle.loads(data, buffers=buffers)
 
 
@@ -152,6 +156,8 @@ class _ShmemProxy[*Ts, R](_Proxy[*Ts, R]):
         for buf in buffers:
             with buf.raw() as m:
                 sm = SharedMemory(create=True, size=m.nbytes)
+                if sm.buf is None:
+                    raise RuntimeError(f'{sm} is not initialized')
                 sm.buf[:] = m
                 self.memos.append((sm, sm.size))
 

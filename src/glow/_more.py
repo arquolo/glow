@@ -43,6 +43,24 @@ def as_iter[T](
 # ----------------------------------------------------------------------------
 
 
+@overload
+def _dispatch[S, *Ts](
+    fallback_fn,
+    fn: Callable[[SupportsSlice[S], *Ts], Iterator[S]],
+    it: SupportsSlice[S],
+    *args: *Ts,
+) -> Iterator[S]: ...
+
+
+@overload
+def _dispatch[T, *Ts](
+    fallback_fn: Callable[[Iterable[T], *Ts], Iterator[T]],
+    fn,
+    it: Iterable[T],
+    *args: *Ts,
+) -> Iterator[tuple[T, ...]]: ...
+
+
 def _dispatch(fallback_fn, fn, it, *args):
     if (
         not isinstance(it, Sized)
@@ -102,7 +120,7 @@ def _sliced[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
 def _chunked[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
-    return batched(it, size)
+    return batched(it, size, strict=False)
 
 
 # ---------------------------------------------------------------------------
