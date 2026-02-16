@@ -21,6 +21,7 @@ from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
 from itertools import chain, islice, starmap
+from multiprocessing import dummy
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
@@ -213,13 +214,11 @@ def get_executor(max_workers: int, *, mp: bool) -> Iterator[Executor]:
 
 
 def _get_manager(executor: Executor) -> _Manager:
-    if isinstance(executor, loky.ProcessPoolExecutor):
-        return executor._context.Manager()
-
-    else:  # noqa: RET505
-        from multiprocessing.dummy import Manager
-
-        return Manager()
+    return (
+        executor._context.Manager()
+        if isinstance(executor, loky.ProcessPoolExecutor)
+        else dummy
+    )
 
 
 # -------- bufferize iterable by offloading to another thread/process --------

@@ -30,7 +30,7 @@ def imhash_hist(x: _AnyImage, /, *, bins: int = 4) -> _F32 | None:
         histSize=[bins, bins, bins],
         ranges=[0, 256, 0, 256, 0, 256],
     )
-    hist = hist.astype('f').ravel()
+    hist = np.float32(hist).ravel()
     l2 = cv2.norm(hist, normType=cv2.NORM_L2)
     return hist / l2
 

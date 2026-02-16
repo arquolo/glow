@@ -83,7 +83,7 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 
 def _fetch_batch[T](
-    q: SimpleQueue[T], batch_size: int | None, timeout: float
+    q: SimpleQueue[T], batch_size: int, timeout: float
 ) -> list[T]:
     batch: list[T] = []
 
@@ -102,21 +102,21 @@ def _fetch_batch[T](
     else:
         batch.append(q.get())
 
-    endtime = monotonic() + timeout
-    remaining = timeout
-    while remaining > 0 and (batch_size is None or len(batch) < batch_size):
+    now = monotonic()
+    endtime = now + timeout
+    while now < endtime and not (0 < batch_size <= len(batch)):
         try:
-            batch.append(q.get(timeout=remaining))
+            batch.append(q.get(timeout=endtime - now))
         except Empty:
             break
-        remaining = endtime - monotonic()
+        now = monotonic()
     return batch
 
 
 def _start_fetch_compute[T, R](
     func: BatchFn[T, R],
     workers: int,
-    batch_size: int | None,
+    batch_size: int,
     timeout: float,
 ) -> SimpleQueue[Job[T, R]]:
     q = SimpleQueue()  # type: ignore[var-annotated]
@@ -184,7 +184,7 @@ def streaming[T, R](
 
     assert callable(func)
     assert workers >= 1
-    q = _start_fetch_compute(func, workers, batch_size, timeout)
+    q = _start_fetch_compute(func, workers, batch_size or 0, timeout)
 
     def wrapper(items: Sequence[T]) -> Sequence[R]:
         fs = {Future[R](): item for item in items}
