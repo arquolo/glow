@@ -86,23 +86,23 @@ def cache_status() -> str:
 _REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
 
 
-class _AbstractCache[K: Hashable, T](Protocol):
-    def __getitem__(self, key: K, /) -> T | _Empty: ...
-    def __setitem__(self, key: K, value: T, /) -> None: ...
+class _AbstractCache[T](Protocol):
+    def __getitem__(self, key: Hashable, /) -> T | _Empty: ...
+    def __setitem__(self, key: Hashable, value: T, /) -> None: ...
 
 
-class _CacheMaker[K, T](Protocol):
+class _CacheMaker[T](Protocol):
     def __call__(
         self, capacity: int, make_node: Callable[[T], _Node[T]]
-    ) -> '_AbstractCache[K, T]': ...
+    ) -> '_AbstractCache[T]': ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)
-class _Cache[K: Hashable, T]:
+class _Cache[T]:
     capacity: int
     make_node: Callable[[T], _Node[T]] = field(repr=False)
     size: int = 0
-    store: dict[K, _Node[T]] = field(default_factory=dict)
+    store: dict[Hashable, _Node[T]] = field(default_factory=dict)
     stats: Stats = field(default_factory=Stats)
 
     def __post_init__(self) -> None:
@@ -133,8 +133,8 @@ class _Cache[K: Hashable, T]:
         return f'{type(self).__name__}({", ".join(args)})'
 
 
-class _Heap[K: Hashable, T](_Cache[K, T]):
-    def __getitem__(self, key: K, /) -> T | _Empty:
+class _Heap[T](_Cache[T]):
+    def __getitem__(self, key: Hashable, /) -> T | _Empty:
         if node := self.store.get(key):
             self.stats.hits += 1
             return node.value
@@ -142,7 +142,7 @@ class _Heap[K: Hashable, T](_Cache[K, T]):
         self.stats.misses += 1
         return _empty
 
-    def __setitem__(self, key: K, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: T, /) -> None:
         if key in self.store:
             return
         node = self.make_node(value)
@@ -155,8 +155,8 @@ class _Heap[K: Hashable, T](_Cache[K, T]):
         self.size += node.size
 
 
-class _LruMruCache[K: Hashable, T](_Cache[K, T]):
-    def __getitem__(self, key: K, /) -> T | _Empty:
+class _LruMruCache[T](_Cache[T]):
+    def __getitem__(self, key: Hashable, /) -> T | _Empty:
         if node := self.store.pop(key, None):
             self.stats.hits += 1
             self.store[key] = node
@@ -165,7 +165,7 @@ class _LruMruCache[K: Hashable, T](_Cache[K, T]):
         self.stats.misses += 1
         return _empty
 
-    def __setitem__(self, key: K, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: T, /) -> None:
         if key in self.store:
             return
         node = self.make_node(value)
@@ -185,13 +185,13 @@ class _LruMruCache[K: Hashable, T](_Cache[K, T]):
         raise NotImplementedError
 
 
-class _LruCache[K: Hashable, T](_LruMruCache[K, T]):
+class _LruCache[T](_LruMruCache[T]):
     def pop(self) -> _Node:
         """Drop oldest node."""
         return self.store.pop(next(iter(self.store)))
 
 
-class _MruCache[K: Hashable, T](_LruMruCache[K, T]):
+class _MruCache[T](_LruMruCache[T]):
     def pop(self) -> _Node:
         """Drop most recently added node."""
         return self.store.popitem()[1]
@@ -201,26 +201,26 @@ class _MruCache[K: Hashable, T](_LruMruCache[K, T]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _WeakCache[K: Hashable, T]:
+class _WeakCache[T]:
     """Retrieve items via weak references from everywhere."""
 
-    alive: WeakValueDictionary[K, T] = field(
+    alive: WeakValueDictionary[Hashable, T] = field(
         default_factory=WeakValueDictionary
     )
 
-    def __getitem__(self, key: K, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> T | _Empty:
         return self.alive.get(key, _empty)
 
-    def __setitem__(self, key: K, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: T, /) -> None:
         if type(value).__weakrefoffset__:  # Support weak reference.
             self.alive[key] = value
 
 
 @dataclass(frozen=True, kw_only=True)
-class _StrongCache[K: Hashable, T](_WeakCache[K, T]):
-    cache: _AbstractCache[K, T]
+class _StrongCache[T](_WeakCache[T]):
+    cache: _AbstractCache[T]
 
-    def __getitem__(self, key: K, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> T | _Empty:
         # Alive and stored items.
         # Called first to update cache stats (i.e. MRU/LRU if any).
         # `cache` has subset of objects from `alive`.
@@ -229,16 +229,16 @@ class _StrongCache[K: Hashable, T](_WeakCache[K, T]):
         # Item could still exist, try reference ...
         return super().__getitem__(key)
 
-    def __setitem__(self, key: K, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: T, /) -> None:
         self.cache[key] = value
         super().__setitem__(key, value)
 
 
 @dataclass(frozen=True, slots=True)
-class _CacheState[K: Hashable, R]:
-    cache: _AbstractCache[K, R]
-    key_fn: KeyFn[K]
-    futures: WeakValueDictionary[K, AnyFuture[R]] = field(
+class _CacheState[**P, R]:
+    cache: _AbstractCache[R]
+    key_fn: KeyFn[P]
+    futures: WeakValueDictionary[Hashable, AnyFuture[R]] = field(
         default_factory=WeakValueDictionary
     )
 
@@ -256,9 +256,9 @@ def _result[T](f: cf.Future[T]) -> T:
     return f.result()
 
 
-def _sync_memoize[K: Hashable, **P, R](
+def _sync_memoize[**P, R](
     fn: Callable[P, R],
-    cs: _CacheState[K, R],
+    cs: _CacheState[P, R],
 ) -> Callable[P, R]:
     lock = RLock()
 
@@ -302,9 +302,9 @@ def _sync_memoize[K: Hashable, **P, R](
     return wrapper
 
 
-def _async_memoize[K: Hashable, **P, R](
+def _async_memoize[**P, R](
     fn: Callable[P, Awaitable[R]],
-    cs: _CacheState[K, R],
+    cs: _CacheState[P, R],
 ) -> Callable[P, Awaitable[R]]:
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = cs.key_fn(*args, **kwargs)
@@ -341,15 +341,15 @@ def _async_memoize[K: Hashable, **P, R](
 # ----------------------- wrapper with batching support ----------------------
 
 
-class _BatchedQuery[K: Hashable, T, R]:
+class _BatchedQuery[T, R]:
     def __init__(
-        self, cs: _CacheState[K, R], *tokens: T, aio: bool = False
+        self, cs: _CacheState[[T], R], *tokens: T, aio: bool = False
     ) -> None:
         self._cs = cs
         self._keys = [cs.key_fn(t) for t in tokens]  # All keys with duplicates
 
-        self.jobs: list[tuple[K, Some[T] | None, AnyFuture[R]]] = []
-        self._done: dict[K, R] = {}
+        self.jobs: list[tuple[Hashable, Some[T] | None, AnyFuture[R]]] = []
+        self._done: dict[Hashable, R] = {}
 
         for k, t in dict(zip(self._keys, tokens)).items():
             # If this key is processing right now, wait till its done ...
@@ -373,7 +373,7 @@ class _BatchedQuery[K: Hashable, T, R]:
     def running_as[F: AnyFuture](self, tp: type[F]) -> set[F]:
         return {f for _, a, f in self.jobs if not a and isinstance(f, tp)}
 
-    def sync(self, stash: Mapping[K, R]) -> None:
+    def sync(self, stash: Mapping[Hashable, R]) -> None:
         for k, r in stash.items():
             self._done[k] = self._cs.cache[k] = r
 
@@ -385,8 +385,8 @@ class _BatchedQuery[K: Hashable, T, R]:
         return [self._done[k] for k in self._keys]
 
 
-def _sync_memoize_batched[K: Hashable, T, R](
-    fn: BatchFn[T, R], cs: _CacheState[K, R]
+def _sync_memoize_batched[T, R](
+    fn: BatchFn[T, R], cs: _CacheState[[T], R]
 ) -> BatchFn[T, R]:
     lock = RLock()
 
@@ -394,7 +394,7 @@ def _sync_memoize_batched[K: Hashable, T, R](
         with lock:
             q = _BatchedQuery(cs, *tokens)
 
-        stash: dict[K, R] = {}
+        stash: dict[Hashable, R] = {}
         try:
             if jobs := q.pending_jobs:
                 dispatch(fn, *jobs)
@@ -416,13 +416,13 @@ def _sync_memoize_batched[K: Hashable, T, R](
     return wrapper
 
 
-def _async_memoize_batched[K: Hashable, T, R](
-    fn: ABatchFn[T, R], cs: _CacheState[K, R]
+def _async_memoize_batched[T, R](
+    fn: ABatchFn[T, R], cs: _CacheState[[T], R]
 ) -> ABatchFn[T, R]:
     async def wrapper(tokens: Iterable[T]) -> list[R]:
         q = _BatchedQuery(cs, *tokens, aio=True)
 
-        stash: dict[K, R] = {}
+        stash: dict[Hashable, R] = {}
         try:
             if jobs := q.pending_jobs:
                 await adispatch(fn, *jobs)
@@ -445,10 +445,10 @@ def _async_memoize_batched[K: Hashable, T, R](
 # ------------------------------- decorations --------------------------------
 
 
-def _memoize[K: Hashable, **P, R](
+def _memoize[**P, R](
     fn: Callable[P, R],
     *,
-    cs: _CacheState[K, Any],
+    cs: _CacheState[..., Any],
     batched: bool,
 ) -> Callable[P, R]:
     if batched and iscoroutinefunction(fn):

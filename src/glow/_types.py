@@ -10,7 +10,7 @@ from collections.abc import (
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-type KeyFn[H: Hashable] = Callable[..., H]
+type KeyFn[**P] = Callable[P, Hashable]
 
 type Coro[T] = Coroutine[Any, Any, T]
 type AnyIterable[T] = AsyncIterable[T] | Iterable[T]
@@ -29,3 +29,7 @@ class Some[T]:
 
 class Decorator(Protocol):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
+
+
+class PsDecorator[**P](Protocol):
+    def __call__[R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
