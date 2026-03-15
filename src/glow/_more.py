@@ -9,6 +9,7 @@ __all__ = [
     'windowed',
 ]
 
+import sys
 import threading
 from collections import deque
 from collections.abc import (
@@ -20,20 +21,34 @@ from collections.abc import (
     Sequence,
     Sized,
 )
-from itertools import batched, chain, count, cycle, islice, repeat
-from typing import Protocol, overload
+from functools import partial
+from itertools import chain, count, cycle, islice, repeat
+from typing import Generic, Protocol, TypeVar, TypeVarTuple, overload
+
+if sys.version_info >= (3, 12):
+    from itertools import batched
+else:
+    batched = None
 
 
-class SupportsSlice[T](Sized, Protocol):
-    def __getitem__(self, s: slice, /) -> T: ...
+_K = TypeVar('_K', bound=Hashable)
+_V = TypeVar('_V')
+_S = TypeVar('_S')
+_T = TypeVar('_T')
+_Ts = TypeVarTuple('_Ts')
+_T_co = TypeVar('_T_co', covariant=True)
+
+
+class SupportsSlice(Sized, Generic[_T_co], Protocol):
+    def __getitem__(self, s: slice, /) -> _T_co: ...
 
 
 # ----------------------------------------------------------------------------
 
 
-def as_iter[T](
-    obj: Iterable[T] | T, /, limit: int | None = None
-) -> Iterator[T]:
+def as_iter(
+    obj: Iterable[_T] | _T, /, limit: int | None = None
+) -> Iterator[_T]:
     """Make iterator with at most `limit` items."""
     if isinstance(obj, Iterable):
         return islice(obj, limit)
@@ -44,21 +59,21 @@ def as_iter[T](
 
 
 @overload
-def _dispatch[S, *Ts](
+def _dispatch(
     fallback_fn,
-    fn: Callable[[SupportsSlice[S], *Ts], Iterator[S]],
-    it: SupportsSlice[S],
-    *args: *Ts,
-) -> Iterator[S]: ...
+    fn: Callable[[SupportsSlice[_S], *_Ts], Iterator[_S]],
+    it: SupportsSlice[_S],
+    *args: *_Ts,
+) -> Iterator[_S]: ...
 
 
 @overload
-def _dispatch[T, *Ts](
-    fallback_fn: Callable[[Iterable[T], *Ts], Iterator[T]],
+def _dispatch(
+    fallback_fn: Callable[[Iterable[_T], *_Ts], Iterator[_T]],
     fn,
-    it: Iterable[T],
-    *args: *Ts,
-) -> Iterator[tuple[T, ...]]: ...
+    it: Iterable[_T],
+    *args: *_Ts,
+) -> Iterator[tuple[_T, ...]]: ...
 
 
 def _dispatch(fallback_fn, fn, it, *args):
@@ -93,13 +108,13 @@ def chunk_hint(it: Sized, size: int) -> int:
     return len(range(0, len(it), size))
 
 
-def _sliced_windowed[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
+def _sliced_windowed(s: SupportsSlice[_T], size: int, /) -> Iterator[_T]:
     indices = range(len(s) + 1)
     slices = map(slice, indices[:-size], indices[size:])
     return map(s.__getitem__, slices)
 
 
-def _windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
+def _windowed(it: Iterable[_T], size: int, /) -> Iterator[tuple[_T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
 
@@ -111,27 +126,33 @@ def _windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
     return map(tuple, chain([w], map(w.__iadd__, zip(it))))
 
 
-def _sliced[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
+def _sliced(s: SupportsSlice[_T], size: int, /) -> Iterator[_T]:
     indices = range(len(s) + size)
     slices = map(slice, indices[::size], indices[size::size])
     return map(s.__getitem__, slices)
 
 
-def _chunked[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
+def _chunked(it: Iterable[_T], size: int, /) -> Iterator[tuple[_T, ...]]:
     if size == 1:  # Trivial case
         return zip(it)
-    return batched(it, size, strict=False)
+
+    if batched is None:
+        fetch_chunk = partial(islice, iter(it), size)
+        chunks = iter(fetch_chunk, None)
+        return iter(map(tuple, chunks).__next__, ())
+
+    return batched(it, size)
 
 
 # ---------------------------------------------------------------------------
 
 
 @overload
-def windowed[T](it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
+def windowed(it: SupportsSlice[_T], size: int, /) -> Iterator[_T]: ...
 
 
 @overload
-def windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
+def windowed(it: Iterable[_T], size: int, /) -> Iterator[tuple[_T, ...]]: ...
 
 
 def windowed(it, size, /):
@@ -149,11 +170,11 @@ def windowed(it, size, /):
 
 
 @overload
-def chunked[T](__it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
+def chunked(__it: SupportsSlice[_T], size: int, /) -> Iterator[_T]: ...
 
 
 @overload
-def chunked[T](__it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
+def chunked(__it: Iterable[_T], size: int, /) -> Iterator[tuple[_T, ...]]: ...
 
 
 def chunked(it, size):
@@ -174,7 +195,7 @@ def chunked(it, size):
 # ----------------------------------------------------------------------------
 
 
-def _deiter[T](q: deque[T], /) -> Iterator[T]:
+def _deiter(q: deque[_T], /) -> Iterator[_T]:
     # Same as iter_except(q.popleft, IndexError) from docs of itertools
     try:
         while True:
@@ -183,7 +204,7 @@ def _deiter[T](q: deque[T], /) -> Iterator[T]:
         return
 
 
-def ichunked[T](it: Iterable[T], size: int, /) -> Iterator[Iterator[T]]:
+def ichunked(it: Iterable[_T], size: int, /) -> Iterator[Iterator[_T]]:
     """Split iterable to chunks of at most size items each.
 
     Does't consume items from passed iterable to return complete chunk
@@ -205,7 +226,7 @@ def ichunked[T](it: Iterable[T], size: int, /) -> Iterator[Iterator[T]]:
         body = islice(it, size - 1)
 
         # Cache for not-yet-consumed
-        tail = deque[T]()
+        tail = deque[_T]()
 
         # Include early fetched item into chunk
         yield chain(_deiter(head), body, _deiter(tail))
@@ -236,7 +257,7 @@ def eat(iterable: Iterable, /, *, daemon: bool = False) -> None:
         deque(iterable, 0)  # Same as `more_itertools.consume(..., n=None)`
 
 
-def roundrobin[T](*iterables: Iterable[T]) -> Iterator[T]:
+def roundrobin(*iterables: Iterable[_T]) -> Iterator[_T]:
     """roundrobin('ABC', 'D', 'EF') --> A D E B F C"""
     iters = cycle(iter(it) for it in iterables)
     for pending in range(len(iterables) - 1, -1, -1):
@@ -248,15 +269,18 @@ def roundrobin[T](*iterables: Iterable[T]) -> Iterator[T]:
 
 
 @overload
-def groupby[T, K: Hashable](
-    iterable: Iterable[T], /, key: Callable[[T], K]
-) -> dict[K, list[T]]: ...
+def groupby(
+    iterable: Iterable[_T], /, key: Callable[[_T], _K]
+) -> dict[_K, list[_T]]: ...
 
 
 @overload
-def groupby[T, K: Hashable, V](
-    iterable: Iterable[T], /, key: Callable[[T], K], value: Callable[[T], V]
-) -> dict[K, list[V]]: ...
+def groupby(
+    iterable: Iterable[_T],
+    /,
+    key: Callable[[_T], _K],
+    value: Callable[[_T], _V],
+) -> dict[_K, list[_V]]: ...
 
 
 def groupby(iterable, /, key, value=lambda x: x):

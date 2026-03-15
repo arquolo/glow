@@ -28,7 +28,7 @@ from pstats import Stats
 from queue import Empty, SimpleQueue
 from threading import Lock
 from time import monotonic, sleep
-from typing import Final, Protocol, Self, cast
+from typing import Final, Generic, Protocol, Self, TypeVar, TypeVarTuple, cast
 
 import loky
 
@@ -59,6 +59,14 @@ _IDLE_WORKER_TIMEOUT = 10
 _FAST_GROW = False
 _GRANULAR_SCHEDULING = False
 
+_R = TypeVar('_R')
+_K = TypeVar('_K')
+_T = TypeVar('_T')
+_T2 = TypeVar('_T2')
+_Ts = TypeVarTuple('_Ts')
+_T_co = TypeVar('_T_co', covariant=True)
+_F = TypeVar('_F', bound=Future)
+
 
 class _Empty(enum.Enum):
     token = 0
@@ -69,9 +77,9 @@ _empty: Final = _Empty.token
 # ------------------- some useful interfaces and functions -------------------
 
 
-class _Queue[T](Protocol):
-    def get(self, block: bool = ..., timeout: float | None = ...) -> T: ...
-    def put(self, item: T) -> None: ...
+class _Queue(Protocol, Generic[_T]):
+    def get(self, block: bool = ..., timeout: float | None = ...) -> _T: ...
+    def put(self, item: _T) -> None: ...
 
 
 class _Event(Protocol):
@@ -125,11 +133,11 @@ def max_cpu_count(limit: int | None = None, *, mp: bool = False) -> int:
 _PATIENCE = 0.01
 
 
-class _TimeoutCallable[T](Protocol):
-    def __call__(self, *, timeout: float) -> T: ...
+class _TimeoutCallable(Protocol, Generic[_T_co]):
+    def __call__(self, *, timeout: float) -> _T_co: ...
 
 
-def _retrying[T](f: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
+def _retrying(f: _TimeoutCallable[_T], *exc: type[BaseException]) -> _T:
     # See issues
     # https://github.com/dask/dask/pull/2144#issuecomment-290556996
     # https://github.com/dask/dask/pull/2144/files
@@ -144,14 +152,14 @@ def _retrying[T](f: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
 
 if sys.platform == 'win32':
 
-    def _exception[T](f: Future[T], /) -> BaseException | None:
+    def _exception(f: Future[_T], /) -> BaseException | None:
         return _retrying(f.exception, TimeoutError)
 
 else:
     _exception = Future.exception
 
 
-def _result[T](f: Future[T], cancel: bool = True) -> Some[T] | BaseException:
+def _result(f: Future[_T], cancel: bool = True) -> Some[_T] | BaseException:
     try:
         return exc if (exc := _exception(f)) else Some(f.result())
     finally:
@@ -160,7 +168,7 @@ def _result[T](f: Future[T], cancel: bool = True) -> Some[T] | BaseException:
         del f
 
 
-def _q_get_fn[T](q: _Queue[T]) -> Get[T]:
+def _q_get_fn(q: _Queue[_T]) -> Get[_T]:
     if sys.platform != 'win32':
         return q.get
     return partial(_retrying, q.get, Empty)
@@ -224,8 +232,8 @@ def _get_manager(executor: Executor) -> _Manager:
 # -------- bufferize iterable by offloading to another thread/process --------
 
 
-def _consume[T](
-    items: Iterable[T], buf: _Queue[T | _Empty], stop: _Event
+def _consume(
+    items: Iterable[_T], buf: _Queue[_T | _Empty], stop: _Event
 ) -> None:
     try:
         for item in items:
@@ -237,14 +245,14 @@ def _consume[T](
         buf.put(_empty)  # Match last q.get
 
 
-class buffered[T](Iterator[T]):  # noqa: N801
+class buffered(Iterator[_T]):  # noqa: N801
     """Iterate in background thread with at most `latency` items ahead."""
 
     __slots__ = ('__weakref__', '_consume', '_next', 'close')
 
     def __init__(
         self,
-        iterable: Iterable[T],
+        iterable: Iterable[_T],
         /,
         *,
         latency: int = 2,
@@ -261,7 +269,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
             s.enter_context(mgr)
 
         ev: _Event = mgr.Event()
-        q: _Queue[T | _Empty] = mgr.Queue(latency)
+        q: _Queue[_T | _Empty] = mgr.Queue(latency)
         self._consume = executor.submit(_consume, iterable, q, ev)
         self._next = _q_get_fn(q)
 
@@ -280,7 +288,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> T:
+    def __next__(self) -> _T:
         if self.close.alive:
             if (item := self._next()) is not _empty:
                 return item
@@ -359,22 +367,22 @@ class _AutoSize:
 # ---------------------- map iterable through function ----------------------
 
 
-def _schedule[F: Future](
-    submit_chunk: Callable[..., F],
+def _schedule(
+    submit_chunk: Callable[..., _F],
     args_zip: Iterable[Iterable],
     chunksize: int,
-) -> Iterator[F]:
+) -> Iterator[_F]:
     for chunk in chunked(args_zip, chunksize):
         f = submit_chunk(*chunk)
         _LOGGER.debug('Submit %d', len(chunk))
         yield f
 
 
-def _schedule_auto[F: Future](
-    submit_chunk: Callable[..., F],
+def _schedule_auto(
+    submit_chunk: Callable[..., _F],
     args_zip: Iterator[Iterable],
     max_workers: int,
-) -> Iterator[F]:
+) -> Iterator[_F]:
     # For the whole wave make futures with the same job size
     size = _AutoSize()
     while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
@@ -386,9 +394,9 @@ def _schedule_auto[F: Future](
             yield f
 
 
-def _schedule_auto_v2[F: Future](
-    submit_chunk: Callable[..., F], args_zip: Iterator[Iterable]
-) -> Iterator[F]:
+def _schedule_auto_v2(
+    submit_chunk: Callable[..., _F], args_zip: Iterator[Iterable]
+) -> Iterator[_F]:
     # Vary job size from future to future
     size = _AutoSize()
     while chunk := [*islice(args_zip, size.suggest())]:
@@ -398,12 +406,12 @@ def _schedule_auto_v2[F: Future](
         yield f
 
 
-def _get_unwrap_iter[T](
+def _get_unwrap_iter(
     s: ExitStack,
     qsize: int,
-    get_f: Get[Future[T]],
+    get_f: Get[Future[_T]],
     sched_iter: Iterator,
-) -> Iterator[T]:
+) -> Iterator[_T]:
     with s:
         if not qsize:  # No tasks to do
             return
@@ -419,17 +427,17 @@ def _get_unwrap_iter[T](
                 yield obj.x
 
 
-def _enqueue[T](
-    fs: Iterable[Future[T]],
+def _enqueue(
+    fs: Iterable[Future[_T]],
     unordered: bool,
-) -> tuple[Iterator, Get[Future[T]]]:
-    q = SimpleQueue[Future[T]]()
+) -> tuple[Iterator, Get[Future[_T]]]:
+    q = SimpleQueue[Future[_T]]()
 
     # In `unordered` mode `q` contains only "DONE" tasks,
     # else there are also "PENDING" and "RUNNING" tasks.
     # FIXME: unordered=True -> random freezes (in q.get -> Empty)
     q_put = cast(
-        'Callable[[Future[T]], None]',
+        'Callable[[Future[_T]], None]',
         methodcaller('add_done_callback', q.put) if unordered else q.put,
     )
     q_get = _q_get_fn(q)
@@ -453,14 +461,12 @@ def _prefetch(s: ExitStack, sched_iter: Iterator, count: int | None) -> int:
         return qsize
 
 
-def _batch_invoke[*Ts, R](
-    func: Callable[[*Ts], R], *items: tuple[*Ts]
-) -> list[R]:
+def _batch_invoke(func: Callable[[*_Ts], _R], *items: tuple[*_Ts]) -> list[_R]:
     return [*starmap(func, items)]
 
 
-def starmap_n[T](
-    func: Callable[..., T],
+def starmap_n(
+    func: Callable[..., _T],
     iterable: Iterable[Iterable],
     /,
     *,
@@ -469,7 +475,7 @@ def starmap_n[T](
     mp: bool = False,
     chunksize: int | None = None,
     unordered: bool = False,
-) -> Iterator[T]:
+) -> Iterator[_T]:
     """Equivalent to itertools.starmap(fn, iterable).
 
     Return an iterator whose values are returned from the function evaluated
@@ -524,14 +530,14 @@ def starmap_n[T](
         chunksize = chunksize or 1
 
     if chunksize == 1:
-        submit_1 = cast('Callable[..., Future[T]]', partial(submit, func))
+        submit_1 = cast('Callable[..., Future[_T]]', partial(submit, func))
         f1s = starmap(submit_1, it)
         sched1_iter, get_f = _enqueue(f1s, unordered)
         qsize = _prefetch(s, sched1_iter, prefetch)
         return _get_unwrap_iter(s, qsize, get_f, sched1_iter)
 
     submit_n = cast(
-        'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
+        'Callable[..., Future[list[_T]]]', partial(submit, _batch_invoke, func)
     )
     if chunksize is not None:
         # Fixed chunksize
@@ -549,8 +555,8 @@ def starmap_n[T](
     return chain.from_iterable(chunks)
 
 
-def map_n[T](
-    func: Callable[..., T],
+def map_n(
+    func: Callable[..., _T],
     /,
     *iterables: Iterable,
     max_workers: int | None = None,
@@ -558,7 +564,7 @@ def map_n[T](
     mp: bool = False,
     chunksize: int | None = None,
     unordered: bool = False,
-) -> Iterator[T]:
+) -> Iterator[_T]:
     """Return iterator equivalent to map(func, *iterables).
 
     Make an iterator that computes the function using arguments from
@@ -577,16 +583,16 @@ def map_n[T](
     )
 
 
-def map_n_dict[K, T1, T2](
-    func: Callable[[T1], T2],
-    obj: Mapping[K, T1],
+def map_n_dict(
+    func: Callable[[_T], _T2],
+    obj: Mapping[_K, _T],
     /,
     *,
     max_workers: int | None = None,
     prefetch: int | None = 2,
     mp: bool = False,
     chunksize: int | None = None,
-) -> dict[K, T2]:
+) -> dict[_K, _T2]:
     """Apply `func` to each value in a mapping in parallel way.
 
     For extra options, see starmap_n, which is used under hood.

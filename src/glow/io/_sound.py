@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from queue import Queue
 from threading import Event
+from typing import Generic, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -23,6 +24,8 @@ try:
     import soundfile
 except ImportError:
     soundfile = None
+
+S = TypeVar('S', bound=np.number)
 
 
 def _play(
@@ -64,7 +67,7 @@ def _play(
 
 
 @dataclass(repr=False, frozen=True)
-class Sound[S: np.number]:
+class Sound(Generic[S]):
     """Wrap numpy.array to be playable as sound.
 
     Parameters:

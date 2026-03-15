@@ -3,17 +3,21 @@ __all__ = ['Stream', 'cumsum', 'maximum_cumsum']
 from collections import deque
 from dataclasses import dataclass
 from itertools import accumulate
+from typing import Generic, TypeVar
 
 from ._types import Callback, Get
 
+_Y = TypeVar('_Y')
+_S = TypeVar('_S')
+
 
 @dataclass(frozen=True, slots=True, repr=False)
-class Stream[Y, S]:
-    init: S
-    push: Callback[S]
-    pop: Get[Y]
+class Stream(Generic[_Y, _S]):
+    init: _S
+    push: Callback[_S]
+    pop: Get[_Y]
 
-    def send(self, value: S) -> Y:
+    def send(self, value: _S) -> _Y:
         self.push(value)
         return self.pop()
 

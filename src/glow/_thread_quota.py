@@ -17,6 +17,7 @@ from concurrent.futures.thread import _WorkItem
 from queue import Empty, SimpleQueue
 from threading import _register_atexit  # type: ignore[attr-defined]
 from threading import Lock, Thread
+from typing import ParamSpec, TypeAlias, TypeVar
 from weakref import WeakSet
 
 if sys.version_info >= (3, 14):
@@ -30,12 +31,16 @@ else:
 _TIMEOUT = 1
 _MIN_IDLE = os.cpu_count() or 1
 
+_T = TypeVar('_T')
+_R = TypeVar('_R')
+_P = ParamSpec('_P')
+
 # ------------------------------- generics -----------------------------------
 
 
-def _safe_call[**P, T](
-    fn: Callable[P, T], *args: P.args, **kwargs: P.kwargs
-) -> T | None:
+def _safe_call(
+    fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+) -> _T | None:
     try:
         return fn(*args, **kwargs)
     except (Empty, IndexError, ValueError):
@@ -44,7 +49,7 @@ def _safe_call[**P, T](
 
 # ------------------------------ implementation ------------------------------
 
-type _Pipe = SimpleQueue['ThreadQuota | None']
+_Pipe: TypeAlias = SimpleQueue['ThreadQuota | None']
 
 _shutdown = False  # set only by `_python_exit`
 _shutdown_lock = Lock()  # Blocks worker creation on interpreter shutdown
@@ -105,20 +110,20 @@ class ThreadQuota(Executor):
         with _shutdown_lock:
             _executors.add(self)
 
-    def submit[**P, R](
-        self, fn: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
-    ) -> Future[R]:
+    def submit(
+        self, fn: Callable[_P, _R], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_R]:
         f = Future()  # type: ignore[var-annotated]
         self.submit_f(f, fn, *args, **kwargs)
         return f
 
-    def submit_f[**P, R](
+    def submit_f(
         self,
-        f: Future[R],
-        fn: Callable[P, R],
+        f: Future[_R],
+        fn: Callable[_P, _R],
         /,
-        *args: P.args,
-        **kwargs: P.kwargs,
+        *args: _P.args,
+        **kwargs: _P.kwargs,
     ) -> None:
         with self._shutdown_lock, _shutdown_lock:
             if self._shutdown or _shutdown:

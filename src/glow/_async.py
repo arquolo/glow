@@ -14,20 +14,26 @@ from collections.abc import (
 )
 from contextlib import asynccontextmanager, suppress
 from functools import partial
-from typing import TypeGuard, cast, overload
+from typing import TypeGuard, TypeVar, TypeVarTuple, cast, overload
 
 from ._dev import hide_frame
 from ._futures import ABatchDecorator, ABatchFn, Job, adispatch
 from ._types import AnyIterable, AnyIterator, Coro
 
+_K = TypeVar('_K')
+_T = TypeVar('_T')
+_T2 = TypeVar('_T2')
+_R = TypeVar('_R')
+_Ts = TypeVarTuple('_Ts')
 
-async def amap_dict[K, T1, T2](
-    func: Callable[[T1], Coro[T2]],
-    obj: Mapping[K, T1],
+
+async def amap_dict(
+    func: Callable[[_T], Coro[_T2]],
+    obj: Mapping[_K, _T],
     /,
     *,
     limit: int,
-) -> dict[K, T2]:
+) -> dict[_K, _T2]:
     """Asynchronously apply `func` to each value in a mapping.
 
     For extra options, see astarmap, which is used under hood.
@@ -37,13 +43,13 @@ async def amap_dict[K, T1, T2](
     return dict(zip(obj.keys(), values, strict=True))
 
 
-def amap[R](
-    func: Callable[..., Coro[R]],
+def amap(
+    func: Callable[..., Coro[_R]],
     /,
     *iterables: AnyIterable,
     limit: int,
     unordered: bool = False,
-) -> AsyncIterator[R]:
+) -> AsyncIterator[_R]:
     """Async version of map(func, *iterables).
 
     Make an iterator that computes the function using arguments from
@@ -55,14 +61,14 @@ def amap[R](
     return astarmap(func, it, limit=limit, unordered=unordered)
 
 
-async def astarmap[*Ts, R](
-    func: Callable[[*Ts], Coro[R]],
-    iterable: AnyIterable[tuple[*Ts]],
+async def astarmap(
+    func: Callable[[*_Ts], Coro[_R]],
+    iterable: AnyIterable[tuple[*_Ts]],
     /,
     *,
     limit: int,
     unordered: bool = False,
-) -> AsyncIterator[R]:
+) -> AsyncIterator[_R]:
     """Async version of itertools.starmap(fn, iterable).
 
     Return an iterator whose values are returned from the function evaluated
@@ -101,18 +107,18 @@ async def astarmap[*Ts, R](
             yield x
 
 
-async def _iter_results_unordered[T](
-    ts: AnyIterator[Task[T]], limit: int
-) -> AsyncIterator[T]:
+async def _iter_results_unordered(
+    ts: AnyIterator[Task[_T]], limit: int
+) -> AsyncIterator[_T]:
     """Fetch and run async tasks.
 
     Runs exactly `limit` tasks simultaneously (less in the end of iteration).
     Order of results is arbitrary.
     """
-    todo = set[Task[T]]()
-    done = Queue[Task[T]]()
+    todo = set[Task[_T]]()
+    done = Queue[Task[_T]]()
 
-    def _todo_to_done(t: Task[T]) -> None:
+    def _todo_to_done(t: Task[_T]) -> None:
         todo.discard(t)
         done.put_nowait(t)
 
@@ -146,15 +152,15 @@ async def _iter_results_unordered[T](
             yield done.get_nowait().result()
 
 
-async def _iter_results[T](
-    ts: AnyIterator[Task[T]], limit: int
-) -> AsyncIterator[T]:
+async def _iter_results(
+    ts: AnyIterator[Task[_T]], limit: int
+) -> AsyncIterator[_T]:
     """Fetch and run async tasks.
 
     Runs up to `limit` tasks simultaneously (less in the end of iteration).
     Order of results is preserved.
     """
-    todo = deque[Task[T]]()
+    todo = deque[Task[_T]]()
     while True:
         # Prefill task buffer
         while len(todo) < limit and (
@@ -203,7 +209,7 @@ def _all_sync_iters(
     return all(isinstance(it, Iterable) for it in iterables)
 
 
-async def _wrapgen[T](it: Iterable[T]) -> AsyncIterator[T]:
+async def _wrapgen(it: Iterable[_T]) -> AsyncIterator[_T]:
     for x in it:
         yield x
 
@@ -215,22 +221,22 @@ def astreaming(
 
 
 @overload
-def astreaming[T, R](
-    fn: ABatchFn[T, R],
+def astreaming(
+    fn: ABatchFn[_T, _R],
     /,
     *,
     batch_size: int | None = ...,
     timeout: float = ...,
-) -> ABatchFn[T, R]: ...
+) -> ABatchFn[_T, _R]: ...
 
 
-def astreaming[T, R](
-    fn: ABatchFn[T, R] | None = None,
+def astreaming(
+    fn: ABatchFn[_T, _R] | None = None,
     /,
     *,
     batch_size: int | None = None,
     timeout: float = 0.1,
-) -> ABatchFn[T, R] | ABatchDecorator:
+) -> ABatchFn[_T, _R] | ABatchDecorator:
     """Compute on `timeout` or if batch is collected.
 
     `timeout` (in seconds) is a time to wait till the batch is full,
@@ -254,13 +260,13 @@ def astreaming[T, R](
     assert batch_size is None or batch_size >= 1
     assert timeout > 0
 
-    buf: list[Job[T, R]] = []
+    buf: list[Job[_T, _R]] = []
     deadline = float('-inf')
     not_last = Event()
     lock = Lock()
     ncalls = 0
 
-    async def wrapper(items: Sequence[T]) -> list[R]:
+    async def wrapper(items: Sequence[_T]) -> list[_R]:
         nonlocal ncalls, deadline
         if not items:
             return []
@@ -270,10 +276,10 @@ def astreaming[T, R](
             not_last.set()
 
         ncalls += 1
-        fs: list[Future[R]] = []
+        fs: list[Future[_R]] = []
         try:
             for x in items:
-                f = Future[R]()
+                f = Future[_R]()
                 fs.append(f)
                 buf.append((x, f))
 

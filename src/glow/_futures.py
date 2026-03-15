@@ -1,37 +1,42 @@
 import asyncio
 import concurrent.futures as cf
 from collections.abc import Callable, Hashable, Iterable, Sequence
-from typing import Protocol, overload
+from typing import Generic, Protocol, TypeAlias, TypeVar, overload
 
 from ._dev import hide_frame
 from ._types import Coro, Some
 
-type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
-type Job[T, R] = tuple[T, AnyFuture[R]]
+T = TypeVar('T')
+R = TypeVar('R')
+S = TypeVar('S', bound=Sequence)
+K = TypeVar('K', bound=Hashable)
 
-type BatchFn[T, R] = Callable[[Sequence[T]], Sequence[R]]
-type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[Sequence[R]]]
+AnyFuture: TypeAlias = cf.Future[R] | asyncio.Future[R]
+Job: TypeAlias = tuple[T, AnyFuture[R]]
+
+BatchFn: TypeAlias = Callable[[Sequence[T]], Sequence[R]]
+ABatchFn: TypeAlias = Callable[[Sequence[T]], Coro[Sequence[R]]]
 
 
 class BatchDecorator(Protocol):
-    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__(self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
 class ABatchDecorator(Protocol):
-    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+    def __call__(self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
 
 class AnyBatchDecorator(Protocol):
     @overload
-    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__(self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
     @overload
-    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
-class PsAnyBatchDecorator[T](Protocol):
+    def __call__(self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+class PsAnyBatchDecorator(Protocol, Generic[T]):
     @overload
-    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__(self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
     @overload
-    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+    def __call__(self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
 
-def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
+def dispatch(fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
     if not xs:
         return
 
@@ -52,7 +57,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
             f.set_exception(obj)
 
 
-async def adispatch[T, R](fn: ABatchFn[T, R], *xs: Job[T, R]) -> None:
+async def adispatch(fn: ABatchFn[T, R], *xs: Job[T, R]) -> None:
     if not xs:
         return
 
@@ -79,7 +84,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: Job[T, R]) -> None:
                 f.exception()  # Mark exception as retrieved
 
 
-def _check_protocol[S: Sequence](ret: S, n: int) -> Some[S] | BaseException:
+def _check_protocol(ret: S, n: int) -> Some[S] | BaseException:
     if not isinstance(ret, Sequence):
         return TypeError(
             f'Call returned non-sequence. Got {type(ret).__name__}'
@@ -92,7 +97,7 @@ def _check_protocol[S: Sequence](ret: S, n: int) -> Some[S] | BaseException:
     return Some(ret)
 
 
-def gather_fs[K: Hashable, R](
+def gather_fs(
     fs: Iterable[tuple[K, AnyFuture[R]]],
 ) -> tuple[dict[K, R], BaseException | None]:
     results: dict[K, R] = {}

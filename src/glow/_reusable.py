@@ -5,9 +5,12 @@ import weakref
 from dataclasses import dataclass, field
 from functools import partial
 from threading import Thread
+from typing import Generic, TypeVar
 
 from ._cache import memoize
 from ._types import Callback, Get
+
+_T = TypeVar('_T')
 
 
 @memoize()
@@ -17,32 +20,32 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-async def _await[T](fn: Get[T]) -> T:
+async def _await(fn: Get[_T]) -> _T:
     return fn()
 
 
-def _trampoline[T](callback: Callback[T], ref: weakref.ref[T]) -> None:
+def _trampoline(callback: Callback[_T], ref: weakref.ref[_T]) -> None:
     if (obj := ref()) is not None:
         callback(obj)
 
 
 @dataclass
-class Reusable[T]:
-    make: Get[T]
+class Reusable(Generic[_T]):
+    make: Get[_T]
     delay: float
-    finalize: Callback[T] | None = None
+    finalize: Callback[_T] | None = None
 
     _loop: asyncio.AbstractEventLoop = field(default_factory=make_loop)
     _deleter: asyncio.TimerHandle | None = None
-    _box: list[T] = field(default_factory=list)
+    _box: list[_T] = field(default_factory=list)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    def __call__(self) -> T:
+    def __call__(self) -> _T:
         """Retrieve or recreate inner object."""
         fut = asyncio.run_coroutine_threadsafe(self._get(), self._loop)
         return fut.result()
 
-    async def _get(self) -> T:
+    async def _get(self) -> _T:
         async with self._lock:
             # reschedule finalizer
             if self._deleter is not None:

@@ -2,14 +2,20 @@ __all__ = ['wrap']
 
 from collections.abc import Callable, Generator, Iterator
 from itertools import count
-from typing import Any, Protocol, Self
+from typing import Any, Generic, ParamSpec, Protocol, Self, TypeVar
 
 from wrapt import ObjectProxy
 
 from ._types import Get
 
+_T = TypeVar('_T')
+_Y = TypeVar('_Y')
+_S = TypeVar('_S')
+_R = TypeVar('_R')
+_P = ParamSpec('_P')
 
-def wrap[**P, R](func: Callable[P, R], wrapper: '_Wrapper') -> Callable[P, R]:
+
+def wrap(func: Callable[_P, _R], wrapper: '_Wrapper') -> Callable[_P, _R]:
     return _Callable(func, wrapper)
 
 
@@ -31,35 +37,35 @@ class _Wrapper(Protocol):
     # and stops right after it returned.
     # Usage:
     #   return wrapper(fn, *args, **kwargs)
-    def __call__[**P, R](
-        self, fn: Callable[P, R], /, *args: P.args, **kwds: P.kwargs
-    ) -> R: ...
+    def __call__(
+        self, fn: Callable[_P, _R], /, *args: _P.args, **kwds: _P.kwargs
+    ) -> _R: ...
 
 
-class _Proxy[T](ObjectProxy):  # type: ignore[misc]
-    __wrapped__: T
+class _Proxy(ObjectProxy, Generic[_T]):  # type: ignore[misc]
+    __wrapped__: _T
     _self_wrapper: _Wrapper
 
-    def __init__(self, wrapped: T, wrapper: _Wrapper) -> None:
+    def __init__(self, wrapped: _T, wrapper: _Wrapper) -> None:
         super().__init__(wrapped)
         self._self_wrapper = wrapper
 
 
-class _Callable[**P, R](_Proxy[Callable[P, R]]):
+class _Callable(_Proxy[Callable[_P, _R]]):
     def __get__(
         self, instance: object, owner: type | None
     ) -> '_BoundCallable':
         fn = self.__wrapped__.__get__(instance, owner)
         return _BoundCallable(fn, self._self_wrapper)
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         # patch & record fn.__call__
         next(self._self_wrapper.calls)
         r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
         return _wrap(r, self._self_wrapper)
 
 
-class _BoundCallable[**P, R](_Callable[P, R]):
+class _BoundCallable(_Callable[_P, _R]):
     def __get__(self, instance: object, owner: type | None) -> Self:
         return self
 
@@ -70,9 +76,9 @@ class _BoundCallable[**P, R](_Callable[P, R]):
 class _WrapStop:
     _self_wrapper: _Wrapper
 
-    def _wrap_stop[**P, R](
-        self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
-    ) -> R:
+    def _wrap_stop(
+        self, op: Callable[_P, _R], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> _R:
         try:
             ret = self._self_wrapper(op, *args, **kwargs)
         except StopIteration as stop:
@@ -82,40 +88,40 @@ class _WrapStop:
             return _wrap(ret, self._self_wrapper)
 
 
-class _IterNext[Y](_WrapStop):
-    __wrapped__: Iterator[Y]
+class _IterNext(_WrapStop, Generic[_Y]):
+    __wrapped__: Iterator[_Y]
 
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> Y:  # ! + time
+    def __next__(self) -> _Y:  # ! + time
         return self._wrap_stop(self.__wrapped__.__next__)
 
 
-class _SendThrowClose[Y, S](_WrapStop):
-    __wrapped__: Generator[Y, S, Any]
+class _SendThrowClose(_WrapStop, Generic[_Y, _S]):
+    __wrapped__: Generator[_Y, _S, Any]
 
-    def send(self, value: S, /) -> Y:  # ! + time
+    def send(self, value: _S, /) -> _Y:  # ! + time
         return self._wrap_stop(self.__wrapped__.send, value)
 
-    def throw(self, value: BaseException, /) -> Y:  # ! + time
+    def throw(self, value: BaseException, /) -> _Y:  # ! + time
         return self._wrap_stop(self.__wrapped__.throw, value)
 
     def close(self) -> Any | None:  # ! + time
         return self._wrap_stop(self.__wrapped__.close)
 
 
-class _Iterator[Y](_IterNext[Y], _Proxy[Iterator[Y]]):
+class _Iterator(_IterNext[_Y], _Proxy[Iterator[_Y]]):
     pass
 
 
-class _Generator[Y, S, R](
-    _SendThrowClose[Y, S], _IterNext[Y], _Proxy[Generator[Y, S, R]]
+class _Generator(
+    _SendThrowClose[_Y, _S], _IterNext[_Y], _Proxy[Generator[_Y, _S, _R]]
 ):
     pass
 
 
-def _wrap[T](r: T, wrapper: _Wrapper) -> T:
+def _wrap(r: _T, wrapper: _Wrapper) -> _T:
     # function & generator
     # are distinguishable only by their result
     match r:

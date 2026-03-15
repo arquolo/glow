@@ -17,7 +17,16 @@ from collections.abc import (
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from threading import RLock
-from typing import Any, Final, Protocol, SupportsInt, cast
+from typing import (
+    Any,
+    Final,
+    Generic,
+    ParamSpec,
+    Protocol,
+    SupportsInt,
+    TypeVar,
+    cast,
+)
 from weakref import WeakValueDictionary
 
 from ._dev import clone_exc, hide_frame
@@ -35,6 +44,11 @@ from ._repr import si_bin
 from ._sizeof import sizeof
 from ._types import CachePolicy, Decorator, KeyFn, Some
 
+_T = TypeVar('_T')
+_R = TypeVar('_R')
+_F = TypeVar('_F', bound=AnyFuture)
+_P = ParamSpec('_P')
+
 
 class _Empty(enum.Enum):
     token = 0
@@ -44,19 +58,19 @@ _empty: Final = _Empty.token
 
 
 @dataclass(repr=False, slots=True)
-class _Node[T]:
-    value: T
+class _Node(Generic[_T]):
+    value: _T
     size: int
 
     def __repr__(self) -> str:
         return repr(self.value)
 
 
-def _make_node[T](obj: T, /) -> _Node[T]:
+def _make_node(obj: _T, /) -> _Node[_T]:
     return _Node(obj, 1)
 
 
-def _make_sized_node[T](obj: T, /) -> _Node[T]:
+def _make_sized_node(obj: _T, /) -> _Node[_T]:
     return _Node(obj, sizeof(obj))
 
 
@@ -86,23 +100,23 @@ def cache_status() -> str:
 _REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
 
 
-class _AbstractCache[T](Protocol):
-    def __getitem__(self, key: Hashable, /) -> T | _Empty: ...
-    def __setitem__(self, key: Hashable, value: T, /) -> None: ...
+class _AbstractCache(Protocol, Generic[_T]):
+    def __getitem__(self, key: Hashable, /) -> _T | _Empty: ...
+    def __setitem__(self, key: Hashable, value: _T, /) -> None: ...
 
 
-class _CacheMaker[T](Protocol):
+class _CacheMaker(Protocol, Generic[_T]):
     def __call__(
-        self, capacity: int, make_node: Callable[[T], _Node[T]]
-    ) -> '_AbstractCache[T]': ...
+        self, capacity: int, make_node: Callable[[_T], _Node[_T]]
+    ) -> '_AbstractCache[_T]': ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)
-class _Cache[T]:
+class _Cache(Generic[_T]):
     capacity: int
-    make_node: Callable[[T], _Node[T]] = field(repr=False)
+    make_node: Callable[[_T], _Node[_T]] = field(repr=False)
     size: int = 0
-    store: dict[Hashable, _Node[T]] = field(default_factory=dict)
+    store: dict[Hashable, _Node[_T]] = field(default_factory=dict)
     stats: Stats = field(default_factory=Stats)
 
     def __post_init__(self) -> None:
@@ -133,8 +147,8 @@ class _Cache[T]:
         return f'{type(self).__name__}({", ".join(args)})'
 
 
-class _Heap[T](_Cache[T]):
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+class _Heap(_Cache[_T]):
+    def __getitem__(self, key: Hashable, /) -> _T | _Empty:
         if node := self.store.get(key):
             self.stats.hits += 1
             return node.value
@@ -142,7 +156,7 @@ class _Heap[T](_Cache[T]):
         self.stats.misses += 1
         return _empty
 
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: _T, /) -> None:
         if key in self.store:
             return
         node = self.make_node(value)
@@ -155,8 +169,8 @@ class _Heap[T](_Cache[T]):
         self.size += node.size
 
 
-class _LruMruCache[T](_Cache[T]):
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+class _LruMruCache(_Cache[_T]):
+    def __getitem__(self, key: Hashable, /) -> _T | _Empty:
         if node := self.store.pop(key, None):
             self.stats.hits += 1
             self.store[key] = node
@@ -165,7 +179,7 @@ class _LruMruCache[T](_Cache[T]):
         self.stats.misses += 1
         return _empty
 
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: _T, /) -> None:
         if key in self.store:
             return
         node = self.make_node(value)
@@ -185,13 +199,13 @@ class _LruMruCache[T](_Cache[T]):
         raise NotImplementedError
 
 
-class _LruCache[T](_LruMruCache[T]):
+class _LruCache(_LruMruCache[_T]):
     def pop(self) -> _Node:
         """Drop oldest node."""
         return self.store.pop(next(iter(self.store)))
 
 
-class _MruCache[T](_LruMruCache[T]):
+class _MruCache(_LruMruCache[_T]):
     def pop(self) -> _Node:
         """Drop most recently added node."""
         return self.store.popitem()[1]
@@ -201,26 +215,26 @@ class _MruCache[T](_LruMruCache[T]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _WeakCache[T]:
+class _WeakCache(Generic[_T]):
     """Retrieve items via weak references from everywhere."""
 
-    alive: WeakValueDictionary[Hashable, T] = field(
+    alive: WeakValueDictionary[Hashable, _T] = field(
         default_factory=WeakValueDictionary
     )
 
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> _T | _Empty:
         return self.alive.get(key, _empty)
 
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: _T, /) -> None:
         if type(value).__weakrefoffset__:  # Support weak reference.
             self.alive[key] = value
 
 
 @dataclass(frozen=True, kw_only=True)
-class _StrongCache[T](_WeakCache[T]):
-    cache: _AbstractCache[T]
+class _StrongCache(_WeakCache[_T]):
+    cache: _AbstractCache[_T]
 
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> _T | _Empty:
         # Alive and stored items.
         # Called first to update cache stats (i.e. MRU/LRU if any).
         # `cache` has subset of objects from `alive`.
@@ -229,16 +243,16 @@ class _StrongCache[T](_WeakCache[T]):
         # Item could still exist, try reference ...
         return super().__getitem__(key)
 
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
+    def __setitem__(self, key: Hashable, value: _T, /) -> None:
         self.cache[key] = value
         super().__setitem__(key, value)
 
 
 @dataclass(frozen=True, slots=True)
-class _CacheState[**P, R]:
-    cache: _AbstractCache[R]
-    key_fn: KeyFn[P]
-    futures: WeakValueDictionary[Hashable, AnyFuture[R]] = field(
+class _CacheState(Generic[_P, _R]):
+    cache: _AbstractCache[_R]
+    key_fn: KeyFn[_P]
+    futures: WeakValueDictionary[Hashable, AnyFuture[_R]] = field(
         default_factory=WeakValueDictionary
     )
 
@@ -246,7 +260,7 @@ class _CacheState[**P, R]:
 # --------------------------------- wrapping ---------------------------------
 
 
-def _result[T](f: cf.Future[T]) -> T:
+def _result(f: cf.Future[_T]) -> _T:
     if f.cancelled():
         with hide_frame:
             raise cf.CancelledError
@@ -256,13 +270,13 @@ def _result[T](f: cf.Future[T]) -> T:
     return f.result()
 
 
-def _sync_memoize[**P, R](
-    fn: Callable[P, R],
-    cs: _CacheState[P, R],
-) -> Callable[P, R]:
+def _sync_memoize(
+    fn: Callable[_P, _R],
+    cs: _CacheState[_P, _R],
+) -> Callable[_P, _R]:
     lock = RLock()
 
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         key = cs.key_fn(*args, **kwargs)
 
         is_owner = False
@@ -275,7 +289,7 @@ def _sync_memoize[**P, R](
             if f:
                 assert isinstance(f, cf.Future)
             else:
-                cs.futures[key] = f = cf.Future[R]()
+                cs.futures[key] = f = cf.Future[_R]()
                 is_owner = True
 
         # Release lock to allow function to run
@@ -302,11 +316,11 @@ def _sync_memoize[**P, R](
     return wrapper
 
 
-def _async_memoize[**P, R](
-    fn: Callable[P, Awaitable[R]],
-    cs: _CacheState[P, R],
-) -> Callable[P, Awaitable[R]]:
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+def _async_memoize(
+    fn: Callable[_P, Awaitable[_R]],
+    cs: _CacheState[_P, _R],
+) -> Callable[_P, Awaitable[_R]]:
+    async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         key = cs.key_fn(*args, **kwargs)
 
         if (ret := cs.cache[key]) is not _empty:
@@ -317,7 +331,7 @@ def _async_memoize[**P, R](
             assert isinstance(f, asyncio.Future)
             with hide_frame:
                 return await f
-        cs.futures[key] = f = asyncio.Future[R]()
+        cs.futures[key] = f = asyncio.Future[_R]()
 
         # NOTE: fn() is not within threading.Lock, thus it's not thread safe
         # NOTE: but it's async-safe because this `await` is only one here.
@@ -341,15 +355,15 @@ def _async_memoize[**P, R](
 # ----------------------- wrapper with batching support ----------------------
 
 
-class _BatchedQuery[T, R]:
+class _BatchedQuery(Generic[_T, _R]):
     def __init__(
-        self, cs: _CacheState[[T], R], *tokens: T, aio: bool = False
+        self, cs: _CacheState[[_T], _R], *tokens: _T, aio: bool = False
     ) -> None:
         self._cs = cs
         self._keys = [cs.key_fn(t) for t in tokens]  # All keys with duplicates
 
-        self.jobs: list[tuple[Hashable, Some[T] | None, AnyFuture[R]]] = []
-        self._done: dict[Hashable, R] = {}
+        self.jobs: list[tuple[Hashable, Some[_T] | None, AnyFuture[_R]]] = []
+        self._done: dict[Hashable, _R] = {}
 
         for k, t in dict(zip(self._keys, tokens)).items():
             # If this key is processing right now, wait till its done ...
@@ -362,18 +376,18 @@ class _BatchedQuery[T, R]:
 
             # ... otherwise schedule a new job.
             else:
-                f = asyncio.Future[R]() if aio else cf.Future[R]()
+                f = asyncio.Future[_R]() if aio else cf.Future[_R]()
                 self.jobs.append((k, Some(t), f))  # Resolve this manually
                 cs.futures[k] = f  # ! Requires sync
 
     @property
-    def pending_jobs(self) -> list[Job[T, R]]:
+    def pending_jobs(self) -> list[Job[_T, _R]]:
         return [(a.x, f) for _, a, f in self.jobs if a]
 
-    def running_as[F: AnyFuture](self, tp: type[F]) -> set[F]:
+    def running_as(self, tp: type[_F]) -> set[_F]:
         return {f for _, a, f in self.jobs if not a and isinstance(f, tp)}
 
-    def sync(self, stash: Mapping[Hashable, R]) -> None:
+    def sync(self, stash: Mapping[Hashable, _R]) -> None:
         for k, r in stash.items():
             self._done[k] = self._cs.cache[k] = r
 
@@ -381,20 +395,20 @@ class _BatchedQuery[T, R]:
         for k, _, _ in self.jobs:
             self._cs.futures.pop(k, None)
 
-    def result(self) -> list[R]:
+    def result(self) -> list[_R]:
         return [self._done[k] for k in self._keys]
 
 
-def _sync_memoize_batched[T, R](
-    fn: BatchFn[T, R], cs: _CacheState[[T], R]
-) -> BatchFn[T, R]:
+def _sync_memoize_batched(
+    fn: BatchFn[_T, _R], cs: _CacheState[[_T], _R]
+) -> BatchFn[_T, _R]:
     lock = RLock()
 
-    def wrapper(tokens: Iterable[T]) -> list[R]:
+    def wrapper(tokens: Iterable[_T]) -> list[_R]:
         with lock:
             q = _BatchedQuery(cs, *tokens)
 
-        stash: dict[Hashable, R] = {}
+        stash: dict[Hashable, _R] = {}
         try:
             if jobs := q.pending_jobs:
                 dispatch(fn, *jobs)
@@ -416,13 +430,13 @@ def _sync_memoize_batched[T, R](
     return wrapper
 
 
-def _async_memoize_batched[T, R](
-    fn: ABatchFn[T, R], cs: _CacheState[[T], R]
-) -> ABatchFn[T, R]:
-    async def wrapper(tokens: Iterable[T]) -> list[R]:
+def _async_memoize_batched(
+    fn: ABatchFn[_T, _R], cs: _CacheState[[_T], _R]
+) -> ABatchFn[_T, _R]:
+    async def wrapper(tokens: Iterable[_T]) -> list[_R]:
         q = _BatchedQuery(cs, *tokens, aio=True)
 
-        stash: dict[Hashable, R] = {}
+        stash: dict[Hashable, _R] = {}
         try:
             if jobs := q.pending_jobs:
                 await adispatch(fn, *jobs)
@@ -445,24 +459,24 @@ def _async_memoize_batched[T, R](
 # ------------------------------- decorations --------------------------------
 
 
-def _memoize[**P, R](
-    fn: Callable[P, R],
+def _memoize(
+    fn: Callable[_P, _R],
     *,
     cs: _CacheState[..., Any],
     batched: bool,
-) -> Callable[P, R]:
+) -> Callable[_P, _R]:
     if batched and iscoroutinefunction(fn):
         w = cast(
-            'Callable[P, R]',
+            'Callable[_P, _R]',
             _async_memoize_batched(cast('ABatchFn', fn), cs=cs),
         )
     elif batched:
         w = cast(
-            'Callable[P, R]',
+            'Callable[_P, _R]',
             _sync_memoize_batched(cast('BatchFn', fn), cs=cs),
         )
     elif iscoroutinefunction(fn):
-        w = cast('Callable[P, R]', _async_memoize(fn, cs=cs))
+        w = cast('Callable[_P, _R]', _async_memoize(fn, cs=cs))
     else:
         w = _sync_memoize(fn, cs=cs)
 

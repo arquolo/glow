@@ -1,15 +1,16 @@
 __all__ = ['imhash_hist']
 
 from pathlib import Path
+from typing import TypeAlias
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 from PIL.Image import Image
 
-type _U8 = npt.NDArray[np.uint8]
-type _F32 = npt.NDArray[np.float32]
-type _AnyImage = Path | str | Image | _F32 | _U8
+_U8: TypeAlias = npt.NDArray[np.uint8]
+_F32: TypeAlias = npt.NDArray[np.float32]
+_AnyImage: TypeAlias = Path | str | Image | _F32 | _U8
 
 
 def imhash_hist(x: _AnyImage, /, *, bins: int = 4) -> _F32 | None:

@@ -54,7 +54,9 @@ from typing import (
     Any,
     Literal,
     Required,
+    TypeAlias,
     TypedDict,
+    TypeVar,
     Union,
     get_args,
     get_origin,
@@ -67,7 +69,8 @@ from typing_inspection.introspection import (
     inspect_annotation,
 )
 
-type _Node = str | tuple[str, type, list['_Node']]
+_Node: TypeAlias = str | tuple[str, type, list['_Node']]
+_T = TypeVar('_T')
 
 
 @dataclass(kw_only=True)
@@ -293,9 +296,9 @@ def _visit_field(
     return fd.name
 
 
-def _construct[T](
-    src: dict[str, Any], fn: Callable[..., T], args: Iterable[_Node]
-) -> T:
+def _construct(
+    src: dict[str, Any], fn: Callable[..., _T], args: Iterable[_Node]
+) -> _T:
     kwargs = {}
     for a in args:
         if isinstance(a, str):
@@ -305,12 +308,12 @@ def _construct[T](
     return fn(**kwargs)
 
 
-def parse_args[T](
-    fn: Callable[..., T],
+def parse_args(
+    fn: Callable[..., _T],
     /,
     args: Sequence[str] | None = None,
     prog: str | None = None,
-) -> tuple[T, ArgumentParser]:
+) -> tuple[_T, ArgumentParser]:
     """Create parser from type hints of callable, parse args and do call."""
     # TODO: Rename to `run`
     if not callable(fn):

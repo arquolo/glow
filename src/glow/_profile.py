@@ -8,13 +8,12 @@ from dataclasses import dataclass, field
 from functools import partial
 from itertools import count
 from time import perf_counter_ns, process_time_ns, thread_time_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from ._debug import whereami
 from ._repr import si, si_bin
 from ._streams import Stream, cumsum, maximum_cumsum
 from ._types import Callback, Get
-
 from ._wrap import wrap
 
 if TYPE_CHECKING:
@@ -23,6 +22,9 @@ if TYPE_CHECKING:
     _THIS: psutil.Process | None
 
 _THIS = None
+
+_R = TypeVar('_R')
+_P = ParamSpec('_P')
 
 
 @contextmanager
@@ -116,9 +118,9 @@ class _Profiler:
     def resume(self) -> None:
         self.idle_ns.send(+perf_counter_ns())
 
-    def __call__[**P, R](
-        self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
-    ) -> R:
+    def __call__(
+        self, op: Callable[_P, _R], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> _R:
         self.active_calls.send(+1)
         t_cpu = thread_time_ns()
         self.idle_ns.send(+t_cpu - perf_counter_ns())

@@ -14,7 +14,7 @@ from functools import partial, update_wrapper
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Never, cast
+from typing import Never, ParamSpec, TypeVar, cast
 from warnings import warn
 
 from ._cache import memoize
@@ -24,14 +24,18 @@ from ._types import Get
 
 _PATIENCE = 0.01
 
+_T = TypeVar('_T')
+_R = TypeVar('_R')
+_P = ParamSpec('_P')
 
-def threadlocal[**P, T](
-    fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
-) -> Get[T]:
+
+def threadlocal(
+    fn: Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs
+) -> Get[_T]:
     """Create thread-local singleton factory function (functools.partial)."""
     local_ = threading.local()
 
-    def wrapper() -> T:
+    def wrapper() -> _T:
         try:
             return local_.obj
         except AttributeError:
@@ -41,7 +45,7 @@ def threadlocal[**P, T](
     return update_wrapper(wrapper, fn)
 
 
-def call_once[T](fn: Get[T], /) -> Get[T]:
+def call_once(fn: Get[_T], /) -> Get[_T]:
     """Make callable a singleton.
 
     Supports async-def functions (but not async-gen functions).
@@ -55,7 +59,7 @@ def call_once[T](fn: Get[T], /) -> Get[T]:
     return memoize()(fn)
 
 
-def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
+def shared_call(fn: Callable[_P, _R], /) -> Callable[_P, _R]:
     """Merge duplicate parallel invocations of callable to a single one.
 
     Supports async-def functions (but not async-gen functions).
@@ -69,7 +73,7 @@ def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
     return memoize(0)(fn)
 
 
-def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
+def weak_memoize(fn: Callable[_P, _R], /) -> Callable[_P, _R]:
     """Preserve each result of each call until they are garbage collected."""
     warn(
         'Deprecated. Use `@memoize(0)` for this',
@@ -82,10 +86,10 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 # ----------------------------- batch collation ------------------------------
 
 
-def _fetch_batch[T](
-    q: SimpleQueue[T], batch_size: int, timeout: float
-) -> list[T]:
-    batch: list[T] = []
+def _fetch_batch(
+    q: SimpleQueue[_T], batch_size: int, timeout: float
+) -> list[_T]:
+    batch: list[_T] = []
 
     # Wait indefinitely until the first item is received
     if sys.platform == 'win32':
@@ -113,12 +117,12 @@ def _fetch_batch[T](
     return batch
 
 
-def _start_fetch_compute[T, R](
-    func: BatchFn[T, R],
+def _start_fetch_compute(
+    func: BatchFn[_T, _R],
     workers: int,
     batch_size: int,
     timeout: float,
-) -> SimpleQueue[Job[T, R]]:
+) -> SimpleQueue[Job[_T, _R]]:
     q = SimpleQueue()  # type: ignore[var-annotated]
     lock = Lock()
 
@@ -142,15 +146,15 @@ def _start_fetch_compute[T, R](
     return q
 
 
-def streaming[T, R](
-    func: BatchFn[T, R] | None = None,
+def streaming(
+    func: BatchFn[_T, _R] | None = None,
     /,
     *,
     batch_size: int | None = None,
     timeout: float = 0.1,
     workers: int = 1,
     pool_timeout: float = 20.0,
-) -> BatchDecorator | BatchFn[T, R]:
+) -> BatchDecorator | BatchFn[_T, _R]:
     """Delay start of computation to until batch is collected.
 
     Accepts two timeouts (in seconds):
@@ -186,8 +190,8 @@ def streaming[T, R](
     assert workers >= 1
     q = _start_fetch_compute(func, workers, batch_size or 0, timeout)
 
-    def wrapper(items: Sequence[T]) -> Sequence[R]:
-        fs = {Future[R](): item for item in items}
+    def wrapper(items: Sequence[_T]) -> Sequence[_R]:
+        fs = {Future[_R](): item for item in items}
         try:
             for f, x in fs.items():
                 q.put((x, f))  # Schedule task

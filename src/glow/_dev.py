@@ -1,6 +1,9 @@
 __all__ = ['clone_exc', 'hide_frame']
 
 from types import TracebackType
+from typing import TypeVar
+
+_E = TypeVar('_E', bound=BaseException)
 
 
 class _HideFrame:
@@ -18,7 +21,7 @@ class _HideFrame:
                 val.__traceback__ = tb.tb_next  # Drop outer traceback frame
 
 
-def clone_exc[E: BaseException](exc: E) -> E:
+def clone_exc(exc: _E) -> _E:
     new_exc = type(exc)(*exc.args)
     new_exc.__cause__ = exc.__cause__
     new_exc.__context__ = exc.__context__

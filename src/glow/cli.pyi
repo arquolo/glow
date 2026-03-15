@@ -1,9 +1,11 @@
 from argparse import ArgumentParser
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import Any, TypeVar, overload
 
 from ._types import Get
+
+_T = TypeVar('_T')
 
 @dataclass
 class Meta:
@@ -11,8 +13,8 @@ class Meta:
     flag: str | None = ...
 
 @overload
-def arg[T](
-    default: T,
+def arg(
+    default: _T,
     /,
     *,
     flag: str = ...,
@@ -22,11 +24,11 @@ def arg[T](
     help: str = ...,
     compare: bool = ...,
     metadata: Mapping[str, object] = ...,
-) -> T: ...
+) -> _T: ...
 @overload
-def arg[T](
+def arg(
     *,
-    factory: Get[T],
+    factory: Get[_T],
     flag: str = ...,
     init: bool = ...,
     repr: bool = ...,
@@ -34,7 +36,7 @@ def arg[T](
     help: str = ...,
     compare: bool = ...,
     metadata: Mapping[str, object] = ...,
-) -> T: ...
+) -> _T: ...
 @overload
 def arg(
     *,
@@ -46,6 +48,6 @@ def arg(
     compare: bool = ...,
     metadata: Mapping[str, object] = ...,
 ) -> Any: ...
-def parse_args[T](
-    fn: Callable[..., T], args: Sequence[str] = ..., prog: str = ...
-) -> tuple[T, ArgumentParser]: ...
+def parse_args(
+    fn: Callable[..., _T], args: Sequence[str] = ..., prog: str = ...
+) -> tuple[_T, ArgumentParser]: ...

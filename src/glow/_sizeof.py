@@ -9,12 +9,14 @@ from enum import Enum
 from inspect import isgetsetdescriptor, ismemberdescriptor
 from numbers import Number
 from types import FunctionType, ModuleType
+from typing import TypeVar
 
 import numpy as np
 
 from ._import_hook import when_imported
 from ._repr import si_bin
 
+_T = TypeVar('_T')
 _ZERO_DEPTH_BASES = (str, bytes, bytearray, range, Number, Enum)
 _SINGLETONS = (type, bool, FunctionType, ModuleType)
 
@@ -22,12 +24,12 @@ pythonapi._PyObject_GetDictPtr.argtypes = (ctypes.py_object,)
 pythonapi._PyObject_GetDictPtr.restype = ctypes.POINTER(ctypes.py_object)
 
 
-def unique_only[T](
-    fn: Callable[[T, set[int]], int],
-) -> Callable[[T, set[int]], int]:
+def unique_only(
+    fn: Callable[[_T, set[int]], int],
+) -> Callable[[_T, set[int]], int]:
     """Protection from self-referencing."""
 
-    def wrapper(obj: T, seen: set[int]) -> int:
+    def wrapper(obj: _T, seen: set[int]) -> int:
         if (id_ := id(obj)) not in seen:
             seen.add(id_)
             return fn(obj, seen)

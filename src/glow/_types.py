@@ -8,28 +8,40 @@ from collections.abc import (
     Iterator,
 )
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import (
+    Any,
+    Generic,
+    Literal,
+    ParamSpec,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+)
 
-type KeyFn[**P] = Callable[P, Hashable]
+_T = TypeVar('_T')
+_R = TypeVar('_R')
+_P = ParamSpec('_P')
 
-type Coro[T] = Coroutine[Any, Any, T]
-type AnyIterable[T] = AsyncIterable[T] | Iterable[T]
-type AnyIterator[T] = AsyncIterator[T] | Iterator[T]
+KeyFn: TypeAlias = Callable[_P, Hashable]
 
-type Get[T] = Callable[[], T]
-type Callback[T] = Callable[[T], object]
+Coro: TypeAlias = Coroutine[Any, Any, _T]
+AnyIterable: TypeAlias = AsyncIterable[_T] | Iterable[_T]
+AnyIterator: TypeAlias = AsyncIterator[_T] | Iterator[_T]
 
-type CachePolicy = Literal['lru', 'mru'] | None
+Get: TypeAlias = Callable[[], _T]
+Callback: TypeAlias = Callable[[_T], object]
+
+CachePolicy: TypeAlias = Literal['lru', 'mru'] | None
 
 
 @dataclass(frozen=True, slots=True)
-class Some[T]:
-    x: T
+class Some(Generic[_T]):
+    x: _T
 
 
 class Decorator(Protocol):
-    def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
+    def __call__(self, fn: Callable[_P, _R], /) -> Callable[_P, _R]: ...
 
 
-class PsDecorator[**P](Protocol):
-    def __call__[R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
+class PsDecorator(Protocol, Generic[_P]):
+    def __call__(self, fn: Callable[_P, _R], /) -> Callable[_P, _R]: ...

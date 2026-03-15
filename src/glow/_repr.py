@@ -2,9 +2,11 @@ __all__ = ['countable', 'mangle', 'repr_as_obj', 'si', 'si_bin']
 
 from collections import Counter
 from collections.abc import Callable
-from typing import cast
+from typing import TypeVar, cast
 
 from wrapt import ObjectProxy
+
+_T = TypeVar('_T', int, float)
 
 
 def mangle() -> Callable[[str], str | None]:
@@ -120,17 +122,17 @@ class _BinaryValue(_Value):
     binary: bool = True
 
 
-def si[T: (int, float)](value: T) -> T:
+def si(value: _T) -> _T:
     """Create human-readable value with metric prefixes.
 
     >>> s = si(10_000)
     >>> print(s)
     10k
     """
-    return cast('T', _Value(value))
+    return cast('_T', _Value(value))
 
 
-def si_bin[T: (int, float)](value: T) -> T:
+def si_bin(value: _T) -> _T:
     """Create binary value, human-readable with binary prefixes.
 
     >>> s = si_bin(4096)
@@ -140,4 +142,4 @@ def si_bin[T: (int, float)](value: T) -> T:
     .. _Human readable bytes count
        https://programming.guide/java/formatting-byte-size-to-human-readable-format.html
     """
-    return cast('T', _BinaryValue(value))
+    return cast('_T', _BinaryValue(value))

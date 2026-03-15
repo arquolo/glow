@@ -26,7 +26,7 @@ from os.path import basename
 from textwrap import dedent
 from threading import Lock
 from types import FrameType
-from typing import Any, NamedTuple, overload
+from typing import Any, NamedTuple, TypeVar, TypeVarTuple, overload
 
 import executing
 import numpy as np
@@ -47,6 +47,9 @@ LINE_WRAP_WIDTH = 70  # Characters
 
 FORMATTER = TerminalFormatter(bg='dark')
 LEXER = PythonLexer(ensurenl=False)
+T = TypeVar('T')
+T2 = TypeVar('T2')
+Ts = TypeVarTuple('Ts')
 
 
 def is_literal(s) -> bool:
@@ -388,11 +391,11 @@ def ic() -> None: ...
 
 
 @overload
-def ic[T](x: T, /) -> T: ...
+def ic(x: T, /) -> T: ...
 
 
 @overload
-def ic[T, T2, *Ts](x: T, x2: T2, /, *xs: *Ts) -> tuple[T, T2, *Ts]: ...
+def ic(x: T, x2: T2, /, *xs: *Ts) -> tuple[T, T2, *Ts]: ...
 
 
 def ic(*args):

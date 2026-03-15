@@ -11,6 +11,7 @@ import weakref
 from collections.abc import Callable
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
+from typing import Generic, TypeVar, TypeVarTuple
 
 import loky
 
@@ -24,6 +25,9 @@ _SYSTEM_TEMP = Path(tempfile.gettempdir())
 reducers: dict[type, Callable] = {}
 loky.set_loky_pickler('pickle')
 
+R = TypeVar('R')
+Ts = TypeVarTuple('Ts')
+
 
 def _get_shm_dir() -> Path:
     if sys.platform != 'win32':
@@ -36,14 +40,14 @@ def _get_shm_dir() -> Path:
     return _SYSTEM_TEMP
 
 
-class _Proxy[*Ts, R]:
+class _Proxy(Generic[*Ts, R]):
     call: Callable[[*Ts], R]
 
     def __call__(self, *args: *Ts) -> R:
         return self.call(*args)
 
 
-class _NullProxy[*Ts, R](_Proxy[*Ts, R]):
+class _NullProxy(_Proxy[*Ts, R]):
     __slots__ = ('call',)
 
     def __init__(self, call: Callable[[*Ts], R]) -> None:
@@ -119,7 +123,7 @@ def _mmap_reconstruct(data: bytes, memos: list[_Mmap]):
     return pickle.loads(data, buffers=buffers)
 
 
-class _MmapProxy[*Ts, R](_Proxy[*Ts, R]):
+class _MmapProxy(_Proxy[*Ts, R]):
     __slots__ = ('call', 'data', 'memos', 'uid')
 
     def __init__(self, call: Callable[[*Ts], R]) -> None:
@@ -145,7 +149,7 @@ def _shn_reconstruct(data: bytes, memos: list[tuple[SharedMemory, int]]):
     return pickle.loads(data, buffers=buffers)
 
 
-class _ShmemProxy[*Ts, R](_Proxy[*Ts, R]):
+class _ShmemProxy(_Proxy[*Ts, R]):
     __slots__ = ('call', 'data', 'memos')
 
     def __init__(self, call: Callable[[*Ts], R]) -> None:
@@ -165,6 +169,6 @@ class _ShmemProxy[*Ts, R](_Proxy[*Ts, R]):
         return _shn_reconstruct, (self.data, self.memos)
 
 
-def move_to_shmem[*Ts, R](fn: Callable[[*Ts], R]) -> Callable[[*Ts], R]:
+def move_to_shmem(fn: Callable[[*Ts], R]) -> Callable[[*Ts], R]:
     return _NullProxy(fn)
     return _ShmemProxy(fn)
