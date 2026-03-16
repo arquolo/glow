@@ -403,10 +403,12 @@ def _get_unwrap_iter[T](
     qsize: int,
     get_f: Get[Future[T]],
     sched_iter: Iterator,
+    is_batched: bool,
 ) -> Iterator[T]:
     with s:
         if not qsize:  # No tasks to do
             return
+        _LOGGER.debug('Prefetched %d jobs', qsize)
 
         # Unwrap 1st / schedule `N-qsize` / unwrap `qsize-1`
         with hide_frame:
@@ -416,6 +418,10 @@ def _get_unwrap_iter[T](
                 if not isinstance(obj, Some):
                     with hide_frame:
                         raise obj
+                if is_batched and isinstance(obj.x, Sized):
+                    _LOGGER.debug('Done %d items', len(obj.x))
+                else:
+                    _LOGGER.debug('Done 1')
                 yield obj.x
 
 
@@ -528,7 +534,7 @@ def starmap_n[T](
         f1s = starmap(submit_1, it)
         sched1_iter, get_f = _enqueue(f1s, unordered)
         qsize = _prefetch(s, sched1_iter, prefetch)
-        return _get_unwrap_iter(s, qsize, get_f, sched1_iter)
+        return _get_unwrap_iter(s, qsize, get_f, sched1_iter, False)
 
     submit_n = cast(
         'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
@@ -545,7 +551,7 @@ def starmap_n[T](
 
     sched_iter, get_fs = _enqueue(fs, unordered)
     qsize = _prefetch(s, sched_iter, prefetch)
-    chunks = _get_unwrap_iter(s, qsize, get_fs, sched_iter)
+    chunks = _get_unwrap_iter(s, qsize, get_fs, sched_iter, True)
     return chain.from_iterable(chunks)
 
 
@@ -577,9 +583,9 @@ def map_n[T](
     )
 
 
-def map_n_dict[K, T1, T2](
-    func: Callable[[T1], T2],
-    obj: Mapping[K, T1],
+def map_n_dict[K, T, T2](
+    func: Callable[[T], T2],
+    obj: Mapping[K, T],
     /,
     *,
     max_workers: int | None = None,

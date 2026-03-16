@@ -33,17 +33,17 @@ def map_n[T, R](
     **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 @overload
-def map_n[T1, T2, R](
-    __f: Callable[[T1, T2], R],
-    __iter1: Iterable[T1],
+def map_n[T, T2, R](
+    __f: Callable[[T, T2], R],
+    __iter1: Iterable[T],
     __iter2: Iterable[T2],
     /,
     **kwargs: Unpack[_MapIterKwargs],
 ) -> Iterator[R]: ...
 @overload
-def map_n[T1, T2, T3, R](
-    __f: Callable[[T1, T2, T3], R],
-    __iter1: Iterable[T1],
+def map_n[T, T2, T3, R](
+    __f: Callable[[T, T2, T3], R],
+    __iter1: Iterable[T],
     __iter2: Iterable[T2],
     __iter3: Iterable[T3],
     /,

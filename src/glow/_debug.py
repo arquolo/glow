@@ -56,6 +56,8 @@ def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
     calls = islice(calls, skip + 1, None)  # Skip 'skip' outerless frames
     if not limit:
         return calls
+    if limit < 0:
+        return iter(list(calls)[:limit])
     return islice(calls, limit)  # Keep at most `limit` outer frames
 
 

@@ -21,9 +21,9 @@ from ._futures import ABatchDecorator, ABatchFn, Job, adispatch
 from ._types import AnyIterable, AnyIterator, Coro
 
 
-async def amap_dict[K, T1, T2](
-    func: Callable[[T1], Coro[T2]],
-    obj: Mapping[K, T1],
+async def amap_dict[K, T, T2](
+    func: Callable[[T], Coro[T2]],
+    obj: Mapping[K, T],
     /,
     *,
     limit: int,

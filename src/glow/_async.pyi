@@ -61,15 +61,15 @@ def amap[R](
     *iters: AnyIterable,
     **kwargs: Unpack[_AmapKwargs],
 ) -> AsyncIterator[R]: ...
-async def amap_dict[K, T1, T2](
-    func: Callable[[T1], Coro[T2]], obj: Mapping[K, T1], /, *, limit: int
+async def amap_dict[K, T, T2](
+    func: Callable[[T], Coro[T2]], obj: Mapping[K, T], /, *, limit: int
 ) -> dict[K, T2]: ...
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
 def azip[T](
     iter1: AnyIterable[T], /
-) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,Y090
+) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,RUF102,Y090
 @overload
 def azip[T, T2](
     iter1: AnyIterable[T], iter2: AnyIterable[T2], /

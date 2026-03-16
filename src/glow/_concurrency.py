@@ -11,6 +11,7 @@ import threading
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
+from logging import getLogger
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
@@ -23,6 +24,7 @@ from ._futures import BatchDecorator, BatchFn, Job, dispatch, gather_fs
 from ._types import Get
 
 _PATIENCE = 0.01
+_LOGGER = getLogger(__name__)
 
 
 def threadlocal[**P, T](
@@ -83,7 +85,7 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 
 def _fetch_batch[T](
-    q: SimpleQueue[T], batch_size: int, timeout: float
+    q: SimpleQueue[T], batch_size: float, timeout: float
 ) -> list[T]:
     batch: list[T] = []
 
@@ -104,10 +106,16 @@ def _fetch_batch[T](
 
     now = monotonic()
     endtime = now + timeout
-    while now < endtime and not (0 < batch_size <= len(batch)):
+    while now < endtime and len(batch) < batch_size:
         try:
             batch.append(q.get(timeout=endtime - now))
         except Empty:
+            _LOGGER.debug(
+                'worker timed out %.3fs - qd %d/%s',
+                timeout,
+                len(batch),
+                batch_size,
+            )
             break
         now = monotonic()
     return batch
@@ -116,7 +124,7 @@ def _fetch_batch[T](
 def _start_fetch_compute[T, R](
     func: BatchFn[T, R],
     workers: int,
-    batch_size: int,
+    batch_size: float,
     timeout: float,
 ) -> SimpleQueue[Job[T, R]]:
     q = SimpleQueue()  # type: ignore[var-annotated]
@@ -157,6 +165,8 @@ def streaming[T, R](
     - `timeout` is a time to wait till the batch is full, i.e. latency.
     - `pool_timeout` is time to wait for results.
 
+    Also if `batch_size` is not set, or set to 0, only timeout is used.
+
     Uses ideas from
     - https://github.com/ShannonAI/service-streamer
     - https://github.com/leon0707/batch_processor
@@ -184,7 +194,9 @@ def streaming[T, R](
 
     assert callable(func)
     assert workers >= 1
-    q = _start_fetch_compute(func, workers, batch_size or 0, timeout)
+    batch_size_ = batch_size or float('inf')
+    assert batch_size_ >= 1
+    q = _start_fetch_compute(func, workers, batch_size_, timeout)
 
     def wrapper(items: Sequence[T]) -> Sequence[R]:
         fs = {Future[R](): item for item in items}
