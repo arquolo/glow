@@ -47,11 +47,19 @@ from ._uuid import Uid
 
 if TYPE_CHECKING:
     from ._ic import ic, ic_repr
-    from ._imutil import imhash_hist
+    from ._imutil import (
+        imhash_hist,
+        imresize_categorical,
+        imresize_multichannel,
+    )
 else:
     _exports = {
         '._ic': ['ic', 'ic_repr'],
-        '._imutil': ['imhash_hist'],
+        '._imutil': [
+            'imhash_hist',
+            'imresize_categorical',
+            'imresize_multichannel',
+        ],
     }
     _submodule_by_name = {
         name: modname for modname, names in _exports.items() for name in names
@@ -99,6 +107,8 @@ __all__ = [
     'ichunked',
     'ilen',
     'imhash_hist',
+    'imresize_categorical',
+    'imresize_multichannel',
     'init_loguru',
     'lock_seed',
     'mangle',

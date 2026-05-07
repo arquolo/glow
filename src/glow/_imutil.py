@@ -1,4 +1,8 @@
-__all__ = ['imhash_hist']
+__all__ = [
+    'imhash_hist',
+    'imresize_categorical',
+    'imresize_multichannel',
+]
 
 from pathlib import Path
 
@@ -67,3 +71,61 @@ def _ensure_u8(image: _F32 | _U8, /) -> _U8:
         return (image * 255).clip(0, 255).astype('B')  # assume [0 .. 1]
     msg = f'Unsupported image dtype. Got {dt}'
     raise NotImplementedError(msg)
+
+
+def imresize_multichannel(
+    img: np.ndarray,
+    h: int,
+    w: int,
+    *,
+    interpolation: int,
+    blksize: int = 4,
+) -> np.ndarray:
+    """Resize multichannel image.
+
+    Parameters:
+    - img - (h w) image of integers
+    - h & w - target size
+    - interpolation - cv2.INTER... value
+    - blksize - N channels to use for block resize
+    """
+    assert img.ndim == 3
+    ret = np.empty((h, w, img.shape[-1]), img.dtype)
+    for i in range(0, img.shape[-1], blksize):
+        cv2.resize(
+            img[..., i : i + blksize],
+            (w, h),
+            ret[..., i : i + blksize],
+            interpolation=interpolation,
+        )
+    return ret
+
+
+def imresize_categorical(
+    img: np.ndarray,
+    h: int,
+    w: int,
+    *,
+    fill_value: int = 0,
+    blksize: int = 4,
+) -> np.ndarray:
+    """Resize categorical data through one hot.
+
+    Parameters:
+    - img - (h w) image of integers
+    - h & w - target size
+    - fill_value - value to use in case of 0-sized input
+    - blksize - N channels to use for block resize
+    """
+    u = np.unique(img)
+    if u.size <= 1:
+        if u.size:
+            fill_value = u[0]
+        return np.full((h, w), fill_value, dtype=img.dtype)
+
+    planes = (img[:, :, None] == u[None, None, :]).astype('B')
+    planes *= 255
+    planes = imresize_multichannel(
+        planes, h, w, interpolation=cv2.INTER_CUBIC, blksize=blksize
+    )
+    return u[planes.argmax(-1)]
