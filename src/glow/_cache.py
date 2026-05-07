@@ -17,6 +17,7 @@ from collections.abc import (
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from threading import RLock
+from time import monotonic
 from typing import Any, Final, Protocol, SupportsInt, cast
 from weakref import WeakValueDictionary
 
@@ -41,23 +42,37 @@ class _Empty(enum.Enum):
 
 
 _empty: Final = _Empty.token
+_inf: Final = float('inf')
 
 
 @dataclass(repr=False, slots=True)
 class _Node[T]:
     value: T
     size: int
+    deadline: float | None = None
 
     def __repr__(self) -> str:
         return repr(self.value)
 
 
-def _make_node[T](obj: T, /) -> _Node[T]:
-    return _Node(obj, 1)
+@dataclass(frozen=True, slots=True)
+class _MakeNode:
+    ttl: float | None = None
+    realsize: bool = False
 
+    def __call__[T](self, obj: T, /) -> _Node[T]:
+        return _Node(
+            obj,
+            sizeof(obj) if self.realsize else 1,
+            None if self.ttl is None else monotonic() + self.ttl,
+        )
 
-def _make_sized_node[T](obj: T, /) -> _Node[T]:
-    return _Node(obj, sizeof(obj))
+    def refresh[T](self, node: _Node[T], now: float, /) -> _Node[T]:
+        return (
+            node
+            if self.ttl is None
+            else _Node(node.value, node.size, now + self.ttl)
+        )
 
 
 @dataclass
@@ -93,14 +108,14 @@ class _AbstractCache[T](Protocol):
 
 class _CacheMaker[T](Protocol):
     def __call__(
-        self, capacity: int, make_node: Callable[[T], _Node[T]]
+        self, capacity: int, make_node: _MakeNode
     ) -> '_AbstractCache[T]': ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)
 class _Cache[T]:
     capacity: int
-    make_node: Callable[[T], _Node[T]] = field(repr=False)
+    make_node: _MakeNode = field(repr=False)
     size: int = 0
     store: dict[Hashable, _Node[T]] = field(default_factory=dict)
     stats: Stats = field(default_factory=Stats)
@@ -155,25 +170,37 @@ class _Heap[T](_Cache[T]):
         self.size += node.size
 
 
-class _LruMruCache[T](_Cache[T]):
+class _TtlCache[T](_Cache[T]):
+    has_size_evict: bool = False
+
     def __getitem__(self, key: Hashable, /) -> T | _Empty:
+        now = monotonic()
+        self._remove_outdated(now)
+
         if node := self.store.pop(key, None):
             self.stats.hits += 1
-            self.store[key] = node
+            self.store[key] = self.make_node.refresh(node, now)  # move front
             return node.value
 
         self.stats.misses += 1
         return _empty
 
     def __setitem__(self, key: Hashable, value: T, /) -> None:
-        if key in self.store:
+        now = monotonic()
+        node = self.store.pop(key, None)  # pop before GC to reuse size
+        self._remove_outdated(now)
+
+        if node:
+            self.store[key] = self.make_node.refresh(node, now)  # move front
             return
+
         node = self.make_node(value)
         nsize = node.size
         if self.capacity >= 0:  # bound cache
             if nsize > self.capacity:  # cache will never fit this
                 return
-
+            if not self.has_size_evict and self.size + nsize > self.capacity:
+                return  # no space and unable to drop
             while self.store and self.size + nsize > self.capacity:  # evict
                 self.size -= self.pop().size
                 self.stats.dropped += 1
@@ -181,18 +208,31 @@ class _LruMruCache[T](_Cache[T]):
         self.store[key] = node
         self.size += nsize
 
-    def pop(self) -> _Node:
+    def _remove_outdated(self, now: float) -> None:
+        while self.store:
+            key, node = next(iter(self.store.items()))
+            if (node.deadline or _inf) > now:
+                return  # reached alive node before free space
+            self.store.pop(key)  # dead node, delete
+            self.size -= node.size
+            self.stats.dropped += 1
+
+    def pop(self) -> _Node[T]:
         raise NotImplementedError
 
 
-class _LruCache[T](_LruMruCache[T]):
-    def pop(self) -> _Node:
+class _LruTtlCache[T](_TtlCache[T]):
+    has_size_evict: bool = True
+
+    def pop(self) -> _Node[T]:
         """Drop oldest node."""
         return self.store.pop(next(iter(self.store)))
 
 
-class _MruCache[T](_LruMruCache[T]):
-    def pop(self) -> _Node:
+class _MruTtlCache[T](_TtlCache[T]):
+    has_size_evict: bool = True
+
+    def pop(self) -> _Node[T]:
         """Drop most recently added node."""
         return self.store.popitem()[1]
 
@@ -485,15 +525,17 @@ def memoize(
     batched: bool = False,
     policy: CachePolicy = None,
     key_fn: KeyFn = make_key,
+    ttl: float | None = None,
 ) -> Decorator:
     """Create caching decorator.
 
     Parameters:
     - count - max objects to store or None for unbound cache.
     - nbytes - max bytes to store.
-    - policy - eviction policy, either "raw" (no eviction), or "lru"
-      (evict oldest), or "mru" (evict most recent).
+    - policy - eviction policy, "lru" (pop oldest), "mru" (pop most recent), or
+      None for no eviction.
     - batched - set if callable supports batching.
+    - ttl - time to live (in seconds) for time constrained caching
     """
     count = -1 if count is None else int(count)
     nbytes = -1 if nbytes is None else si_bin(int(nbytes))
@@ -511,13 +553,19 @@ def memoize(
         )
 
     if cache_cls := _CACHES.get(policy):
-        make_node = _make_node
         # count/nbytes in -/- (unbound), -/+ (bytes), +/- (count)
         if capacity < 0:
-            cache_cls = _Heap
+            if ttl is None:  # no limit on size or time
+                cache_cls = _Heap
+                make_node = _MakeNode()
+            else:  # time limit only
+                cache_cls = _TtlCache
+                make_node = _MakeNode(ttl=ttl)
         # count/nbytes in -/+ (bytes), +/- (count)
         elif nbytes > 0:
-            make_node = _make_sized_node
+            make_node = _MakeNode(realsize=True, ttl=ttl)
+        else:
+            make_node = _MakeNode(ttl=ttl)
 
         cache = cache_cls(capacity, make_node)
         return functools.partial(  # type: ignore[return-value]
@@ -531,7 +579,7 @@ def memoize(
 
 
 _CACHES: dict[CachePolicy, _CacheMaker] = {
-    None: _Heap,
-    'lru': _LruCache,
-    'mru': _MruCache,
+    None: _TtlCache,
+    'lru': _LruTtlCache,
+    'mru': _MruTtlCache,
 }
