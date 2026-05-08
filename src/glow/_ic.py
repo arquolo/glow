@@ -25,15 +25,18 @@ from datetime import datetime
 from os.path import basename
 from textwrap import dedent
 from threading import Lock
-from types import FrameType
-from typing import Any, NamedTuple, overload
+from typing import TYPE_CHECKING, Any, NamedTuple, overload
 
 import executing
 import numpy as np
-from executing.executing import EnhancedAST
 from pygments import highlight
 from pygments.formatters import TerminalFormatter
 from pygments.lexers.python import PythonLexer
+
+if TYPE_CHECKING:
+    from types import FrameType
+
+    from executing._utils import EnhancedAST
 
 if sys.platform == 'win32':
     import colorama
@@ -299,7 +302,9 @@ def _format_time() -> str:
     return f' at {now}'
 
 
-def _format_context(frame: FrameType, call_node: EnhancedAST | None) -> str:
+def _format_context(
+    frame: 'FrameType', call_node: 'EnhancedAST | None'
+) -> str:
     info = inspect.getframeinfo(frame)
     parent_fn = info.function
 
@@ -363,7 +368,7 @@ def _construct_argument_output(
     return '\n'.join(indented_lines(PREFIX, '\n'.join(lines)))
 
 
-def _format(frame: FrameType, *args) -> str:
+def _format(frame: 'FrameType', *args) -> str:
     call_node = Source.executing(frame).node
     context = _format_context(frame, call_node)
     if not args:

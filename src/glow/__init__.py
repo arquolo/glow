@@ -16,8 +16,7 @@ from ._concurrency import (
     weak_memoize,
 )
 from ._coro import as_actor, coroutine, summary
-from ._debug import lock_seed, trace, trace_module, whereami
-from ._dev import hide_frame
+from ._dev import declutter_tb, hide_frame, lock_seed, whereami
 from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru
 from ._more import (
@@ -43,6 +42,7 @@ from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._reusable import Reusable
 from ._sizeof import sizeof
 from ._streams import cumsum, maximum_cumsum
+from ._tracing import trace, trace_module
 from ._uuid import Uid
 
 if TYPE_CHECKING:
@@ -98,6 +98,7 @@ __all__ = [
     'coroutine',
     'countable',
     'cumsum',
+    'declutter_tb',
     'eat',
     'get_executor',
     'groupby',
