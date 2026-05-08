@@ -149,6 +149,11 @@ class _Cache[T]:
 
 
 class _Heap[T](_Cache[T]):
+    """
+    No time limit.
+    When size limit is reached, nothing is removed
+    """
+
     def __getitem__(self, key: Hashable, /) -> T | _Empty:
         if node := self.store.get(key):
             self.stats.hits += 1
@@ -171,6 +176,11 @@ class _Heap[T](_Cache[T]):
 
 
 class _TtlCache[T](_Cache[T]):
+    """
+    Time limit for each entry.
+    When size limit is reached, nothing is removed
+    """
+
     has_size_evict: bool = False
 
     def __getitem__(self, key: Hashable, /) -> T | _Empty:
@@ -195,18 +205,19 @@ class _TtlCache[T](_Cache[T]):
             return
 
         node = self.make_node(value)
-        nsize = node.size
         if self.capacity >= 0:  # bound cache
-            if nsize > self.capacity:  # cache will never fit this
+            max_size = self.capacity - node.size
+            if max_size < 0 or (  # cache will never fit this
+                not self.has_size_evict  # unable to drop
+                and self.size > max_size  # no space
+            ):
                 return
-            if not self.has_size_evict and self.size + nsize > self.capacity:
-                return  # no space and unable to drop
-            while self.store and self.size + nsize > self.capacity:  # evict
+            while self.store and self.size > max_size:  # evict
                 self.size -= self.pop().size
                 self.stats.dropped += 1
 
         self.store[key] = node
-        self.size += nsize
+        self.size += node.size
 
     def _remove_outdated(self, now: float) -> None:
         while self.store:
@@ -222,6 +233,11 @@ class _TtlCache[T](_Cache[T]):
 
 
 class _LruTtlCache[T](_TtlCache[T]):
+    """
+    Time limit for each entry.
+    When size limit is reached, least recently used are evicted
+    """
+
     has_size_evict: bool = True
 
     def pop(self) -> _Node[T]:
@@ -230,6 +246,11 @@ class _LruTtlCache[T](_TtlCache[T]):
 
 
 class _MruTtlCache[T](_TtlCache[T]):
+    """
+    Time limit for each entry.
+    When size limit is reached, most recently used are evicted
+    """
+
     has_size_evict: bool = True
 
     def pop(self) -> _Node[T]:
@@ -553,20 +574,9 @@ def memoize(
         )
 
     if cache_cls := _CACHES.get(policy):
-        # count/nbytes in -/- (unbound), -/+ (bytes), +/- (count)
-        if capacity < 0:
-            if ttl is None:  # no limit on size or time
-                cache_cls = _Heap
-                make_node = _MakeNode()
-            else:  # time limit only
-                cache_cls = _TtlCache
-                make_node = _MakeNode(ttl=ttl)
-        # count/nbytes in -/+ (bytes), +/- (count)
-        elif nbytes > 0:
-            make_node = _MakeNode(realsize=True, ttl=ttl)
-        else:
-            make_node = _MakeNode(ttl=ttl)
-
+        if capacity < 0 or policy is None:
+            cache_cls = _Heap if ttl is None else _TtlCache
+        make_node = _MakeNode(ttl=ttl, realsize=nbytes > 0)
         cache = cache_cls(capacity, make_node)
         return functools.partial(  # type: ignore[return-value]
             _memoize,
