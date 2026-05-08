@@ -86,8 +86,7 @@ def _check_protocol[S: Sequence](ret: S, n: int) -> Some[S] | BaseException:
         )
     if len(ret) != n:
         return RuntimeError(
-            f'Call with {n} arguments '
-            f'incorrectly returned {len(ret)} results'
+            f'Call with {n} arguments incorrectly returned {len(ret)} results'
         )
     return Some(ret)
 

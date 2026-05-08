@@ -16,7 +16,7 @@ from ._concurrency import (
     weak_memoize,
 )
 from ._coro import as_actor, coroutine, summary
-from ._dev import declutter_tb, hide_frame, lock_seed, whereami
+from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru
 from ._more import (
@@ -37,7 +37,7 @@ from ._parallel import (
     max_cpu_count,
     starmap_n,
 )
-from ._profile import memprof, time_this, timer
+from ._profile import memprof, time_this, timer, whereami
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._reusable import Reusable
 from ._sizeof import sizeof
@@ -95,6 +95,7 @@ __all__ = [
     'cache_status',
     'call_once',
     'chunked',
+    'clone_exc',
     'coroutine',
     'countable',
     'cumsum',

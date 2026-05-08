@@ -1,21 +1,32 @@
-__all__ = ['memprof', 'time_this', 'timer']
+__all__ = [
+    'memprof',
+    'time_this',
+    'timer',
+    'whereami',
+]
 
 import atexit
+import gc
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
-from itertools import count
+from inspect import currentframe, getmodule, isfunction
+from itertools import count, islice
 from time import perf_counter_ns, process_time_ns, thread_time_ns
 from typing import TYPE_CHECKING
 
-from ._debug import whereami
+from ._cache import memoize
 from ._repr import si, si_bin
 from ._streams import Stream, cumsum, maximum_cumsum
 from ._types import Callback, Get
-
 from ._wrap import wrap
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from types import FrameType
+
 
 if TYPE_CHECKING:
     import psutil
@@ -23,6 +34,8 @@ if TYPE_CHECKING:
     _THIS: psutil.Process | None
 
 _THIS = None
+
+# ---------------------------------- memory ----------------------------------
 
 
 @contextmanager
@@ -48,6 +61,9 @@ def memprof(
                 name = f'{whereami(2, 1)} line'
             sign = '+' if size >= 0 else ''
             print(f'{name} done: {sign}{si_bin(size)}')
+
+
+# ----------------------------------- time -----------------------------------
 
 
 @contextmanager
@@ -190,3 +206,56 @@ def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
 
 
 time_this.finalizers = {}  # type: ignore[attr-defined]
+
+
+# --------------------------------- location ---------------------------------
+
+
+def _frame_hash(frame: 'FrameType') -> tuple[str, int]:
+    return frame.f_code.co_filename, frame.f_lineno
+
+
+@memoize(100, policy='lru', key_fn=_frame_hash)
+def _get_source(frame: 'FrameType') -> str:
+    # Get source module name
+    modname = (
+        spec.name
+        if (module := getmodule(frame)) and (spec := module.__spec__)
+        else '__main__'
+    )
+
+    # Get source code name (method or function name)
+    code = frame.f_code
+    codename = next(
+        (f.__qualname__ for f in gc.get_referrers(code) if isfunction(f)),
+        code.co_name,
+    )
+    if codename == '<module>':
+        codename = ''
+
+    return f'{modname}:{codename}:{frame.f_lineno}'
+
+
+def _get_source_calls(frame: 'FrameType | None') -> 'Iterator[str]':
+    while frame:
+        yield _get_source(frame)
+        if frame.f_code.co_name == '<module>':  # Stop on module-level scope
+            return
+        frame = frame.f_back
+
+
+def stack(skip: int = 0, limit: int | None = None) -> 'Iterator[str]':
+    """Return iterator of FrameInfos, stopping on module-level scope."""
+    frame = currentframe()
+    calls = _get_source_calls(frame)
+    calls = islice(calls, skip + 1, None)  # Skip 'skip' outerless frames
+    if not limit:
+        return calls
+    if limit < 0:
+        return iter(list(calls)[:limit])
+    return islice(calls, limit)  # Keep at most `limit` outer frames
+
+
+def whereami(skip: int = 0, limit: int | None = None) -> str:
+    calls = stack(skip + 1, limit)
+    return ' -> '.join(reversed([*calls]))

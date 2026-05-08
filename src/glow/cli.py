@@ -247,8 +247,7 @@ def _visit_field(
         and not issubclass(vtp, str)
     ):
         msg = (
-            'Iterable value types are supported only as generics. '
-            f'Got: {vtp}'
+            f'Iterable value types are supported only as generics. Got: {vtp}'
         )
         raise TypeError(msg)
 

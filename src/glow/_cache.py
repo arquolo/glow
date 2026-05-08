@@ -348,8 +348,7 @@ def _sync_memoize[**P, R](
             with hide_frame:
                 ret = fn(*args, **kwargs)
         except BaseException as exc:
-            exc = clone_exc(exc)  # Protect from mutation by outer frame
-            f.set_exception(exc)
+            f.set_exception(clone_exc(exc))
             with lock:
                 cs.futures.pop(key)
             raise
@@ -386,8 +385,7 @@ def _async_memoize[**P, R](
             with hide_frame:
                 ret = await fn(*args, **kwargs)
         except BaseException as exc:
-            exc = clone_exc(exc)
-            f.set_exception(exc)
+            f.set_exception(clone_exc(exc))
             cs.futures.pop(key)
             raise
         else:

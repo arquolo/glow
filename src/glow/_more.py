@@ -28,6 +28,10 @@ class SupportsSlice[T](Sized, Protocol):
     def __getitem__(self, s: slice, /) -> T: ...
 
 
+class HasPopleft[T](Protocol):
+    def popleft(self) -> T: ...
+
+
 # ----------------------------------------------------------------------------
 
 
@@ -85,7 +89,7 @@ def _dispatch(fallback_fn, fn, it, *args):
 # ----------------------------------------------------------------------------
 
 
-def window_hint(it: Sized, size) -> int:
+def window_hint(it: Sized, size: int) -> int:
     return len(it) + 1 - size
 
 
@@ -174,7 +178,7 @@ def chunked(it, size):
 # ----------------------------------------------------------------------------
 
 
-def _deiter[T](q: deque[T], /) -> Iterator[T]:
+def _deiter[T](q: HasPopleft[T], /) -> Iterator[T]:
     # Same as iter_except(q.popleft, IndexError) from docs of itertools
     try:
         while True:

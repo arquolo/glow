@@ -6,8 +6,8 @@ from types import ModuleType
 
 import wrapt
 
-from ._dev import whereami
 from ._import_hook import register_post_import_hook
+from ._profile import whereami
 
 
 @wrapt.decorator
