@@ -181,7 +181,7 @@ def _print_stats(*names: str) -> None:
             continue
         stats.append((*lines, name))
 
-    for busy, idle, tail, name in sorted(stats):
+    for busy, idle, tail, name in sorted(stats):  # , key=lambda t: t[3]):
         print(
             f'{busy / all_busy:6.2%}',
             f'{si(busy):>5s}s + {si(idle):>5s}s',
