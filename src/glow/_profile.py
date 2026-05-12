@@ -126,25 +126,26 @@ class _Profiler:
     idle_ns: Stream[int, int] = field(default_factory=cumsum)
 
     def suspend(self) -> Get[None]:
-        self.idle_ns.send(-perf_counter_ns())
-        return self.resume
+        wall_t0 = perf_counter_ns()
 
-    def resume(self) -> None:
-        self.idle_ns.send(+perf_counter_ns())
+        def resume() -> None:
+            self.idle_ns.send(max(perf_counter_ns() - wall_t0, 0))
+
+        return resume
 
     def __call__[**P, R](
         self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
         self.active_calls.send(+1)
-        t_cpu = thread_time_ns()
-        self.idle_ns.send(+t_cpu - perf_counter_ns())
-        self.busy_ns.send(-t_cpu)
+        cpu_t0 = thread_time_ns()
+        wall_t0 = perf_counter_ns()
         try:
             return op(*args, **kwargs)
         finally:
-            t_cpu = thread_time_ns()
-            self.busy_ns.send(+t_cpu)
-            self.idle_ns.send(-t_cpu + perf_counter_ns())
+            busy = max(thread_time_ns() - cpu_t0, 0)
+            idle = max(perf_counter_ns() - wall_t0 - busy, 0)
+            self.busy_ns.send(busy)
+            self.idle_ns.send(idle)
             self.active_calls.send(-1)
 
     def stat(self) -> tuple[float, float, str] | None:
