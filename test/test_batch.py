@@ -157,3 +157,57 @@ async def test_concurrent_async_interrupted():
 
     await t
     assert dict(fn.cache).keys() == set(_lrange(10))
+
+
+@pytest.mark.parametrize('workers', [0, 1, 3])
+@pytest.mark.parametrize('unordered', [False, True])
+def test_sync_map(workers, unordered):
+    def fn(x):
+        time.sleep(0.01 / (1 + x))
+        return x
+
+    n = 10
+    xs = list(range(n))
+
+    items = list(glow.map_n(fn, xs, max_workers=workers, unordered=unordered))
+    if unordered:
+        items = sorted(items)
+    assert items == xs
+
+    items = list(
+        glow.starmap_n(
+            fn, ((x,) for x in xs), max_workers=workers, unordered=unordered
+        )
+    )
+    if unordered:
+        items = sorted(items)
+    assert items == xs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('limit', [0, 1, 3])
+@pytest.mark.parametrize('unordered', [False, True])
+async def test_async_map(limit, unordered):
+    async def fn(x):
+        await asyncio.sleep(0.01 / (1 + x))
+        return x
+
+    n = 10
+    xs = list(range(n))
+
+    items = [
+        x async for x in glow.amap(fn, xs, limit=limit, unordered=unordered)
+    ]
+    if unordered:
+        items = sorted(items)
+    assert items == xs
+
+    items = [
+        x
+        async for x in glow.astarmap(
+            fn, ((x,) for x in xs), limit=limit, unordered=unordered
+        )
+    ]
+    if unordered:
+        items = sorted(items)
+    assert items == xs
