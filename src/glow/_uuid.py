@@ -7,11 +7,6 @@ from functools import lru_cache
 from typing import Self, SupportsInt
 from uuid import UUID, uuid4
 
-try:
-    from pydantic_core import core_schema
-except ImportError:
-    core_schema = None  # type: ignore[assignment]
-
 ALPHABET = string.digits + string.ascii_letters
 ALPHABET = ''.join(sorted({*ALPHABET} - {*'0O1Il'}))
 
@@ -83,38 +78,31 @@ class Uid(UUID):
     def __str__(self) -> str:
         return base57_encode(int(self))
 
-    @classmethod  # Pydantic 1.x requirement
-    def __get_validators__(cls):
-        yield cls
-
-    @classmethod  # Pydantic 2.x requirement
+    @classmethod  # Pydantic 2.x OpenAPI spec
     def __get_pydantic_core_schema__(cls, _, handler):
-        if core_schema is None:
-            raise ImportError('Cannot import `pydantic_core` module')
+        return {
+            'type': 'function-after',
+            'function': {'type': 'no-info', 'function': cls},
+            'schema': handler(str | UUID | int),
+            'serialization': {
+                'type': 'function-plain',
+                'function': str,
+                'info_arg': False,
+                'return_schema': {'type': 'str'},
+            },
+        }
 
-        return core_schema.no_info_after_validator_function(
-            cls,
-            handler(str | UUID | int),
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                str, info_arg=False, return_schema=core_schema.str_schema()
-            ),
-        )
-
-    @classmethod  # Pydantic 1.x requirement for OpenAPI
-    def __modify_schema__(cls, field_schema: dict) -> None:
+    @classmethod  # Pydantic 2.x OpenAPI spec
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        field_schema = handler(core_schema)
+        field_schema = handler.resolve_ref_schema(field_schema)
+        field_schema.pop('anyOf', None)
         field_schema.update(
             examples=[str(cls.v4()) for _ in range(2)],
             type='string',
             format=None,
             pattern=_REGEX.pattern,
         )
-
-    @classmethod  # Pydantic 2.x requirement for OpenAPI
-    def __get_pydantic_json_schema__(cls, core_schema, handler):
-        field_schema = handler(core_schema)
-        field_schema = handler.resolve_ref_schema(field_schema)
-        field_schema.pop('anyOf', None)
-        cls.__modify_schema__(field_schema)
         return field_schema
 
     @classmethod
