@@ -1,4 +1,12 @@
-__all__ = ['aceil', 'afloor', 'apack', 'around', 'pascal', 'smallest_dtype']
+__all__ = [
+    'aceil',
+    'afloor',
+    'afma',
+    'apack',
+    'around',
+    'pascal',
+    'smallest_dtype',
+]
 
 import numpy as np
 import numpy.typing as npt
@@ -83,4 +91,20 @@ def pascal(n: int) -> npt.NDArray[np.int64]:
     a[0] = 1
     for _ in range(n - 1):
         a[1:] += a[:-1]
+    return a
+
+
+def afma(
+    a: npt.NDArray[np.integer | np.floating],
+    scale: float = 1,
+    bias: float = 0,
+    dtype: npt.DTypeLike = 'float32',
+) -> npt.NDArray[np.integer | np.floating]:
+    """Computes `a * scale + bias` with just 1 extra buffer"""
+    if scale != 1:
+        a = np.multiply(a, scale, dtype=dtype)
+        if bias:
+            a += bias
+    elif bias != 0:
+        a = np.add(a, bias, dtype=dtype)
     return a
