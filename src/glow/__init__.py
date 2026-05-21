@@ -18,7 +18,15 @@ from ._concurrency import (
 from ._coro import as_actor, coroutine, summary
 from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
-from ._logging import init_loguru
+from ._logging import (
+    init_loguru,
+    log_debug,
+    log_error,
+    log_exception,
+    log_info,
+    log_warning,
+    span_task,
+)
 from ._more import (
     as_iter,
     chunked,
@@ -114,6 +122,11 @@ __all__ = [
     'imresize_multichannel',
     'init_loguru',
     'lock_seed',
+    'log_debug',
+    'log_error',
+    'log_exception',
+    'log_info',
+    'log_warning',
     'mangle',
     'map_n',
     'map_n_dict',
@@ -129,6 +142,7 @@ __all__ = [
     'si',
     'si_bin',
     'sizeof',
+    'span_task',
     'starmap_n',
     'streaming',
     'summary',

@@ -1,10 +1,21 @@
-__all__ = ['init_loguru']
+__all__ = [
+    'init_loguru',
+    'log_debug',
+    'log_error',
+    'log_exception',
+    'log_info',
+    'log_warning',
+    'span_task',
+]
 
 import logging
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import partial
 from types import FrameType, ModuleType
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack
 
 from loguru import logger
 
@@ -103,3 +114,37 @@ class _InterceptHandler(logging.Handler):
 
         opt = logger.opt(exception=record.exc_info, depth=depth)
         opt.log(level, record.getMessage())
+
+
+@contextmanager
+def span_task(task_id: str) -> Iterator[None]:
+    parent_id = _task_name_ctx.get()
+    if parent_id is not None:
+        task_id = f'{parent_id}/{task_id}'
+    token = _task_name_ctx.set(task_id)
+    try:
+        with logger.contextualize(task_id=task_id):
+            yield
+    finally:
+        _task_name_ctx.reset(token)
+
+
+def _log(
+    level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'EXCEPTION'],
+    message: str,
+) -> None:
+    if task_id := _task_name_ctx.get():
+        message = f'[{task_id}] {message}'
+    if level == 'EXCEPTION':
+        logger.exception(message)
+    else:
+        logger.log(level, message)
+
+
+log_debug = partial(_log, 'DEBUG')
+log_info = partial(_log, 'INFO')
+log_warning = partial(_log, 'WARNING')
+log_error = partial(_log, 'ERROR')
+log_exception = partial(_log, 'EXCEPTION')
+
+_task_name_ctx = ContextVar[str | None]('task_id', default=None)
