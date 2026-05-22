@@ -1,21 +1,12 @@
-__all__ = [
-    'init_loguru',
-    'log_debug',
-    'log_error',
-    'log_exception',
-    'log_info',
-    'log_warning',
-    'span_task',
-]
+__all__ = ['init_loguru', 'span_task']
 
 import logging
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import partial
-from types import FrameType, ModuleType
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack
+from types import FrameType
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 from loguru import logger
 
@@ -31,6 +22,19 @@ _DEFAULT_FMT = (
     ' | '
     '<level>{message}</level>'
 )
+_DEFAULT_MODULES = [
+    'uvicorn',
+    'uvicorn.access',
+    'uvicorn.error',
+    'hypercorn',
+    'hypercorn.access',
+    'hypercorn.error',
+    'sse_starlette.sse',
+    'websockets',
+    'websockets.client',
+    'websockets.protocol',
+    'websockets.server',
+]
 
 
 class _LoggerAddKwds(TypedDict, total=False):
@@ -44,8 +48,9 @@ class _LoggerAddKwds(TypedDict, total=False):
 def init_loguru(
     level: str = 'WARNING',
     *,
-    names: Iterable[str] | dict[str, list[str]] = (),
+    names: Iterable[str] | Mapping[str, Sequence[str]] = (),
     fmt: str = _DEFAULT_FMT,
+    extra: bool = False,
     **logger_add_kwargs: Unpack[_LoggerAddKwds],
 ) -> None:
     """
@@ -63,36 +68,26 @@ def init_loguru(
     )
     logging.captureWarnings(True)
 
+    if extra:
+        fmt = fmt + ' | {extra}'
     logger.remove()
     logger.add(sys.stdout, level=level, format=fmt, **logger_add_kwargs)
     _intercept_std_logger('', level)
 
-    if not isinstance(names, dict):
-        names = {level: [*names]}
+    for modname in _DEFAULT_MODULES:
+        _intercept_std_logger(modname, level)
 
-    names[level] = [
-        'uvicorn',
-        'uvicorn.access',
-        'uvicorn.error',
-        'hypercorn',
-        'hypercorn.access',
-        'hypercorn.error',
-        'sse_starlette.sse',
-        'websockets',
-        'websockets.client',
-        'websockets.protocol',
-        'websockets.server',
-        *names.get(level, []),
-    ]
-    for level_, names_ in names.items():
-        for name in names_:
-            _intercept_std_logger(name, level_)
+    if isinstance(names, Mapping):
+        for level_, names_ in names.items():
+            for modname in names_:
+                _intercept_std_logger(modname, level_)
+    else:
+        for modname in names:
+            _intercept_std_logger(modname, level)
 
 
-def _intercept_std_logger(module: str | ModuleType, level: int | str) -> None:
-    log = logging.getLogger(
-        module if isinstance(module, str) else module.__name__
-    )
+def _intercept_std_logger(modname: str, level: int | str) -> None:
+    log = logging.getLogger(modname)
     log.handlers = [_InterceptHandler(level=level)]
     log.propagate = False
 
@@ -117,34 +112,17 @@ class _InterceptHandler(logging.Handler):
 
 
 @contextmanager
-def span_task(task_id: str) -> Iterator[None]:
-    parent_id = _task_name_ctx.get()
-    if parent_id is not None:
+def span_task(task_id: str) -> Iterator[str]:
+    span = _span_ctx.get({})
+    if parent_id := span.get('task_id'):
         task_id = f'{parent_id}/{task_id}'
-    token = _task_name_ctx.set(task_id)
+
+    token = _span_ctx.set(span | {'task_id': task_id})
     try:
         with logger.contextualize(task_id=task_id):
-            yield
+            yield task_id
     finally:
-        _task_name_ctx.reset(token)
+        _span_ctx.reset(token)
 
 
-def _log(
-    level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'EXCEPTION'],
-    message: str,
-) -> None:
-    if task_id := _task_name_ctx.get():
-        message = f'[{task_id}] {message}'
-    if level == 'EXCEPTION':
-        logger.exception(message)
-    else:
-        logger.log(level, message)
-
-
-log_debug = partial(_log, 'DEBUG')
-log_info = partial(_log, 'INFO')
-log_warning = partial(_log, 'WARNING')
-log_error = partial(_log, 'ERROR')
-log_exception = partial(_log, 'EXCEPTION')
-
-_task_name_ctx = ContextVar[str | None]('task_id', default=None)
+_span_ctx = ContextVar[dict[str, str]]('span')

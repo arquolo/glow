@@ -18,6 +18,7 @@ from time import perf_counter_ns, process_time_ns, thread_time_ns
 from typing import TYPE_CHECKING
 
 from ._cache import memoize
+from ._dev import hide_frame
 from ._repr import si, si_bin
 from ._streams import Stream, cumsum, maximum_cumsum
 from ._types import Callback, Get
@@ -140,7 +141,8 @@ class _Profiler:
         cpu_t0 = thread_time_ns()
         wall_t0 = perf_counter_ns()
         try:
-            return op(*args, **kwargs)
+            with hide_frame:
+                return op(*args, **kwargs)
         finally:
             busy = max(thread_time_ns() - cpu_t0, 0)
             idle = max(perf_counter_ns() - wall_t0 - busy, 0)

@@ -38,12 +38,14 @@ class _HideFrame:
     ) -> None:
         if val is None:
             return
-        tb = val.__traceback__ or tb
+        val.__traceback__ = self.drop(val.__traceback__ or tb)
+
+    def drop(self, tb: 'TracebackType | None') -> 'TracebackType | None':
         for _ in range(self._nframes):
             if not tb:
-                break
+                return None
             tb = tb.tb_next  # Drop outer traceback frame
-        val.__traceback__ = tb
+        return tb
 
 
 def clone_exc[E: BaseException](exc: E) -> E:
