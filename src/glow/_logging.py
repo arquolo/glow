@@ -1,14 +1,18 @@
-__all__ = ['init_loguru', 'span_task']
+__all__ = ['get_task_id', 'init_loguru', 'span_task']
 
+import inspect
 import logging
 import sys
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
+from functools import update_wrapper
 from types import FrameType
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 from loguru import logger
+
+from ._dev import hide_frame
 
 if TYPE_CHECKING:
     from loguru import FilterDict, FilterFunction
@@ -111,8 +115,57 @@ class _InterceptHandler(logging.Handler):
         opt.log(level, record.getMessage())
 
 
+def get_task_id() -> str | None:
+    return _span_ctx.get({}).get('task_id')
+
+
+class span_task:  # noqa: N801
+    """Adds task_id to loguru.logger's extra
+
+    Could be used as decorator for function or async function,
+    or just as a context manager.
+    """
+
+    def __init__(self, task_id: str) -> None:
+        self._task_id = task_id
+        self._ctx: AbstractContextManager[str] | None = None
+
+    def __enter__(self) -> str:
+        if self._ctx:
+            raise RuntimeError('nesting context managers is not allowed')
+        self._ctx = _span_task(self._task_id)
+        return self._ctx.__enter__()
+
+    def __exit__(self, exc_type, exc, tb) -> bool | None:
+        ctx, self._ctx = self._ctx, None
+        if ctx is None:
+            raise RuntimeError('__enter__ was not called')
+        return ctx.__exit__(exc_type, exc, tb)
+
+    def __call__[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
+        if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
+            raise RuntimeError(
+                f'Generator functions are not supported. Got {fn}'
+            )
+
+        if inspect.iscoroutinefunction(fn):
+
+            async def awrapper(*args: P.args, **kwargs: P.kwargs):
+                with hide_frame, _span_task(self._task_id):
+                    return await fn(*args, **kwargs)
+
+            wrapper = cast('Callable[P, R]', awrapper)
+        else:
+
+            def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+                with hide_frame, _span_task(self._task_id):
+                    return fn(*args, **kwargs)
+
+        return update_wrapper(wrapper, fn)
+
+
 @contextmanager
-def span_task(task_id: str) -> Iterator[str]:
+def _span_task(task_id: str) -> Iterator[str]:
     span = _span_ctx.get({})
     if parent_id := span.get('task_id'):
         task_id = f'{parent_id}/{task_id}'
