@@ -1,4 +1,4 @@
-__all__ = ['get_task_id', 'init_loguru', 'span_task']
+__all__ = ['init_loguru', 'span_task']
 
 import inspect
 import logging
@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from functools import update_wrapper
 from types import FrameType
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast, overload
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 from loguru import logger
 
@@ -49,25 +49,6 @@ class _LoggerAddKwds(TypedDict, total=False):
     filter: 'str | FilterFunction | FilterDict'
 
 
-@overload
-def init_loguru(
-    level: str = ...,
-    *,
-    names: Iterable[str] | Mapping[str, Sequence[str]] = ...,
-    fmt: str = ...,
-    extra: bool = ...,
-    **logger_add_kwargs: Unpack[_LoggerAddKwds],
-) -> None: ...
-@overload
-def init_loguru(
-    level: str = ...,
-    *,
-    names: Iterable[str] | Mapping[str, Sequence[str]] = ...,
-    fmt: 'FormatFunction',
-    **logger_add_kwargs: Unpack[_LoggerAddKwds],
-) -> None: ...
-
-
 def init_loguru(
     level: str = 'WARNING',
     *,
@@ -95,23 +76,24 @@ def init_loguru(
         fmt = fmt + ' | {extra}'
     logger.remove()
     logger.add(sys.stdout, level=level, format=fmt, **logger_add_kwargs)
-    _intercept_std_logger('', level)
 
-    for modname in _DEFAULT_MODULES:
-        _intercept_std_logger(modname, level)
+    handler = _InterceptHandler(level)
+    for modname in ['', *_DEFAULT_MODULES]:
+        _set_handler(modname, handler)
 
     if isinstance(names, Mapping):
-        for level_, names_ in names.items():
-            for modname in names_:
-                _intercept_std_logger(modname, level_)
+        for lv, ns in names.items():
+            h = _InterceptHandler(lv) if lv != level else handler
+            for modname in ns:
+                _set_handler(modname, h)
     else:
         for modname in names:
-            _intercept_std_logger(modname, level)
+            _set_handler(modname, handler)
 
 
-def _intercept_std_logger(modname: str, level: int | str) -> None:
+def _set_handler(modname: str, handler: logging.Handler) -> None:
     log = logging.getLogger(modname)
-    log.handlers = [_InterceptHandler(level=level)]
+    log.handlers = [handler]
     log.propagate = False
 
 
@@ -134,11 +116,13 @@ class _InterceptHandler(logging.Handler):
         opt.log(level, record.getMessage())
 
 
-def get_task_id() -> str | None:
-    return _span_ctx.get({}).get('task_id')
+def span_task(task_id: str | None = None, /) -> '_TaskSpanner | str | None':
+    if task_id is None:
+        return _span_ctx.get({}).get('task_id')
+    return _TaskSpanner(task_id)
 
 
-class span_task:  # noqa: N801
+class _TaskSpanner:
     """Adds task_id to loguru.logger's extra
 
     Could be used as decorator for function or async function,
