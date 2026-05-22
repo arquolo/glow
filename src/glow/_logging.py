@@ -116,10 +116,14 @@ class _InterceptHandler(logging.Handler):
         opt.log(level, record.getMessage())
 
 
-def span_task(task_id: str | None = None, /) -> '_TaskSpanner | str | None':
-    if task_id is None:
+def span_task[**P, R](
+    id_or_func: Callable[P, R] | str | None = None, /
+) -> 'Callable[P, R] | _TaskSpanner | str | None':
+    if id_or_func is None:
         return _span_ctx.get({}).get('task_id')
-    return _TaskSpanner(task_id)
+    if callable(id_or_func):
+        return _TaskSpanner(id_or_func.__qualname__)(id_or_func)
+    return _TaskSpanner(id_or_func)
 
 
 class _TaskSpanner:
