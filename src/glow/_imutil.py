@@ -1,10 +1,13 @@
 __all__ = [
+    'circle',
     'imhash_hist',
     'imresize_categorical',
     'imresize_multichannel',
+    'imrotate',
 ]
 
 from pathlib import Path
+from typing import cast
 
 import cv2
 import numpy as np
@@ -129,3 +132,45 @@ def imresize_categorical(
         planes, h, w, interpolation=cv2.INTER_CUBIC, blksize=blksize
     )
     return u[planes.argmax(-1)]
+
+
+def imrotate[T: (np.float32, np.uint8)](
+    img: npt.NDArray[T],
+    degrees: float,
+    fit: bool | tuple[int, int] = False,
+    interpolation: int = cv2.INTER_CUBIC,
+    border: int = cv2.BORDER_REPLICATE,
+) -> npt.NDArray[T]:
+    """Rotate image around its center"""
+    h1, w1 = img.shape[:2]
+    radians = np.radians(degrees)
+    cos, sin = np.cos(radians), np.sin(radians)
+    acos, asin = abs(cos), abs(sin)
+
+    if fit is True:
+        h2, w2 = int(h1 * acos + w1 * asin), int(h1 * asin + w1 * acos)
+    elif fit:
+        h2, w2 = fit
+    else:
+        h2, w2 = h1, w1
+
+    rot = np.array([[cos, -sin], [sin, cos]])
+    bias = [w1 - 1, h1 - 1] - rot @ [w2 - 1, h2 - 1]
+    ret = cv2.warpAffine(
+        img,
+        np.c_[rot, bias / 2],
+        (w2, h2),
+        flags=cv2.WARP_INVERSE_MAP | interpolation,
+        borderMode=border,
+    )
+    return cast('npt.NDArray[T]', ret)
+
+
+def circle(diameter: int = 45, gain: float = 2) -> npt.NDArray[np.float32]:
+    assert gain >= 0
+    axis = np.linspace(-1, 1, diameter, dtype='f')
+    img = axis[:, None] ** 2 + axis[None, :] ** 2
+    img[img >= 1] = 0
+    if gain != 2:
+        img **= gain / 2
+    return img

@@ -5,7 +5,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 from . import _patch_len, _patch_print, _patch_scipy
-from ._array import aceil, afloor, afma, apack, around, pascal
+from ._array import abs2, aceil, afloor, afma, apack, around, pascal
 from ._async import RwLock, amap, amap_dict, astarmap, astreaming, azip
 from ._cache import cache_status, memoize
 from ._concurrency import (
@@ -48,17 +48,21 @@ from ._uuid import Uid
 if TYPE_CHECKING:
     from ._ic import ic, ic_repr
     from ._imutil import (
+        circle,
         imhash_hist,
         imresize_categorical,
         imresize_multichannel,
+        imrotate,
     )
 else:
     _exports = {
         '._ic': ['ic', 'ic_repr'],
         '._imutil': [
+            'circle',
             'imhash_hist',
             'imresize_categorical',
             'imresize_multichannel',
+            'imrotate',
         ],
     }
     _submodule_by_name = {
@@ -80,6 +84,7 @@ __all__ = [
     'Reusable',
     'RwLock',
     'Uid',
+    'abs2',
     'aceil',
     'afloor',
     'afma',
@@ -96,6 +101,7 @@ __all__ = [
     'cache_status',
     'call_once',
     'chunked',
+    'circle',
     'clone_exc',
     'coroutine',
     'countable',
@@ -112,6 +118,7 @@ __all__ = [
     'imhash_hist',
     'imresize_categorical',
     'imresize_multichannel',
+    'imrotate',
     'init_loguru',
     'lock_seed',
     'mangle',

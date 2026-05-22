@@ -1,4 +1,5 @@
 __all__ = [
+    'abs2',
     'aceil',
     'afloor',
     'afma',
@@ -108,3 +109,8 @@ def afma(
     elif bias != 0:
         a = np.add(a, bias, dtype=dtype)
     return a
+
+
+def abs2(c: npt.NDArray[np.complexfloating]) -> npt.NDArray[np.floating]:
+    f = np.abs(c)
+    return np.square(f, out=f)
