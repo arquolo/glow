@@ -8,14 +8,14 @@ from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from functools import update_wrapper
 from types import FrameType
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast, overload
 
 from loguru import logger
 
 from ._dev import hide_frame
 
 if TYPE_CHECKING:
-    from loguru import FilterDict, FilterFunction
+    from loguru import FilterDict, FilterFunction, FormatFunction
 
 _DEFAULT_FMT = (
     '<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green>'
@@ -49,11 +49,30 @@ class _LoggerAddKwds(TypedDict, total=False):
     filter: 'str | FilterFunction | FilterDict'
 
 
+@overload
+def init_loguru(
+    level: str = ...,
+    *,
+    names: Iterable[str] | Mapping[str, Sequence[str]] = ...,
+    fmt: str = ...,
+    extra: bool = ...,
+    **logger_add_kwargs: Unpack[_LoggerAddKwds],
+) -> None: ...
+@overload
+def init_loguru(
+    level: str = ...,
+    *,
+    names: Iterable[str] | Mapping[str, Sequence[str]] = ...,
+    fmt: 'FormatFunction',
+    **logger_add_kwargs: Unpack[_LoggerAddKwds],
+) -> None: ...
+
+
 def init_loguru(
     level: str = 'WARNING',
     *,
     names: Iterable[str] | Mapping[str, Sequence[str]] = (),
-    fmt: str = _DEFAULT_FMT,
+    fmt: 'FormatFunction | str' = _DEFAULT_FMT,
     extra: bool = False,
     **logger_add_kwargs: Unpack[_LoggerAddKwds],
 ) -> None:
@@ -72,7 +91,7 @@ def init_loguru(
     )
     logging.captureWarnings(True)
 
-    if extra:
+    if extra and not callable(fmt):
         fmt = fmt + ' | {extra}'
     logger.remove()
     logger.add(sys.stdout, level=level, format=fmt, **logger_add_kwargs)
