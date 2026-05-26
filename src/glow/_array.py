@@ -3,6 +3,7 @@ __all__ = [
     'aceil',
     'afloor',
     'afma',
+    'aminmax_norm',
     'apack',
     'around',
     'pascal',
@@ -114,3 +115,28 @@ def afma(
 def abs2(c: npt.NDArray[np.complexfloating]) -> npt.NDArray[np.floating]:
     f = np.abs(c)
     return np.square(f, out=f)
+
+
+def aminmax_norm(a: np.ndarray) -> np.ndarray:
+    """Scale unsigned array (i.e. uint*) to use full range"""
+    dtype = a.dtype
+    assert dtype.kind == 'u'
+    lo, hi = int(a.min()), int(a.max())
+    amax = np.iinfo(dtype).max
+    if lo == hi or (lo == 0 and hi == amax):
+        return a
+
+    scale = amax / (hi - lo)
+    if dtype == 'B' or (dtype == 'H' and a.size > 1e6):  #  use LUT
+        lut = np.arange(amax + 1)
+        lut -= lo
+        lut = np.multiply(lut, scale, dtype='f')
+        lut = around(lut.clip(0, amax), a.dtype)
+        return lut[a]
+
+    if lo > 0:
+        a = np.subtract(a, lo, dtype='f')
+        a *= scale
+    else:
+        a = np.multiply(a, scale, dtype='f')
+    return around(a, dtype)
