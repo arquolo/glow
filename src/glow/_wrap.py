@@ -1,12 +1,18 @@
 __all__ = ['wrap']
 
+import types
 from collections.abc import Callable, Generator, Iterator
+from functools import partial
 from itertools import count
 from typing import Any, Protocol, Self
 
 from wrapt import ObjectProxy
 
+from ._dev import hide_frame
 from ._types import Get
+
+_OP_FORK_STOPITER = True
+_OP_FUNC = True
 
 
 def wrap[**P, R](func: Callable[P, R], wrapper: '_Wrapper') -> Callable[P, R]:
@@ -38,7 +44,6 @@ class _Wrapper(Protocol):
 
 class _Proxy[T](ObjectProxy):  # type: ignore[misc]
     __wrapped__: T
-    _self_wrapper: _Wrapper
 
     def __init__(self, wrapped: T, wrapper: _Wrapper) -> None:
         super().__init__(wrapped)
@@ -55,7 +60,8 @@ class _Callable[**P, R](_Proxy[Callable[P, R]]):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         # patch & record fn.__call__
         next(self._self_wrapper.calls)
-        r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
+        with hide_frame:
+            r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
         return _wrap(r, self._self_wrapper)
 
 
@@ -64,68 +70,97 @@ class _BoundCallable[**P, R](_Callable[P, R]):
         return self
 
 
-# ----------------------------------- sync -----------------------------------
+# ---------------------------------- bases -----------------------------------
 
 
-class _WrapStop:
-    _self_wrapper: _Wrapper
-
-    def _wrap_stop[**P, R](
-        self, op: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
-    ) -> R:
-        try:
-            ret = self._self_wrapper(op, *args, **kwargs)
-        except StopIteration as stop:
-            stop.value = _wrap(stop.value, self._self_wrapper)
-            raise
-        else:
-            return _wrap(ret, self._self_wrapper)
-
-
-class _IterNext[Y](_WrapStop):
-    __wrapped__: Iterator[Y]
-
+class _Iterator[Y](_Proxy[Generator[Y, Any, Any] | Iterator[Y]]):
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> Y:  # ! + time
-        return self._wrap_stop(self.__wrapped__.__next__)
+    def __next__(self) -> Y:
+        with hide_frame:
+            try:
+                ret = self._self_wrapper(self.__wrapped__.__next__)
+            except StopIteration as stop:
+                _wrap(stop, self._self_wrapper)
+                raise
+        return _wrap(ret, self._self_wrapper)
 
 
-class _SendThrowClose[Y, S](_WrapStop):
-    __wrapped__: Generator[Y, S, Any]
+class _CoroLike[Y, S, R](_Proxy[Generator[Y, S, R]]):
+    def send(self, value: S, /) -> Y:
+        with hide_frame:
+            try:
+                ret = self._self_wrapper(self.__wrapped__.send, value)
+            except StopIteration as stop:
+                _wrap(stop, self._self_wrapper)
+                raise
+        return _wrap(ret, self._self_wrapper)
 
-    def send(self, value: S, /) -> Y:  # ! + time
-        return self._wrap_stop(self.__wrapped__.send, value)
+    def throw(self, value: BaseException, /) -> Y:
+        with hide_frame:
+            try:
+                ret = self._self_wrapper(self.__wrapped__.throw, value)
+            except StopIteration as stop:
+                _wrap(stop, self._self_wrapper)
+                raise
+        return _wrap(ret, self._self_wrapper)
 
-    def throw(self, value: BaseException, /) -> Y:  # ! + time
-        return self._wrap_stop(self.__wrapped__.throw, value)
-
-    def close(self) -> Any | None:  # ! + time
-        return self._wrap_stop(self.__wrapped__.close)
+    def close(self) -> R | None:
+        with hide_frame:
+            return self._self_wrapper(self.__wrapped__.close)
 
 
-class _Iterator[Y](_IterNext[Y], _Proxy[Iterator[Y]]):
+class _Generator[Y, S, R](_CoroLike[Y, S, R], _Iterator[Y]):
     pass
 
 
-class _Generator[Y, S, R](
-    _SendThrowClose[Y, S], _IterNext[Y], _Proxy[Generator[Y, S, R]]
-):
-    pass
+# ------------------------------ *type wrappers ------------------------------
+
+
+def _gen[Y, S, R](
+    gen: Generator[Y, S, R], wrapper: _Wrapper
+) -> Generator[Y, S, R]:
+    assert iter(gen) is gen
+    op: Get[Y] = gen.__next__
+    try:
+        while True:
+            with hide_frame:
+                item = wrapper(op)
+
+            try:
+                with hide_frame:
+                    send = yield _wrap(item, wrapper)
+            except BaseException as exc:  # noqa: BLE001
+                op = partial(gen.throw, exc)
+            else:
+                op = gen.__next__ if send is None else partial(gen.send, send)
+
+    except StopIteration as e:
+        return _wrap(e, wrapper).value
+
+
+# -------------------------------- decoration --------------------------------
 
 
 def _wrap[T](r: T, wrapper: _Wrapper) -> T:
-    # function & generator
+    # function, generator, coroutine & async generator
     # are distinguishable only by their result
-    match r:
-        # `r` comes from generator function (types.GeneratorType)
-        # or compatible
-        case Generator():
-            # return _gen(r, wrapper)
-            return _Generator(r, wrapper)
+    if isinstance(r, _Proxy):
+        return r
 
-        # `r` comes from function that returned iterator
+    if isinstance(r, StopIteration) and _OP_FORK_STOPITER:
+        r.value = _wrap(r.value, wrapper)
+        return r
+
+    match r:
+        # __iter__, __next__, send, throw, close
+        case types.GeneratorType() if _OP_FUNC:
+            return _gen(r, wrapper)  # generator functions
+        case Generator():
+            return _Generator(r, wrapper)  # user's generators
+
+        # __iter__, __next__
         case Iterator():
             return _Iterator(r, wrapper)
 
