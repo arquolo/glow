@@ -28,25 +28,24 @@ def gc_collect() -> None:
     gc.collect()
 
 
-# --------------------------------- mixtures ---------------------------------
+def throw(exc: type[Exception]) -> NoReturn:
+    raise exc
+
+
+# ---------------------------- generator mixtures ----------------------------
 
 
 def as_gen[Y, S, R](obj: Generator[Y, S, R]) -> GeneratorType[Y, S, R]:
     return cast('GeneratorType[Y, S, R]', obj)
 
 
-def throw(exc: type[Exception]) -> NoReturn:
-    raise exc
-
-
+@overload
+def _gen_once() -> Generator[None, Any]: ...
+@overload
+def _gen_once[T](v: T, /) -> Generator[T, Any]: ...
 @decorate
-def gen_none() -> Generator[None, Any]:
-    yield
-
-
-@decorate
-def gen_1() -> Generator[Literal[1], Any]:
-    yield 1
+def _gen_once[T](v: T = None, /) -> Generator[T, Any]:
+    yield v
 
 
 @decorate
@@ -86,7 +85,7 @@ def gen_returning_send() -> Generator[Literal[1], Any, Any]:
 
 class TestGen:
     def test_send_non_none_to_new_gen(self) -> None:
-        g = gen_1()
+        g = _gen_once(1)
         with pytest.raises(TypeError):
             g.send(0)
         assert next(g) == 1
@@ -100,16 +99,11 @@ class TestGen:
         # Attempt to expose partially constructed frames
         # See https://github.com/python/cpython/issues/94262
 
-        @decorate
-        def cb(*args) -> None:
-            inspect.stack()
-
         thresholds = gc.get_threshold()
-
-        gc.callbacks.append(cb)
+        gc.callbacks.append(lambda *args: inspect.stack())
         gc.set_threshold(1, 0, 0)
         try:
-            gen_1()
+            _gen_once(1)
         finally:
             gc.set_threshold(*thresholds)
             gc.callbacks.pop()
@@ -127,12 +121,12 @@ class TestGen:
         gc.set_threshold(1, 0, 0)
         try:
             del sneaky
-            gen_1()
+            _gen_once(1)
         finally:
             gc.set_threshold(*thresholds)
 
     def test_gi_frame_f_back(self) -> None:
-        gi = as_gen(gen_none())
+        gi = as_gen(_gen_once())
         assert gi.gi_frame
         assert gi.gi_frame.f_back is None
 
@@ -174,6 +168,19 @@ class TestGen:
         assert g.send(None) == 1
         assert g.send(100) == 200
 
+    def test_next_01(self) -> None:
+        @decorate
+        def foo() -> Generator[None, Any]:
+            try:
+                yield
+            except:  # noqa: E722
+                pass
+
+        g = foo()
+        g.send(None)
+        with pytest.raises(StopIteration):
+            g.send(None)
+
 
 # Tests for the issue #23353: check that the currently handled exception
 # is correctly saved/restored in PyEval_EvalFrameEx().
@@ -211,13 +218,11 @@ class TestGenExceptions:
                 pass
 
         next(make)
-        with pytest.raises(ValueError) as cm:
+        with pytest.raises(ValueError, check=lambda e: e.__context__ is None):
             next(make)
-        assert cm.value.__context__ is None
 
         assert sys.exception() is None
 
-    @decorate
     def test_throw_2(self) -> None:
         @decorate
         def gen() -> Generator[None, Any]:
@@ -247,8 +252,8 @@ class TestGenExceptions:
     def test_gen_except(self) -> None:
         @decorate
         def gen() -> Generator[Literal['done'] | None]:
+            assert sys.exception() is None
             try:
-                assert sys.exception() is None
                 yield None
                 # we are called from "except ValueError:", TypeError must
                 # inherit ValueError in its context
@@ -325,7 +330,7 @@ class TestGenExceptions:
         assert sys.exception() is None
 
     def test_throw_bad_exception_1(self) -> None:
-        g = gen_none()
+        g = _gen_once()
         with pytest.raises(
             TypeError,
             match='should have returned an instance of BaseException',
@@ -366,9 +371,8 @@ class TestGenExceptions:
     def test_return_tuple(self) -> None:
         g = gen_returning_send()
         assert next(g) == 1
-        with pytest.raises(StopIteration) as cm:
+        with pytest.raises(StopIteration, check=lambda e: e.value == (2,)):
             g.send((2,))
-        assert cm.value.value == (2,)
 
     def test_return_stopiteration(self) -> None:
         g = gen_returning_send()
@@ -384,9 +388,20 @@ class TestGenExceptions:
 
 class TestGenClose:
     def test_no_return_value(self) -> None:
-        g = gen_none()
+        g = _gen_once()
         g.send(None)
         assert g.close() is None
+
+    def test_no_except(self) -> None:
+        def foo() -> Generator[None, Any]:
+            try:
+                yield
+            except:  # noqa: E722
+                pass
+
+        g = foo()
+        g.send(None)
+        g.close()
 
     def test_return_value(self) -> None:
         @decorate
@@ -489,8 +504,9 @@ class TestGenThrow:
             try:
                 v = yield 1
             except MyError:
-                v = 1000
-            yield v * 2
+                yield 2000
+            else:
+                yield v * 2
 
         g = gen()
         assert g.send(None) == 1
@@ -544,7 +560,7 @@ class TestGenThrow:
             try:
                 raise KeyError('a')  # noqa: TRY301
             except Exception:  # noqa: BLE001
-                yield from gen_none()
+                yield from _gen_once()
 
         g = gen()
         g.send(None)
@@ -569,7 +585,7 @@ class TestGenThrow:
                 raise exc  # noqa: TRY301
             except Exception:  # noqa: BLE001
                 try:
-                    yield from gen_none()
+                    yield from _gen_once()
                 except Exception as exc_:  # noqa: BLE001
                     has_cycle = exc_ is exc_.__context__
             yield

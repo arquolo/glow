@@ -73,9 +73,12 @@ class _BoundCallable[**P, R](_Callable[P, R]):
 # ---------------------------------- bases -----------------------------------
 
 
-class _Iterator[Y](_Proxy[Generator[Y, Any, Any] | Iterator[Y]]):
-    def __iter__(self) -> Self:
-        return self
+class _Iterator[Y](_Proxy[Iterator[Y]]):
+    def __iter__(self) -> Iterator[Y]:
+        itr = self._self_wrapper(self.__wrapped__.__iter__)
+        if itr is self.__wrapped__:
+            return self
+        return _wrap(itr, self._self_wrapper)
 
     def __next__(self) -> Y:
         with hide_frame:
