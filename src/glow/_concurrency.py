@@ -225,3 +225,92 @@ def streaming[T, R](
     # TODO:  not yet bound method and plain function
     # TODO:  maybe implement __get__ on wrapper
     return update_wrapper(wrapper, func)
+
+
+def streaming2[T, R](
+    func: BatchFn[T, R] | None = None,
+    /,
+    *,
+    batch_size: int,
+    timeout: float = 0.1,
+    workers: int = 1,
+    pool_timeout: float = 20.0,
+) -> BatchDecorator | BatchFn[T, R]:
+    if func is None:
+        deco = partial(
+            streaming2,
+            batch_size=batch_size,
+            timeout=timeout,
+            workers=workers,
+            pool_timeout=pool_timeout,
+        )
+        return cast('BatchDecorator', deco)
+
+    assert callable(func)
+    assert workers >= 1
+
+    from ._thread_quota import ThreadQuota
+
+    ex = ThreadQuota(workers)
+    fut = Future[Sequence[R]]()
+    lock = Lock()
+    batch: list[T] = []
+    deadline = monotonic()
+
+    def _schedule_batch() -> None:
+        nonlocal fut
+        if batch:
+            ex.submit_f(fut, func, batch[:])
+            batch.clear()
+            fut = Future[Sequence[R]]()
+
+    def sync_late_submit() -> None:
+        with lock:
+            old_deadline = deadline
+            dt = monotonic() - old_deadline
+
+        if dt > 0:
+            sleep(dt)
+
+        with lock:
+            if deadline is not old_deadline:  # deadline moved forward
+                return
+            _schedule_batch()
+
+    def sync_submit(x: T) -> tuple[Future[Sequence[R]], int]:
+        nonlocal deadline
+        with lock:
+            if not batch:
+                deadline = monotonic() + timeout
+                ex.submit(sync_late_submit)
+
+            fut_ = fut
+            idx = len(batch)
+
+            batch.append(x)
+            if len(batch) == batch_size or monotonic() >= deadline:
+                # FIXME: cancel sync_late_submit (how?)
+                _schedule_batch()
+
+            return fut_, idx
+
+    def wrapper(xs: Sequence[T]) -> Sequence[R]:
+        pairs = [sync_submit(x) for x in xs]
+
+        fs = {f for f, _ in pairs}
+        try:
+            dnd = wait(fs, pool_timeout, return_when='FIRST_EXCEPTION')
+        finally:  # Cancel all not-yet-running tasks, we're beyond deadline
+            for f in fs:
+                f.cancel()
+        if dnd.not_done:  # Some tasks timed out
+            del dnd, fs  # ? Break reference cycle
+            raise TimeoutError
+
+        rs, err = gather_fs(zip(fs, fs))
+        if err is None:
+            return [rs[f][i] for f, i in pairs]
+        with hide_frame:
+            raise err
+
+    return update_wrapper(wrapper, func)
