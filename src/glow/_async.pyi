@@ -67,9 +67,7 @@ async def amap_dict[K, T, T2](
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
-def azip[T](
-    iter1: AnyIterable[T], /
-) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,RUF102,Y090
+def azip[T](iter1: AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,RUF102,Y090
 @overload
 def azip[T, T2](
     iter1: AnyIterable[T], iter2: AnyIterable[T2], /

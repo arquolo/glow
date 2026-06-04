@@ -15,6 +15,8 @@ type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[Sequence[R]]]
 
 class BatchDecorator(Protocol):
     def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+
+
 class ABatchDecorator(Protocol):
     def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
@@ -24,6 +26,8 @@ class AnyBatchDecorator(Protocol):
     def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
     @overload
     def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+
+
 class PsAnyBatchDecorator[T](Protocol):
     @overload
     def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
