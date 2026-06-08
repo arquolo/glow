@@ -69,8 +69,8 @@ else:
         '._imutil': [
             'circle',
             'imhash_hist',
+            'imresize',
             'imresize_categorical',
-            'imresize_multichannel',
             'imrotate',
         ],
     }
