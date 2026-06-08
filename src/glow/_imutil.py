@@ -1,8 +1,8 @@
 __all__ = [
     'circle',
     'imhash_hist',
+    'imresize',
     'imresize_categorical',
-    'imresize_multichannel',
     'imrotate',
 ]
 
@@ -12,8 +12,6 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 from PIL.Image import Image
-
-_BLOCK_SIZE = 4
 
 type _U8 = npt.NDArray[np.uint8]
 type _F32 = npt.NDArray[np.float32]
@@ -77,13 +75,13 @@ def _ensure_u8(image: _F32 | _U8, /) -> _U8:
     raise NotImplementedError(msg)
 
 
-def imresize_multichannel(
+def imresize(
     img: np.ndarray,
     h: int,
     w: int,
     *,
     interpolation: int,
-    blksize: int = 4,
+    blksize: int = 0,
 ) -> np.ndarray:
     """Resize multichannel image.
 
@@ -91,18 +89,21 @@ def imresize_multichannel(
     - img - (h w) image of integers
     - h & w - target size
     - interpolation - cv2.INTER... value
-    - blksize - N channels to use for block resize
+    - blksize - N channels to use for block resize, 0 to do `resize` op once
     """
     assert img.ndim == 3
     c = img.shape[-1]
     ret = np.empty((h, w, c), img.dtype)
+    blksize = blksize or c
     for i in range(0, c, blksize):
-        cv2.resize(
+        dst = cv2.resize(
             img[..., i : i + blksize],
             (w, h),
-            dst=ret[..., i : i + blksize],
+            dst=ret if c <= blksize else None,
             interpolation=interpolation,
         )
+        if c > blksize:
+            ret[..., i : i + blksize] = dst
     return ret
 
 
@@ -113,7 +114,7 @@ def imresize_categorical(
     *,
     interpolation: int = cv2.INTER_CUBIC,
     fill_value: int = 0,
-    blksize: int = _BLOCK_SIZE,
+    blksize: int = 0,
 ) -> np.ndarray:
     """Resize categorical data through one hot.
 
@@ -144,7 +145,7 @@ def imresize_categorical(
 
     onehot = img[:, :, None] == u[None, None, :]
     onehot = np.where(onehot, np.uint8(255), np.uint8(0))
-    onehot = imresize_multichannel(
+    onehot = imresize(
         onehot, h, w, interpolation=interpolation, blksize=blksize
     )
     return u[onehot.argmax(-1)]
@@ -156,7 +157,7 @@ def imrotate[T: (np.float32, np.uint8)](
     fit: bool | tuple[int, int] = False,
     interpolation: int = cv2.INTER_CUBIC,
     border: int = cv2.BORDER_REPLICATE,
-    blksize: int = _BLOCK_SIZE,
+    blksize: int = 0,
 ) -> npt.NDArray[T]:
     """Rotate image around its center"""
     h, w, *cs = img.shape
@@ -178,15 +179,18 @@ def imrotate[T: (np.float32, np.uint8)](
 
     c = img.shape[-1]
     ret = np.empty((h2, w2, c), img.dtype)
+    blksize = blksize or c
     for i in range(0, c, blksize):
-        cv2.warpAffine(
+        dst = cv2.warpAffine(
             img[:, :, i : i + blksize],
             np.c_[rot, bias / 2],
             (w2, h2),
-            dst=ret[:, :, i : i + blksize],
+            dst=ret if c <= blksize else None,
             flags=cv2.WARP_INVERSE_MAP | interpolation,
             borderMode=border,
         )
+        if c > blksize:
+            ret[:, :, i : i + blksize] = dst
     return ret.reshape(h2, w2, *cs)
 
 

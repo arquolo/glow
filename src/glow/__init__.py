@@ -59,8 +59,8 @@ if TYPE_CHECKING:
     from ._imutil import (
         circle,
         imhash_hist,
+        imresize,
         imresize_categorical,
-        imresize_multichannel,
         imrotate,
     )
 else:
@@ -126,8 +126,8 @@ __all__ = [
     'ichunked',
     'ilen',
     'imhash_hist',
+    'imresize',
     'imresize_categorical',
-    'imresize_multichannel',
     'imrotate',
     'init_loguru',
     'lock_seed',
