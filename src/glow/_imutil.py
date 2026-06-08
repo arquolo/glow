@@ -7,12 +7,13 @@ __all__ = [
 ]
 
 from pathlib import Path
-from typing import cast
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 from PIL.Image import Image
+
+_BLOCK_SIZE = 4
 
 type _U8 = npt.NDArray[np.uint8]
 type _F32 = npt.NDArray[np.float32]
@@ -93,12 +94,13 @@ def imresize_multichannel(
     - blksize - N channels to use for block resize
     """
     assert img.ndim == 3
-    ret = np.empty((h, w, img.shape[-1]), img.dtype)
-    for i in range(0, img.shape[-1], blksize):
+    c = img.shape[-1]
+    ret = np.empty((h, w, c), img.dtype)
+    for i in range(0, c, blksize):
         cv2.resize(
             img[..., i : i + blksize],
             (w, h),
-            ret[..., i : i + blksize],
+            dst=ret[..., i : i + blksize],
             interpolation=interpolation,
         )
     return ret
@@ -109,8 +111,9 @@ def imresize_categorical(
     h: int,
     w: int,
     *,
+    interpolation: int = cv2.INTER_CUBIC,
     fill_value: int = 0,
-    blksize: int = 4,
+    blksize: int = _BLOCK_SIZE,
 ) -> np.ndarray:
     """Resize categorical data through one hot.
 
@@ -120,18 +123,31 @@ def imresize_categorical(
     - fill_value - value to use in case of 0-sized input
     - blksize - N channels to use for block resize
     """
+    if img.ndim != 2 and (img.ndim != 3 or img.shape[-1] != 1):
+        raise ValueError(f'Only single channel is allowed. Got {img.shape=}')
+
     u = np.unique(img)
-    if u.size <= 1:
+    if u.size <= 1:  # Empty or unary
         if u.size:
             fill_value = u[0]
         return np.full((h, w), fill_value, dtype=img.dtype)
 
-    planes = (img[:, :, None] == u[None, None, :]).astype('B')
-    planes *= 255
-    planes = imresize_multichannel(
-        planes, h, w, interpolation=cv2.INTER_CUBIC, blksize=blksize
+    if u.size == 2:  # Binary
+        ret = np.empty((h, w), dtype='B')
+        cv2.resize(
+            np.where(img == u[1], np.uint8(255), np.uint8(0)),
+            (w, h),
+            dst=ret,
+            interpolation=interpolation,
+        )
+        return np.where(ret >= 128, u[1], u[0])
+
+    onehot = img[:, :, None] == u[None, None, :]
+    onehot = np.where(onehot, np.uint8(255), np.uint8(0))
+    onehot = imresize_multichannel(
+        onehot, h, w, interpolation=interpolation, blksize=blksize
     )
-    return u[planes.argmax(-1)]
+    return u[onehot.argmax(-1)]
 
 
 def imrotate[T: (np.float32, np.uint8)](
@@ -140,33 +156,42 @@ def imrotate[T: (np.float32, np.uint8)](
     fit: bool | tuple[int, int] = False,
     interpolation: int = cv2.INTER_CUBIC,
     border: int = cv2.BORDER_REPLICATE,
+    blksize: int = _BLOCK_SIZE,
 ) -> npt.NDArray[T]:
     """Rotate image around its center"""
-    h1, w1 = img.shape[:2]
+    h, w, *cs = img.shape
+    img = img.reshape(h, w, -1)
+
     radians = np.radians(degrees)
     cos, sin = np.cos(radians), np.sin(radians)
     acos, asin = abs(cos), abs(sin)
 
     if fit is True:
-        h2, w2 = int(h1 * acos + w1 * asin), int(h1 * asin + w1 * acos)
+        h2, w2 = int(h * acos + w * asin), int(h * asin + w * acos)
     elif fit:
         h2, w2 = fit
     else:
-        h2, w2 = h1, w1
+        h2, w2 = h, w
 
     rot = np.array([[cos, -sin], [sin, cos]])
-    bias = [w1 - 1, h1 - 1] - rot @ [w2 - 1, h2 - 1]
-    ret = cv2.warpAffine(
-        img,
-        np.c_[rot, bias / 2],
-        (w2, h2),
-        flags=cv2.WARP_INVERSE_MAP | interpolation,
-        borderMode=border,
-    )
-    return cast('npt.NDArray[T]', ret)
+    bias = [w - 1, h - 1] - rot @ [w2 - 1, h2 - 1]
+
+    c = img.shape[-1]
+    ret = np.empty((h2, w2, c), img.dtype)
+    for i in range(0, c, blksize):
+        cv2.warpAffine(
+            img[:, :, i : i + blksize],
+            np.c_[rot, bias / 2],
+            (w2, h2),
+            dst=ret[:, :, i : i + blksize],
+            flags=cv2.WARP_INVERSE_MAP | interpolation,
+            borderMode=border,
+        )
+    return ret.reshape(h2, w2, *cs)
 
 
 def circle(diameter: int = 45, gain: float = 2) -> npt.NDArray[np.float32]:
+    assert diameter >= 4
     assert gain >= 0
     axis = np.linspace(-1, 1, diameter, dtype='f')
     img = axis[:, None] ** 2 + axis[None, :] ** 2
