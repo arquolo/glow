@@ -15,7 +15,7 @@ from typing import Protocol
 
 from ._types import Some
 
-_PERIOD = 0.01
+_PERIOD = 0.01  # or sys.getswitchinterval() which is 0.005 on win32
 
 
 class AbsManager(Protocol):

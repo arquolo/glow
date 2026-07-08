@@ -15,8 +15,11 @@ from concurrent.futures import Executor, Future
 from concurrent.futures._base import LOGGER
 from concurrent.futures.thread import _WorkItem
 from queue import Empty, SimpleQueue
-from threading import _register_atexit  # type: ignore[attr-defined]
-from threading import Lock, Thread
+from threading import (
+    Lock,
+    Thread,
+    _register_atexit,  # type: ignore[attr-defined]
+)
 from weakref import WeakSet
 
 if sys.version_info >= (3, 14):
@@ -71,7 +74,7 @@ _register_atexit(_python_exit)
 def _worker(q: _Pipe) -> None:
     try:
         while executor := _safe_call(q.get, timeout=_TIMEOUT):
-            while work_item := _safe_call(executor._work_queue.popleft):
+            while work_item := _safe_call(executor._work_items.popleft):
                 if sys.version_info >= (3, 14):
                     work_item.run(_worker_ctx)  # Process task
                 else:
@@ -93,10 +96,10 @@ def _worker(q: _Pipe) -> None:
 
 
 class ThreadQuota(Executor):
-    __slots__ = ('_idle', '_shutdown', '_shutdown_lock', '_work_queue')
+    __slots__ = ('_idle', '_shutdown', '_shutdown_lock', '_work_items')
 
     def __init__(self, max_workers: int) -> None:
-        self._work_queue = deque[_WorkItem]()
+        self._work_items = deque[_WorkItem]()
         self._idle = [1] * max_workers  # semaphore
 
         self._shutdown_lock = Lock()
@@ -126,9 +129,9 @@ class ThreadQuota(Executor):
                 raise RuntimeError(msg)
 
             if sys.version_info >= (3, 14):
-                self._work_queue.append(_WorkItem(f, (fn, args, kwargs)))
+                self._work_items.append(_WorkItem(f, (fn, args, kwargs)))
             else:
-                self._work_queue.append(_WorkItem(f, fn, args, kwargs))
+                self._work_items.append(_WorkItem(f, fn, args, kwargs))
 
             if _safe_call(self._idle.pop):  # Pool is not maximized yet
                 if q := _safe_call(_idle.pop):  # Use idle worker
@@ -149,7 +152,7 @@ class ThreadQuota(Executor):
             self._shutdown = True
 
             if cancel_futures:
-                while work_item := _safe_call(self._work_queue.pop):
+                while work_item := _safe_call(self._work_items.pop):
                     work_item.future.cancel()
 
             # TODO: if not `wait` - stop sub-workers

@@ -98,7 +98,6 @@ def _build_batches[T, R](
 ) -> Iterator[list[Job[T, R]]]:
     batch = []
     endtime = 0.0
-    # q_get = get_q_getter(q)
 
     while True:
         if not batch:
@@ -128,21 +127,18 @@ def _start_fetch_compute[T, R](
     batch_size: UsableSize[T],
     timeout: float,
 ) -> SimpleQueue[Job[T, R]]:
+    # TODO: Use scalable ThreadPool.
+    # Track count of active dispatches and scale workers accordingly
     q = SimpleQueue[Job[T, R]]()
-    lock = Lock()
+    batching_lock = Lock()
+    batches = _build_batches(q, batch_size, timeout)
 
     def loop() -> Never:
-        fetcher = _build_batches(q, batch_size, timeout)
         while True:
-            # Because of lock, _fetch_batch could be inlined into wrapper,
-            # and dispatch to thread pool could be done from there,
-            # thus allowing usage of scalable ThreadPool
-            # TODO: implement above
-            with lock:  # Ensurance that none worker steals tasks from other
-                batch = next(fetcher)
-            if batch := [
-                (x, f) for x, f in batch if f.set_running_or_notify_cancel()
-            ]:
+            with batching_lock:
+                batch = next(batches)
+            batch = [x for x in batch if x[1].set_running_or_notify_cancel()]
+            if batch:
                 dispatch(func, *batch)
             else:
                 sleep(0.001)

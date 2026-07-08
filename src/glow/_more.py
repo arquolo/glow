@@ -9,7 +9,6 @@ __all__ = [
     'windowed',
 ]
 
-import threading
 from collections import deque
 from collections.abc import (
     Callable,
@@ -21,6 +20,7 @@ from collections.abc import (
     Sized,
 )
 from itertools import batched, chain, count, cycle, islice, repeat
+from threading import Thread
 from typing import Protocol, overload
 
 
@@ -235,7 +235,7 @@ def ilen(iterable: Iterable, /) -> int:
 def eat(iterable: Iterable, /, *, daemon: bool = False) -> None:
     """Consume iterable, daemonize if needed (move to background thread)."""
     if daemon:
-        threading.Thread(target=deque, args=(iterable, 0), daemon=True).start()
+        Thread(target=deque, args=(iterable, 0), daemon=True).start()
     else:
         deque(iterable, 0)  # Same as `more_itertools.consume(..., n=None)`
 
