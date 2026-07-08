@@ -6,7 +6,6 @@ __all__ = [
     'weak_memoize',
 ]
 
-import sys
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, wait
@@ -29,9 +28,9 @@ from ._futures import (
     gather_fs,
     get_trimmer,
 )
+from ._locking import q_get
 from ._types import Get
 
-_PATIENCE = 0.01
 _LOGGER = getLogger(__name__)
 
 
@@ -99,10 +98,12 @@ def _build_batches[T, R](
 ) -> Iterator[list[Job[T, R]]]:
     batch = []
     endtime = 0.0
+    # q_get = get_q_getter(q)
 
     while True:
         if not batch:
-            batch = [_fetch_one(q)]
+            # Wait indefinitely until the first item is received
+            batch = [q_get(q)]
             endtime = monotonic() + latency
 
         if usable := usable_size([x for x, _ in batch]):
@@ -119,23 +120,6 @@ def _build_batches[T, R](
             _LOGGER.debug(f'worker timed out {latency:.3f}s - qd {len(batch)}')
             yield batch[:]
             batch = []
-
-
-def _fetch_one[T](q: SimpleQueue[T]) -> T:
-    # Wait indefinitely until the first item is received
-    if sys.platform != 'win32':
-        return q.get()
-
-    # On Windows lock.acquire called without a timeout is not interruptible
-    # See:
-    # https://bugs.python.org/issue29971
-    # https://github.com/dask/dask/pull/2144#issuecomment-290556996
-    # https://github.com/dask/dask/pull/2144/files
-    while True:
-        try:
-            return q.get(timeout=_PATIENCE)
-        except Empty:
-            sleep(0)  # Allow other thread to fill the batch
 
 
 def _start_fetch_compute[T, R](

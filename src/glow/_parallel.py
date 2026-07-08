@@ -25,10 +25,10 @@ from multiprocessing import dummy
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
 from pstats import Stats
-from queue import Empty, SimpleQueue
+from queue import SimpleQueue
 from threading import Lock
-from time import monotonic, sleep
-from typing import Final, Protocol, Self, cast
+from time import monotonic
+from typing import Final, Self, cast
 
 import loky
 
@@ -38,10 +38,11 @@ except ImportError:
     psutil = None
 
 from ._dev import hide_frame
+from ._locking import AbsEvent, AbsManager, AbsQueue, f_result, q_get
 from ._more import chunked, ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
-from ._types import Get, Some
+from ._types import Some
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,21 +68,6 @@ class _Empty(enum.Enum):
 _empty: Final = _Empty.token
 
 # ------------------- some useful interfaces and functions -------------------
-
-
-class _Queue[T](Protocol):
-    def get(self, block: bool = ..., timeout: float | None = ...) -> T: ...
-    def put(self, item: T) -> None: ...
-
-
-class _Event(Protocol):
-    def is_set(self) -> bool: ...
-    def set(self) -> None: ...
-
-
-class _Manager(Protocol):
-    def Event(self) -> _Event: ...  # noqa: N802
-    def Queue(self, /, maxsize: int) -> _Queue: ...  # noqa: N802
 
 
 def _torch_limit() -> int | None:
@@ -120,50 +106,6 @@ def max_cpu_count(limit: int | None = None, *, mp: bool = False) -> int:
         limits.append(torch_limit)
 
     return min(limits)
-
-
-_PATIENCE = 0.01
-
-
-class _TimeoutCallable[T](Protocol):
-    def __call__(self, *, timeout: float) -> T: ...
-
-
-def _retrying[T](f: _TimeoutCallable[T], *exc: type[BaseException]) -> T:
-    # See issues
-    # https://github.com/dask/dask/pull/2144#issuecomment-290556996
-    # https://github.com/dask/dask/pull/2144/files
-    # https://github.com/python/cpython/issues/74157
-    # FIXED in py3.15+
-    while True:
-        try:
-            return f(timeout=_PATIENCE)
-        except exc:
-            sleep(0)  # Force switch to another thread to proceed
-
-
-if sys.platform == 'win32':
-
-    def _exception[T](f: Future[T], /) -> BaseException | None:
-        return _retrying(f.exception, TimeoutError)
-
-else:
-    _exception = Future.exception
-
-
-def _result[T](f: Future[T], cancel: bool = True) -> Some[T] | BaseException:
-    try:
-        return exc if (exc := _exception(f)) else Some(f.result())
-    finally:
-        if cancel:
-            f.cancel()
-        del f
-
-
-def _q_get_fn[T](q: _Queue[T]) -> Get[T]:
-    if sys.platform != 'win32':
-        return q.get
-    return partial(_retrying, q.get, Empty)
 
 
 # ---------------------------- pool initialization ----------------------------
@@ -213,7 +155,7 @@ def get_executor(max_workers: int, *, mp: bool) -> Iterator[Executor]:
             threads.shutdown(wait=is_success, cancel_futures=True)
 
 
-def _get_manager(executor: Executor) -> _Manager:
+def _get_manager(executor: Executor) -> AbsManager:
     return (
         executor._context.Manager()
         if isinstance(executor, loky.ProcessPoolExecutor)
@@ -225,7 +167,7 @@ def _get_manager(executor: Executor) -> _Manager:
 
 
 def _consume[T](
-    items: Iterable[T], buf: _Queue[T | _Empty], stop: _Event
+    items: Iterable[T], buf: AbsQueue[T | _Empty], stop: AbsEvent
 ) -> None:
     try:
         for item in items:
@@ -240,7 +182,7 @@ def _consume[T](
 class buffered[T](Iterator[T]):  # noqa: N801
     """Iterate in background thread with at most `latency` items ahead."""
 
-    __slots__ = ('__weakref__', '_consume', '_next', 'close')
+    __slots__ = ('__weakref__', '_consume', '_q', 'close')
 
     def __init__(
         self,
@@ -260,15 +202,15 @@ class buffered[T](Iterator[T]):  # noqa: N801
         if isinstance(mgr, BaseManager):
             s.enter_context(mgr)
 
-        ev: _Event = mgr.Event()
-        q: _Queue[T | _Empty] = mgr.Queue(latency)
+        ev: AbsEvent = mgr.Event()
+        q: AbsQueue[T | _Empty] = mgr.Queue(latency)
         self._consume = executor.submit(_consume, iterable, q, ev)
-        self._next = _q_get_fn(q)
+        self._q = q
 
         # If main is killed, unblocks consumer to allow it to check stop flag
         # Otherwise collects 2nd _empty from q.
         # Called 2nd
-        s.callback(self._next)
+        s.callback(q_get, self._q)
 
         # If main is killed, notifies consumer to stop.
         # If consumer is already stopped (on error or not), does nothing.
@@ -282,12 +224,12 @@ class buffered[T](Iterator[T]):  # noqa: N801
 
     def __next__(self) -> T:
         if self.close.alive:
-            if (item := self._next()) is not _empty:
+            if (item := q_get(self._q)) is not _empty:
                 return item
 
             self.close()
             # Reraise exception from source iterable if any
-            obj = _result(self._consume, cancel=False)
+            obj = f_result(self._consume, cancel=False)
             if not isinstance(obj, Some):
                 with hide_frame:
                     raise obj
@@ -401,7 +343,7 @@ def _schedule_auto_v2[F: Future](
 def _get_unwrap_iter[T](
     s: ExitStack,
     qsize: int,
-    get_f: Get[Future[T]],
+    qf: AbsQueue[Future[T]],
     sched_iter: Iterator,
     is_batched: bool,
 ) -> Iterator[T]:
@@ -414,7 +356,7 @@ def _get_unwrap_iter[T](
         with hide_frame:
             for _ in chain([None], sched_iter, range(qsize - 1)):
                 # Retrieve done task, exactly `N` calls
-                obj = _result(get_f())
+                obj = f_result(q_get(qf))
                 if not isinstance(obj, Some):
                     with hide_frame:
                         raise obj
@@ -428,7 +370,7 @@ def _get_unwrap_iter[T](
 def _enqueue[T](
     fs: Iterable[Future[T]],
     unordered: bool,
-) -> tuple[Iterator, Get[Future[T]]]:
+) -> tuple[Iterator, SimpleQueue[Future[T]]]:
     q = SimpleQueue[Future[T]]()
 
     # In `unordered` mode `q` contains only "DONE" tasks,
@@ -438,12 +380,11 @@ def _enqueue[T](
         'Callable[[Future[T]], None]',
         methodcaller('add_done_callback', q.put) if unordered else q.put,
     )
-    q_get = _q_get_fn(q)
 
     # On each `next()` schedules new task
     sched_iter = map(q_put, fs)
 
-    return sched_iter, q_get
+    return sched_iter, q
 
 
 def _prefetch(s: ExitStack, sched_iter: Iterator, count: int | None) -> int:
@@ -532,9 +473,9 @@ def starmap_n[T](
     if chunksize == 1:
         submit_1 = cast('Callable[..., Future[T]]', partial(submit, func))
         f1s = starmap(submit_1, it)
-        sched1_iter, get_f = _enqueue(f1s, unordered)
+        sched1_iter, qf = _enqueue(f1s, unordered)
         qsize = _prefetch(s, sched1_iter, prefetch)
-        return _get_unwrap_iter(s, qsize, get_f, sched1_iter, False)
+        return _get_unwrap_iter(s, qsize, qf, sched1_iter, False)
 
     submit_n = cast(
         'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
@@ -549,9 +490,9 @@ def starmap_n[T](
         # Dynamic chunksize scaling
         fs = _schedule_auto_v2(submit_n, it)
 
-    sched_iter, get_fs = _enqueue(fs, unordered)
+    sched_iter, qf = _enqueue(fs, unordered)
     qsize = _prefetch(s, sched_iter, prefetch)
-    chunks = _get_unwrap_iter(s, qsize, get_fs, sched_iter, True)
+    chunks = _get_unwrap_iter(s, qsize, qf, sched_iter, True)
     return chain.from_iterable(chunks)
 
 

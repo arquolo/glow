@@ -12,6 +12,7 @@ import numpy.typing as npt
 from tqdm.auto import tqdm
 
 from .. import chunked
+from .._locking import q_get
 
 try:
     from sounddevice import CallbackAbort, CallbackStop, OutputStream
@@ -36,7 +37,7 @@ def _play(
     ev = Event()
 
     def callback(out: np.ndarray, *_) -> None:
-        if (data := q.get()) is None:
+        if (data := q_get(q)) is None:
             raise CallbackAbort
 
         size = len(data)

@@ -118,15 +118,15 @@ async def _iter_results_unordered[T](
     Order of results is arbitrary.
     """
     todo = set[Task[T]]()
-    done = Queue[Task[T]]()
+    done_q = Queue[Task[T]]()
 
     def _todo_to_done(t: Task[T]) -> None:
         todo.discard(t)
-        done.put_nowait(t)
+        done_q.put_nowait(t)
 
     while True:
         # Prefill task buffer
-        while len(todo) + done.qsize() < limit and (
+        while len(todo) + done_q.qsize() < limit and (
             t := (
                 next(ts, None)
                 if isinstance(ts, Iterator)
@@ -137,21 +137,21 @@ async def _iter_results_unordered[T](
             # already done (e.g. if the coro was able to complete eagerly),
             # and skip scheduling a done callback
             if t.done():
-                done.put_nowait(t)
+                done_q.put_nowait(t)
             else:
                 todo.add(t)
                 t.add_done_callback(_todo_to_done)
 
         # No more tasks to do and nothing more to schedule
-        if not todo and done.empty():
+        if not todo and done_q.empty():
             return
 
         # Wait till any task succeed
-        yield (await done.get()).result()
+        yield (await done_q.get()).result()
 
         # Pop tasks happened to also be DONE (after line above)
-        while not done.empty():
-            yield done.get_nowait().result()
+        while not done_q.empty():
+            yield done_q.get_nowait().result()
 
 
 async def _iter_results[T](
