@@ -4,7 +4,7 @@ import types
 from collections.abc import Callable, Generator, Iterator
 from functools import partial
 from itertools import count
-from typing import Any, Protocol, Self
+from typing import Protocol, Self
 
 from wrapt import ObjectProxy
 

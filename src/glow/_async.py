@@ -17,7 +17,15 @@ from functools import partial
 from typing import TypeGuard, cast, overload
 
 from ._dev import hide_frame
-from ._futures import ABatchDecorator, ABatchFn, Job, adispatch
+from ._futures import (
+    ABatchDecorator,
+    ABatchFn,
+    AJob,
+    PsABatchDecorator,
+    UsableSize,
+    adispatch,
+    get_trimmer,
+)
 from ._types import AnyIterable, AnyIterator, Coro
 
 
@@ -212,25 +220,27 @@ async def _wrapgen[T](it: Iterable[T]) -> AsyncIterator[T]:
 def astreaming(
     *, batch_size: int | None = ..., timeout: float = ...
 ) -> ABatchDecorator: ...
-
-
+@overload
+def astreaming[T](
+    *, batch_size: UsableSize[T], timeout: float = ...
+) -> PsABatchDecorator[T]: ...
 @overload
 def astreaming[T, R](
     fn: ABatchFn[T, R],
     /,
     *,
-    batch_size: int | None = ...,
+    batch_size: int | UsableSize[T] | None = ...,
     timeout: float = ...,
 ) -> ABatchFn[T, R]: ...
 
 
-def astreaming[T, R](
+def astreaming[T, R](  # noqa: C901
     fn: ABatchFn[T, R] | None = None,
     /,
     *,
-    batch_size: int | None = None,
+    batch_size: int | UsableSize[T] | None = None,
     timeout: float = 0.1,
-) -> ABatchFn[T, R] | ABatchDecorator:
+) -> ABatchFn[T, R] | PsABatchDecorator[T] | ABatchDecorator:
     """Compute on `timeout` or if batch is collected.
 
     `timeout` (in seconds) is a time to wait till the batch is full,
@@ -251,10 +261,11 @@ def astreaming[T, R](
         deco = partial(astreaming, batch_size=batch_size, timeout=timeout)
         return cast('ABatchDecorator', deco)
 
-    assert batch_size is None or batch_size >= 1
+    if not callable(batch_size):
+        batch_size = get_trimmer(batch_size)
     assert timeout > 0
 
-    buf: list[Job[T, R]] = []
+    buf: list[AJob[T, R]] = []
     deadline = float('-inf')
     not_last = Event()
     lock = Lock()
@@ -280,11 +291,16 @@ def astreaming[T, R](
                 if len(buf) == 1:  # Got first job, reset deadline
                     deadline = asyncio.get_running_loop().time() + timeout
 
+                usable = batch_size([x for x, _ in buf])
+                if not usable:
+                    continue
+
                 # Full batch, dispatch
-                if batch_size is not None and len(buf) == batch_size:
-                    batch, buf[:] = buf[:], []
-                    async with lock:
-                        await adispatch(fn, *batch)
+                if usable < len(buf):  # Restart from last append
+                    deadline = asyncio.get_running_loop().time() + timeout
+                batch, buf[:] = buf[:usable], buf[usable:]
+                async with lock:
+                    await adispatch(fn, *batch)
         finally:
             ncalls -= 1
 

@@ -25,8 +25,8 @@ from ._dev import clone_exc, hide_frame
 from ._futures import (
     ABatchFn,
     AnyFuture,
+    AnyJob,
     BatchFn,
-    Job,
     adispatch,
     dispatch,
     gather_fs,
@@ -421,12 +421,12 @@ class _BatchedQuery[T, R]:
 
             # ... otherwise schedule a new job.
             else:
-                f = asyncio.Future[R]() if aio else cf.Future[R]()
+                f = (asyncio.Future if aio else cf.Future)[R]()
                 self.jobs.append((k, Some(t), f))  # Resolve this manually
                 cs.futures[k] = f  # ! Requires sync
 
     @property
-    def pending_jobs(self) -> list[Job[T, R]]:
+    def pending_jobs(self) -> list[AnyJob[T, R]]:
         return [(a.x, f) for _, a, f in self.jobs if a]
 
     def running_as[F: AnyFuture](self, tp: type[F]) -> set[F]:

@@ -4,7 +4,7 @@ import sys
 import weakref
 from collections.abc import Generator
 from types import GeneratorType
-from typing import Any, Literal, Never, NoReturn, Self, cast
+from typing import Any, Literal, Never, NoReturn, Self, cast, overload
 
 import pytest
 

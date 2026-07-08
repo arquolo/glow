@@ -8,7 +8,7 @@ __all__ = [
 
 import sys
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
 from logging import getLogger
@@ -20,7 +20,15 @@ from warnings import warn
 
 from ._cache import memoize
 from ._dev import hide_frame
-from ._futures import BatchDecorator, BatchFn, Job, dispatch, gather_fs
+from ._futures import (
+    BatchDecorator,
+    BatchFn,
+    Job,
+    UsableSize,
+    dispatch,
+    gather_fs,
+    get_trimmer,
+)
 from ._types import Get
 
 _PATIENCE = 0.01
@@ -83,61 +91,71 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 # ----------------------------- batch collation ------------------------------
 
+type _JobQueue[T, R] = SimpleQueue[Job[T, R]]
 
-def _fetch_batch[T](
-    q: SimpleQueue[T], batch_size: float, timeout: float
-) -> list[T]:
-    batch: list[T] = []
 
-    # Wait indefinitely until the first item is received
-    if sys.platform == 'win32':
-        # On Windows lock.acquire called without a timeout is not interruptible
-        # See:
-        # https://bugs.python.org/issue29971
-        # https://github.com/dask/dask/pull/2144#issuecomment-290556996
-        # https://github.com/dask/dask/pull/2144/files
-        while not batch:
-            try:
-                batch.append(q.get(timeout=_PATIENCE))
-            except Empty:
-                sleep(0)  # Allow other thread to fill the batch
-    else:
-        batch.append(q.get())
+def _build_batches[T, R](
+    q: SimpleQueue[Job[T, R]], usable_size: UsableSize[T], latency: float
+) -> Iterator[list[Job[T, R]]]:
+    batch = []
+    endtime = 0.0
 
-    now = monotonic()
-    endtime = now + timeout
-    while now < endtime and len(batch) < batch_size:
+    while True:
+        if not batch:
+            batch = [_fetch_one(q)]
+            endtime = monotonic() + latency
+
+        if usable := usable_size([x for x, _ in batch]):
+            if usable < len(batch):  # Last append was mistake
+                endtime = monotonic() + latency
+            yield batch[:usable]
+            batch = batch[usable:]
+            continue
+
         try:
-            batch.append(q.get(timeout=endtime - now))
+            rem = endtime - monotonic()
+            batch.append(q.get(timeout=rem) if rem > 0 else q.get(block=False))
         except Empty:
-            _LOGGER.debug(
-                'worker timed out %.3fs - qd %d/%s',
-                timeout,
-                len(batch),
-                batch_size,
-            )
-            break
-        now = monotonic()
-    return batch
+            _LOGGER.debug(f'worker timed out {latency:.3f}s - qd {len(batch)}')
+            yield batch[:]
+            batch = []
+
+
+def _fetch_one[T](q: SimpleQueue[T]) -> T:
+    # Wait indefinitely until the first item is received
+    if sys.platform != 'win32':
+        return q.get()
+
+    # On Windows lock.acquire called without a timeout is not interruptible
+    # See:
+    # https://bugs.python.org/issue29971
+    # https://github.com/dask/dask/pull/2144#issuecomment-290556996
+    # https://github.com/dask/dask/pull/2144/files
+    while True:
+        try:
+            return q.get(timeout=_PATIENCE)
+        except Empty:
+            sleep(0)  # Allow other thread to fill the batch
 
 
 def _start_fetch_compute[T, R](
     func: BatchFn[T, R],
     workers: int,
-    batch_size: float,
+    batch_size: UsableSize[T],
     timeout: float,
 ) -> SimpleQueue[Job[T, R]]:
-    q = SimpleQueue()  # type: ignore[var-annotated]
+    q = SimpleQueue[Job[T, R]]()
     lock = Lock()
 
     def loop() -> Never:
+        fetcher = _build_batches(q, batch_size, timeout)
         while True:
             # Because of lock, _fetch_batch could be inlined into wrapper,
             # and dispatch to thread pool could be done from there,
             # thus allowing usage of scalable ThreadPool
             # TODO: implement above
             with lock:  # Ensurance that none worker steals tasks from other
-                batch = _fetch_batch(q, batch_size, timeout)
+                batch = next(fetcher)
             if batch := [
                 (x, f) for x, f in batch if f.set_running_or_notify_cancel()
             ]:
@@ -154,7 +172,7 @@ def streaming[T, R](
     func: BatchFn[T, R] | None = None,
     /,
     *,
-    batch_size: int | None = None,
+    batch_size: int | UsableSize[T] | None = None,
     timeout: float = 0.1,
     workers: int = 1,
     pool_timeout: float = 20.0,
@@ -194,9 +212,9 @@ def streaming[T, R](
 
     assert callable(func)
     assert workers >= 1
-    batch_size_ = batch_size or float('inf')
-    assert batch_size_ >= 1
-    q = _start_fetch_compute(func, workers, batch_size_, timeout)
+    if not callable(batch_size):
+        batch_size = get_trimmer(batch_size)
+    q = _start_fetch_compute(func, workers, batch_size, timeout)
 
     def wrapper(items: Sequence[T]) -> Sequence[R]:
         fs = {Future[R](): item for item in items}

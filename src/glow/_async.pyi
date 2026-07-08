@@ -2,7 +2,12 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Required, TypedDict, Unpack, overload
 
-from ._futures import ABatchDecorator, ABatchFn
+from ._futures import (
+    ABatchDecorator,
+    ABatchFn,
+    PsABatchDecorator,
+    UsableSize,
+)
 from ._types import AnyIterable, Coro
 
 class _AmapKwargs(TypedDict, total=False):
@@ -67,7 +72,7 @@ async def amap_dict[K, T, T2](
 @overload
 def azip() -> AsyncIterator[Any]: ...
 @overload
-def azip[T](iter1: AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,RUF102,Y090
+def azip[T](iter1: AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,RUF102
 @overload
 def azip[T, T2](
     iter1: AnyIterable[T], iter2: AnyIterable[T2], /
@@ -96,14 +101,22 @@ def azip(
 ) -> AsyncIterator[tuple]: ...
 @overload
 def astreaming(
-    *, batch_size: int | None = ..., timeout: float = ...
+    *,
+    batch_size: int | UsableSize | None = ...,
+    timeout: float = ...,
 ) -> ABatchDecorator: ...
+@overload
+def astreaming[T](
+    *,
+    batch_size: UsableSize[T],
+    timeout: float = ...,
+) -> PsABatchDecorator[T]: ...
 @overload
 def astreaming[T, R](
     fn: ABatchFn[T, R],
     /,
     *,
-    batch_size: int | None = ...,
+    batch_size: int | UsableSize[T] | None = ...,
     timeout: float = ...,
 ) -> ABatchFn[T, R]: ...
 

@@ -6,9 +6,13 @@ from typing import Protocol, overload
 from ._dev import hide_frame
 from ._types import Coro, Some
 
+type Job[T, R] = tuple[T, cf.Future[R]]
+type AJob[T, R] = tuple[T, asyncio.Future[R]]
 type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
-type Job[T, R] = tuple[T, AnyFuture[R]]
+type AnyJob[T, R] = tuple[T, AnyFuture[R]]
 
+# batch -> N first items to pick, 0 if too early to yield
+type UsableSize[T] = Callable[[Sequence[T]], int]
 type BatchFn[T, R] = Callable[[Sequence[T]], Sequence[R]]
 type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[Sequence[R]]]
 
@@ -17,8 +21,16 @@ class BatchDecorator(Protocol):
     def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
 
 
+class PsBatchDecorator[T](Protocol):
+    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+
+
 class ABatchDecorator(Protocol):
     def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+
+
+class PsABatchDecorator[T](Protocol):
+    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
 
 class AnyBatchDecorator(Protocol):
@@ -35,7 +47,18 @@ class PsAnyBatchDecorator[T](Protocol):
     def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
 
-def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
+def get_trimmer(batch_size: int | None) -> UsableSize:
+    if not batch_size:
+        return lambda _: 0
+    assert batch_size >= 1
+
+    def usable_size(seq: Sequence) -> int:
+        return 0 if len(seq) < batch_size else batch_size
+
+    return usable_size
+
+
+def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     if not xs:
         return
 
@@ -56,7 +79,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
             f.set_exception(obj)
 
 
-async def adispatch[T, R](fn: ABatchFn[T, R], *xs: Job[T, R]) -> None:
+async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     if not xs:
         return
 

@@ -211,3 +211,115 @@ async def test_async_map(limit, unordered):
     if unordered:
         items = sorted(items)
     assert items == xs
+
+
+def _usable_items(xs):
+    if sum(xs) < 7:
+        return 0
+    return max(1, len(xs) - 1)
+
+
+def test_stream_1():
+    calls = []
+
+    @glow.streaming(batch_size=3)
+    def fn(xs):
+        calls.append(xs)
+        return xs
+
+    fn(range(5))
+    assert calls == [[0, 1, 2], [3, 4]]
+
+
+def test_stream_2():
+    calls = []
+
+    @glow.streaming(batch_size=3)
+    def fn(xs):
+        print(xs)
+        calls.append(xs)
+        time.sleep(0.01)
+        return xs
+
+    t1 = Thread(target=fn, args=(range(5),), daemon=True)
+    t2 = Thread(target=fn, args=(range(5, 10),), daemon=True)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert all(len(cs) <= 3 for cs in calls)
+    assert sorted(c for cs in calls for c in cs) == list(range(10))
+
+
+def test_stream_dyn_lim():
+    calls = []
+
+    @glow.streaming(batch_size=_usable_items)
+    def fn(xs):
+        print(xs)
+        calls.append(xs)
+        time.sleep(0.01)
+        return xs
+
+    fn(range(5))
+    assert calls == [[0, 1, 2, 3], [4]]
+
+    calls = []
+    t1 = Thread(target=fn, args=(range(5),), daemon=True)
+    t2 = Thread(target=fn, args=(range(5, 8),), daemon=True)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert all(sum(cs) <= 7 for cs in calls)
+    assert sorted(c for cs in calls for c in cs) == list(range(8))
+
+
+@pytest.mark.asyncio
+async def test_astream_1():
+    calls = []
+
+    @glow.astreaming(batch_size=3)
+    async def fn(xs):
+        calls.append(xs)
+        return xs
+
+    await fn(range(5))
+    assert calls == [[0, 1, 2], [3, 4]]
+
+
+@pytest.mark.asyncio
+async def test_astream_2():
+    calls = []
+
+    @glow.astreaming(batch_size=3)
+    async def fn(xs):
+        print(xs)
+        calls.append(xs)
+        await asyncio.sleep(0.01)
+        return xs
+
+    await asyncio.gather(fn(range(5)), fn(range(5, 10)))
+    assert all(len(cs) <= 3 for cs in calls)
+    assert sorted(c for cs in calls for c in cs) == list(range(10))
+
+
+@pytest.mark.asyncio
+async def test_astream_dyn_lim():
+    calls = []
+
+    @glow.astreaming(batch_size=_usable_items)
+    async def fn(xs):
+        print(xs)
+        calls.append(xs)
+        await asyncio.sleep(0.01)
+        return xs
+
+    await fn(range(5))
+    assert calls == [[0, 1, 2, 3], [4]]
+
+    calls = []
+    await asyncio.gather(fn(range(5)), fn(range(5, 8)))
+    assert calls == [[0, 1, 2, 3], [4], [5], [6], [7]]
