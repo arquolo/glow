@@ -14,7 +14,7 @@ from logging import getLogger
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
-from typing import Never, cast
+from typing import Never, cast, overload
 from warnings import warn
 
 from ._cache import memoize
@@ -23,6 +23,7 @@ from ._futures import (
     BatchDecorator,
     BatchFn,
     Job,
+    PsBatchDecorator,
     UsableSize,
     dispatch,
     gather_fs,
@@ -148,6 +149,34 @@ def _start_fetch_compute[T, R](
     return q
 
 
+@overload
+def streaming(
+    *,
+    batch_size: int | UsableSize | None = ...,
+    timeout: float = ...,
+    workers: int = ...,
+    pool_timeout: float = ...,
+) -> BatchDecorator: ...
+@overload
+def streaming[T](
+    *,
+    batch_size: UsableSize[T],
+    timeout: float = ...,
+    workers: int = ...,
+    pool_timeout: float = ...,
+) -> PsBatchDecorator[T]: ...
+@overload
+def streaming[T, R](
+    func: BatchFn[T, R],
+    /,
+    *,
+    batch_size: int | UsableSize[T] | None = ...,
+    timeout: float = ...,
+    workers: int = ...,
+    pool_timeout: float = ...,
+) -> BatchFn[T, R]: ...
+
+
 def streaming[T, R](
     func: BatchFn[T, R] | None = None,
     /,
@@ -156,7 +185,7 @@ def streaming[T, R](
     timeout: float = 0.1,
     workers: int = 1,
     pool_timeout: float = 20.0,
-) -> BatchDecorator | BatchFn[T, R]:
+) -> BatchDecorator | PsBatchDecorator[T] | BatchFn[T, R]:
     """Delay start of computation to until batch is collected.
 
     Accepts two timeouts (in seconds):

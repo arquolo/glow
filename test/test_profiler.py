@@ -4,7 +4,7 @@ import sys
 import weakref
 from collections.abc import Generator
 from types import GeneratorType
-from typing import Any, Literal, Never, NoReturn, Self, cast, overload
+from typing import Any, Literal, Never, Self, cast, overload
 
 import pytest
 
@@ -28,7 +28,7 @@ def gc_collect() -> None:
     gc.collect()
 
 
-def throw(exc: type[Exception]) -> NoReturn:
+def throw(exc: type[Exception]) -> Never:
     raise exc
 
 
@@ -57,13 +57,13 @@ def gen_return_42() -> Generator[Never, Any, Literal[42]]:
 @decorate
 def gen_yield_raises[T](
     value: T, exc_tp: type[Exception] = ValueError
-) -> Generator[T, Any, NoReturn]:
+) -> Generator[T, Any, Never]:
     yield value
     raise exc_tp
 
 
 @decorate
-def gen_raises(exc_tp: type[Exception]) -> Generator[Never, Any, NoReturn]:
+def gen_raises(exc_tp: type[Exception]) -> Generator[Never, Any, Never]:
     raise exc_tp
     yield
 
@@ -449,7 +449,7 @@ class TestGenClose:
 
     def test_raises(self) -> None:
         @decorate
-        def gen() -> Generator[None, Any, NoReturn]:
+        def gen() -> Generator[None, Any, Never]:
             try:
                 yield
             except GeneratorExit:
@@ -619,7 +619,7 @@ class TestGenThrow:
 class TestGenPep479:
     def test_stopiteration_wrapping(self) -> None:
         @decorate
-        def gen() -> Generator[NoReturn, Any, NoReturn]:
+        def gen() -> Generator[Never, Any, Never]:
             yield throw(StopIteration)
 
         with pytest.raises(
@@ -629,14 +629,14 @@ class TestGenPep479:
 
     def test_stopiteration_wrapping_context(self) -> None:
         @decorate
-        def gen() -> Generator[NoReturn, Any, NoReturn]:
+        def gen() -> Generator[Never, Any, Never]:
             yield throw(StopIteration)
 
         with pytest.raises(
             RuntimeError,
             check=lambda exc: (
-                type(exc.__cause__) is StopIteration
-                and type(exc.__context__) is StopIteration
+                isinstance(exc.__cause__, StopIteration)
+                and isinstance(exc.__context__, StopIteration)
                 and exc.__suppress_context__
             ),
         ):
