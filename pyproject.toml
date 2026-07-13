@@ -44,6 +44,10 @@ homepage = "https://github.com/arquolo/glow"
 memprof = [
     "psutil",
 ]
+memmon = [
+    "psutil",
+    "tabulate"
+]
 io = [
     "opencv-python-headless~=4.0",
     "sounddevice",
