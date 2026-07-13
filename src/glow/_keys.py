@@ -27,6 +27,10 @@ def make_key(*args, **kwargs) -> Hashable:
     """
     if kwargs:
         args = sum(kwargs.items(), (*args, _KWD_MARK))
-    if len(args) == 1 and type(args[0]) in {int, str}:
+    if len(args) == 1 and type(args[0]) in {int, str, bytes, frozenset}:
         return args[0]
-    return _HashedSeq(args, hash(args))
+    try:
+        hashvalue = hash(args)
+    except TypeError as exc:  # report value to simplify debugging
+        raise TypeError(f'unhashable type: {args}') from exc
+    return _HashedSeq(args, hashvalue)

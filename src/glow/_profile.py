@@ -214,11 +214,11 @@ time_this.finalizers = {}  # type: ignore[attr-defined]
 # --------------------------------- location ---------------------------------
 
 
-def _frame_hash(frame: 'FrameType') -> tuple[str, int]:
+def _frame_key(frame: 'FrameType') -> tuple[str, int]:
     return frame.f_code.co_filename, frame.f_lineno
 
 
-@memoize(100, policy='lru', key_fn=_frame_hash)
+@memoize(100, policy='lru', key_fn=_frame_key)
 def _get_source(frame: 'FrameType') -> str:
     # Get source module name
     modname = (
