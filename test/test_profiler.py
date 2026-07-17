@@ -44,7 +44,7 @@ def _gen_once() -> Generator[None, Any]: ...
 @overload
 def _gen_once[T](v: T, /) -> Generator[T, Any]: ...
 @decorate
-def _gen_once[T](v: T = None, /) -> Generator[T, Any]:
+def _gen_once[T](v: T | None = None, /) -> Generator[T | None, Any]:
     yield v
 
 

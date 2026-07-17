@@ -158,8 +158,8 @@ def _wrap[T](r: T, wrapper: _Wrapper) -> T:
 
     match r:
         # __iter__, __next__, send, throw, close
-        case types.GeneratorType() if _OP_FUNC:
-            return _gen(r, wrapper)  # generator functions
+        case types.GeneratorType() if _OP_FUNC:  # generator functions
+            return _gen(r, wrapper)  # type: ignore[return-value]
         case Generator():
             return _Generator(r, wrapper)  # user's generators
 

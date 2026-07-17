@@ -15,11 +15,8 @@ from concurrent.futures import Executor, Future
 from concurrent.futures._base import LOGGER
 from concurrent.futures.thread import _WorkItem
 from queue import Empty, SimpleQueue
-from threading import (
-    Lock,
-    Thread,
-    _register_atexit,  # type: ignore[attr-defined]
-)
+from threading import _register_atexit  # type: ignore[attr-defined]
+from threading import Lock, Thread
 from weakref import WeakSet
 
 if sys.version_info >= (3, 14):

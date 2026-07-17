@@ -13,7 +13,9 @@ from loky import get_reusable_executor
 class SharedArray:
     def __init__(self, arr):
         self.shm = SharedMemory(create=True, size=arr.nbytes)
-        self.shm.buf[:] = arr.view(np.uint8)
+        buf = self.shm.buf
+        assert buf is not None
+        buf[:] = arr.view(np.uint8)
         self.shape = arr.shape
         self.dtype = arr.dtype
         weakref.finalize(self, self.shm.unlink)
