@@ -2,12 +2,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Required, TypedDict, Unpack, overload
 
-from ._futures import (
-    ABatchDecorator,
-    ABatchFn,
-    PsABatchDecorator,
-    UsableSize,
-)
+from ._futures import ABatchDecorator, ABatchFn, PsABatchDecorator, UsableSize
 from ._types import AnyIterable, Coro
 
 class _AmapKwargs(TypedDict, total=False):

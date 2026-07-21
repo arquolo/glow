@@ -7,47 +7,42 @@ def cache_status() -> str: ...
 
 # Unbound
 @overload
-def memoize(
-    count: None = ...,
-    *,
-    policy: None = ...,
-    ttl: None = ...,
-) -> Decorator: ...
+def memoize() -> Decorator: ...
 @overload
-def memoize[**P](
-    count: None = ...,
-    *,
-    policy: None = ...,
-    key_fn: KeyFn[P],
-    ttl: None = ...,
-) -> PsDecorator[P]: ...
+def memoize[**P](*, key_fn: KeyFn[P]) -> PsDecorator[P]: ...
 
 # Unbound batched
 @overload
-def memoize(
-    count: None = ...,
-    *,
-    policy: None = ...,
-    batched: Literal[True],
-    ttl: None = ...,
-) -> AnyBatchDecorator: ...
+def memoize(*, batched: Literal[True]) -> AnyBatchDecorator: ...
 @overload
 def memoize[T](
-    count: None = ...,
-    *,
-    policy: None = ...,
-    batched: Literal[True],
-    key_fn: KeyFn[T],
-    ttl: None = ...,
+    *, batched: Literal[True], key_fn: KeyFn[T]
+) -> PsAnyBatchDecorator[T]: ...
+
+# -------------------------------- time only ---------------------------------
+
+# Time-capped
+@overload
+def memoize(*, ttl: float) -> Decorator: ...
+@overload
+def memoize[**P](*, key_fn: KeyFn[P], ttl: float) -> PsDecorator[P]: ...
+
+# Time-capped batched
+@overload
+def memoize(*, batched: Literal[True], ttl: float) -> AnyBatchDecorator: ...
+@overload
+def memoize[T](
+    *, batched: Literal[True], key_fn: KeyFn[T], ttl: float
 ) -> PsAnyBatchDecorator[T]: ...
 
 # ---------------------------------- count -----------------------------------
 
-# Count-capped
+# Count/byte-capped
 @overload
 def memoize(
     count: int,
     *,
+    nbytes: int | None = ...,
     policy: CachePolicy = ...,
     key_fn: KeyFn = ...,
     ttl: float | None = ...,
@@ -56,16 +51,18 @@ def memoize(
 def memoize[**P](
     count: int,
     *,
+    nbytes: int | None = ...,
     policy: CachePolicy = ...,
     key_fn: KeyFn[P],
     ttl: float | None = ...,
 ) -> PsDecorator[P]: ...
 
-# Count-capped batched
+# Count/byte-capped batched
 @overload
 def memoize(
     count: int,
     *,
+    nbytes: int | None = ...,
     batched: Literal[True],
     policy: CachePolicy = ...,
     ttl: float | None = ...,
@@ -74,6 +71,7 @@ def memoize(
 def memoize[T](
     count: int,
     *,
+    nbytes: int | None = ...,
     batched: Literal[True],
     policy: CachePolicy = ...,
     key_fn: KeyFn[T],
@@ -85,10 +83,7 @@ def memoize[T](
 # Byte-capped
 @overload
 def memoize(
-    *,
-    nbytes: int,
-    policy: CachePolicy = ...,
-    ttl: float | None = ...,
+    *, nbytes: int, policy: CachePolicy = ..., ttl: float | None = ...
 ) -> Decorator: ...
 @overload
 def memoize[**P](

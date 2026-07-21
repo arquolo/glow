@@ -48,31 +48,40 @@ _inf: Final = float('inf')
 @dataclass(repr=False, slots=True)
 class _Node[T]:
     value: T
-    size: int
+    nbytes: int = 0
     deadline: float | None = None
 
     def __repr__(self) -> str:
         return repr(self.value)
 
 
-@dataclass(frozen=True, slots=True)
 class _MakeNode:
-    ttl: float | None = None
-    realsize: bool = False
-
     def __call__[T](self, obj: T, /) -> _Node[T]:
-        return _Node(
-            obj,
-            sizeof(obj) if self.realsize else 1,
-            None if self.ttl is None else monotonic() + self.ttl,
-        )
+        return _Node(obj)
 
     def refresh[T](self, node: _Node[T], now: float, /) -> _Node[T]:
-        return (
-            node
-            if self.ttl is None
-            else _Node(node.value, node.size, now + self.ttl)
-        )
+        return node
+
+
+class _MakeSizedNode(_MakeNode):
+    def __call__[T](self, obj: T, /) -> _Node[T]:
+        return _Node(obj, sizeof(obj), None)
+
+
+@dataclass(frozen=True, slots=True)
+class _MakeTimedNode(_MakeNode):
+    ttl: float
+
+    def __call__[T](self, obj: T, /) -> _Node[T]:
+        return _Node(obj, 0, monotonic() + self.ttl)
+
+    def refresh[T](self, node: _Node[T], now: float, /) -> _Node[T]:
+        return _Node(node.value, node.nbytes, now + self.ttl)
+
+
+class _MakeSizedTimedNode(_MakeTimedNode):
+    def __call__[T](self, obj: T, /) -> _Node[T]:
+        return _Node(obj, sizeof(obj), monotonic() + self.ttl)
 
 
 @dataclass
@@ -108,19 +117,22 @@ class _AbstractCache[T](Protocol):
 
 class _CacheMaker[T](Protocol):
     def __call__(
-        self, capacity: int, make_node: _MakeNode
+        self, capacity: int, capacity_bytes: int, make_node: _MakeNode
     ) -> '_AbstractCache[T]': ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)
 class _Cache[T]:
     capacity: int
+    capacity_bytes: int
     make_node: _MakeNode = field(repr=False)
-    size: int = 0
+    nbytes: int = 0
     store: dict[Hashable, _Node[T]] = field(default_factory=dict)
     stats: Stats = field(default_factory=Stats)
 
     def __post_init__(self) -> None:
+        assert self.capacity != 0
+        assert self.capacity_bytes != 0
         _REFS[id(self)] = self
 
     def __len__(self) -> int:
@@ -135,17 +147,26 @@ class _Cache[T]:
     def clear(self) -> None:
         self.stats.dropped += len(self.store)
         self.store.clear()
-        self.size = 0
+        self.nbytes = 0
 
     def __repr__(self) -> str:
         args = [
             f'items={len(self.store)}',
-            f'size={type(self.capacity)(self.size)}',
+            f'size={si_bin(self.nbytes)}',
             f'capacity={self.capacity}',
+            f'capacity[bytes]={si_bin(self.capacity_bytes)}',
         ]
         if self.stats:
             args.append(f'stats={self.stats}')
         return f'{type(self).__name__}({", ".join(args)})'
+
+    def _maybe_insert(self, key: Hashable, node: _Node[T], /) -> None:
+        if (0 < self.capacity <= len(self.store)) or (
+            0 < self.capacity_bytes < self.nbytes + node.nbytes
+        ):  # no free space
+            return
+        self.store[key] = node
+        self.nbytes += node.nbytes
 
 
 class _Heap[T](_Cache[T]):
@@ -163,25 +184,16 @@ class _Heap[T](_Cache[T]):
         return _empty
 
     def __setitem__(self, key: Hashable, value: T, /) -> None:
-        if key in self.store:
-            return
-        node = self.make_node(value)
-        if (
-            self.capacity >= 0  # bound cache
-            and self.size + node.size > self.capacity  # no free place
-        ):
-            return
-        self.store[key] = node
-        self.size += node.size
+        if key not in self.store:
+            node = self.make_node(value)
+            self._maybe_insert(key, node)
 
 
-class _TtlCache[T](_Cache[T]):
+class _TimedCache[T](_Cache[T]):
     """
     Time limit for each entry.
     When size limit is reached, nothing is removed
     """
-
-    has_size_evict: bool = False
 
     def __getitem__(self, key: Hashable, /) -> T | _Empty:
         now = monotonic()
@@ -199,25 +211,11 @@ class _TtlCache[T](_Cache[T]):
         now = monotonic()
         node = self.store.pop(key, None)  # pop before GC to reuse size
         self._remove_outdated(now)
-
         if node:
             self.store[key] = self.make_node.refresh(node, now)  # move front
-            return
-
-        node = self.make_node(value)
-        if self.capacity >= 0:  # bound cache
-            max_size = self.capacity - node.size
-            if max_size < 0 or (  # cache will never fit this
-                not self.has_size_evict  # unable to drop
-                and self.size > max_size  # no space
-            ):
-                return
-            while self.store and self.size > max_size:  # evict
-                self.size -= self.pop().size
-                self.stats.dropped += 1
-
-        self.store[key] = node
-        self.size += node.size
+        else:
+            node = self.make_node(value)
+            self._maybe_insert(key, node)
 
     def _remove_outdated(self, now: float) -> None:
         while self.store:
@@ -225,33 +223,52 @@ class _TtlCache[T](_Cache[T]):
             if (node.deadline or _inf) > now:
                 return  # reached alive node before free space
             self.store.pop(key)  # dead node, delete
-            self.size -= node.size
+            self.nbytes -= node.nbytes
             self.stats.dropped += 1
+
+
+class _TimedRecencyCache[T](_TimedCache[T]):
+    """
+    Time limit for each entry.
+    When size limit is reached, eviction happens.
+    """
+
+    def _maybe_insert(self, key: Hashable, node: _Node[T], /) -> None:
+        if self.store and len(self.store) == self.capacity:  # no space
+            self.nbytes -= self.pop().nbytes  # evict
+            self.stats.dropped += 1
+
+        if self.capacity_bytes > 0:  # byte-bound cache
+            max_self_bytes_to_fit = self.capacity_bytes - node.nbytes
+            if max_self_bytes_to_fit < 0:  # cache will never fit this
+                return
+            while self.store and self.nbytes > max_self_bytes_to_fit:  # evict
+                self.nbytes -= self.pop().nbytes
+                self.stats.dropped += 1
+
+        self.store[key] = node
+        self.nbytes += node.nbytes
 
     def pop(self) -> _Node[T]:
         raise NotImplementedError
 
 
-class _LruTtlCache[T](_TtlCache[T]):
+class _LruTimedCache[T](_TimedRecencyCache[T]):
     """
     Time limit for each entry.
     When size limit is reached, least recently used are evicted
     """
-
-    has_size_evict: bool = True
 
     def pop(self) -> _Node[T]:
         """Drop oldest node."""
         return self.store.pop(next(iter(self.store)))
 
 
-class _MruTtlCache[T](_TtlCache[T]):
+class _MruTimedCache[T](_TimedRecencyCache[T]):
     """
     Time limit for each entry.
     When size limit is reached, most recently used are evicted
     """
-
-    has_size_evict: bool = True
 
     def pop(self) -> _Node[T]:
         """Drop most recently added node."""
@@ -552,30 +569,46 @@ def memoize(
     - count - max objects to store or None for unbound cache.
     - nbytes - max bytes to store.
     - policy - eviction policy, "lru" (pop oldest), "mru" (pop most recent), or
-      None for no eviction.
+      None for no eviction. Works only if `count > 0` or `nbytes > 0`.
     - batched - set if callable supports batching.
     - ttl - time to live (in seconds) for time constrained caching
+
+    Uses:
+    - @memoize() - unbound cache;
+    - @memoize(batched=True) - unbound cache for batched calls;
+    - @memoize(<int>, policy=...) - limit cache size by object count;
+    - @memoize(nbytes=..., policy=...) - limit cache size by total object size;
+    - @memoize(ttl=...) - limit cache size by lifetime of object.
     """
     count = -1 if count is None else int(count)
     nbytes = -1 if nbytes is None else si_bin(int(nbytes))
-    if count >= 0 and nbytes >= 0:
-        msg = 'Only one of `count`/`nbytes` can be used. Not both'
+    # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
+    if count == 0 and nbytes > 0:
+        msg = 'Ambiguous: count=0 disables cache, but nbytes > 0.'
         raise ValueError(msg)
-
-    # count/nbytes in -/- (unbound), -/0 or 0/- (off), -/+ (bytes), +/- (count)
-    capacity = max(count, nbytes)
-    if int(capacity) == 0:
+    # +/+, +/0, +/-, 0/0, 0/-, -/+, -/0, -/-
+    if count > 0 and nbytes == 0:
+        msg = 'Ambiguous: nbytes=0 disables cache, but count > 0.'
+        raise ValueError(msg)
+    # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
+    if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
+        # 0/0, 0/-, -/0 (weakrefs only)
         return functools.partial(  # type: ignore[return-value]
             _memoize,
             cs=_CacheState(_WeakCache(), key_fn),
             batched=batched,
         )
 
+    # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
     if cache_cls := _CACHES.get(policy):
-        if capacity < 0 or policy is None:
-            cache_cls = _Heap if ttl is None else _TtlCache
-        make_node = _MakeNode(ttl=ttl, realsize=nbytes > 0)
-        cache = cache_cls(capacity, make_node)
+        if (count < 0 and nbytes < 0) or policy is None:  # only time could cap
+            cache_cls = _Heap if ttl is None else _TimedCache
+        make_node = (
+            (_MakeSizedNode() if ttl is None else _MakeSizedTimedNode(ttl))
+            if nbytes > 0
+            else (_MakeNode() if ttl is None else _MakeTimedNode(ttl))
+        )
+        cache = cache_cls(count, nbytes, make_node)
         return functools.partial(  # type: ignore[return-value]
             _memoize,
             cs=_CacheState(_StrongCache(cache=cache), key_fn),
@@ -587,7 +620,7 @@ def memoize(
 
 
 _CACHES: dict[CachePolicy, _CacheMaker] = {
-    None: _TtlCache,
-    'lru': _LruTtlCache,
-    'mru': _MruTtlCache,
+    None: _TimedCache,
+    'lru': _LruTimedCache,
+    'mru': _MruTimedCache,
 }
