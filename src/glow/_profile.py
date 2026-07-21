@@ -1,5 +1,6 @@
 __all__ = [
     'memprof',
+    'memtrack',
     'time_this',
     'timer',
     'whereami',
@@ -7,6 +8,7 @@ __all__ = [
 
 import atexit
 import gc
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
@@ -14,8 +16,11 @@ from dataclasses import dataclass, field
 from functools import partial
 from inspect import currentframe, getmodule, isfunction
 from itertools import count, islice
+from threading import Thread
 from time import perf_counter_ns, process_time_ns, thread_time_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Never
+
+from loguru import logger
 
 from ._cache import memoize
 from ._dev import hide_frame
@@ -62,6 +67,24 @@ def memprof(
                 name = f'{whereami(2, 1)} line'
             sign = '+' if size >= 0 else ''
             print(f'{name} done: {sign}{si_bin(size)}')
+
+
+def memtrack(
+    callback: Callable[[int], None] = (
+        lambda size: logger.trace(f'Process RSS: {si_bin(size)}')
+    ),
+    period: float = 30,
+) -> None:
+    import psutil  # noqa: PLC0415
+
+    def serve() -> Never:
+        this = psutil.Process()
+        callback(this.memory_info().rss)
+        while True:
+            time.sleep(period)
+            callback(this.memory_info().rss)
+
+    Thread(target=serve, daemon=True).start()
 
 
 # ----------------------------------- time -----------------------------------

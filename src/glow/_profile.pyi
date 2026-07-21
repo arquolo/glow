@@ -7,6 +7,9 @@ from ._types import Callback, Decorator, Get
 def memprof(
     name_or_callback: str | Callback[float] | None = ..., /
 ) -> AbstractContextManager[None]: ...
+def memtrack(
+    callback: Callable[[int], None] = ..., period: float = ...
+) -> None: ...
 @overload
 def timer(
     name: str | None = ...,

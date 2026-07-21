@@ -46,7 +46,7 @@ from ._parallel import (
     max_cpu_count,
     starmap_n,
 )
-from ._profile import memprof, time_this, timer, whereami
+from ._profile import memprof, memtrack, time_this, timer, whereami
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._reusable import Reusable
 from ._sizeof import sizeof
@@ -138,6 +138,7 @@ __all__ = [
     'maximum_cumsum',
     'memoize',
     'memprof',
+    'memtrack',
     'pascal',
     'register_post_import_hook',
     'repr_as_obj',
