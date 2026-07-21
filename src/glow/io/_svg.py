@@ -57,9 +57,9 @@ class Svg:
             if uniq == 0:  # skip background
                 continue
             m = (mask == uniq).astype('B')
-            contours, _, _ = cv2.findContours(
+            contours = cv2.findContours(
                 m, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_TC89_L1
-            )
+            )[0]
             polygons = (
                 e.polygon(points=' '.join(map(str, contour.ravel())))
                 for contour in contours
