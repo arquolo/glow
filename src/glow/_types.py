@@ -20,6 +20,7 @@ type Get[T] = Callable[[], T]
 type Callback[T] = Callable[[T], object]
 
 type CachePolicy = Literal['lru', 'mru'] | None
+type Maybe[T] = 'Some[T] | BaseException'
 
 
 @dataclass(frozen=True, slots=True)

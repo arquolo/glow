@@ -106,7 +106,7 @@ def afma(
     if scale != 1:
         a = np.multiply(a, scale, dtype=dtype)
         if bias:
-            a += bias
+            a += bias  # type: ignore[arg-type]
     elif bias != 0:
         a = np.add(a, bias, dtype=dtype)
     return a
@@ -130,9 +130,8 @@ def aminmax_norm(a: np.ndarray) -> np.ndarray:
     if dtype == 'B' or (dtype == 'H' and a.size > 1e6):  #  use LUT
         lut = np.arange(amax + 1)
         lut -= lo
-        lut = np.multiply(lut, scale, dtype='f')
-        lut = around(lut.clip(0, amax), a.dtype)
-        return lut[a]
+        lut_f = np.multiply(lut, scale, dtype='f')
+        return around(lut_f.clip(0, amax), a.dtype)[a]
 
     if lo > 0:
         a = np.subtract(a, lo, dtype='f')

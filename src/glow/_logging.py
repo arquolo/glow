@@ -177,6 +177,7 @@ def _span_task(task_id: str) -> Iterator[str]:
     if parent_id := span.get('task_id'):
         task_id = f'{parent_id}/{task_id}'
 
+    # TODO: opentelemetry integration
     token = _span_ctx.set(span | {'task_id': task_id})
     try:
         with logger.contextualize(task_id=task_id):

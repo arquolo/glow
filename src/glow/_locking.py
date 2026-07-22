@@ -13,14 +13,9 @@ from queue import Empty
 from time import sleep
 from typing import Protocol
 
-from ._types import Some
+from ._types import Maybe, Some
 
 _PERIOD = 0.01  # or sys.getswitchinterval() which is 0.005 on win32
-
-
-class AbsManager(Protocol):
-    def Event(self) -> 'AbsEvent': ...  # noqa: N802
-    def Queue(self, /, maxsize: int) -> 'AbsQueue': ...  # noqa: N802
 
 
 class AbsQueue[T](Protocol):
@@ -33,7 +28,12 @@ class AbsEvent(Protocol):
     def set(self) -> None: ...
 
 
-def f_result[T](f: Future[T], cancel: bool = True) -> Some[T] | BaseException:
+class AbsManager(Protocol):
+    def Event(self) -> AbsEvent: ...  # noqa: N802
+    def Queue(self, /, maxsize: int) -> AbsQueue: ...  # noqa: N802
+
+
+def f_result[T](f: Future[T], cancel: bool = True) -> Maybe[T]:
     try:
         return exc if (exc := f_exception(f)) else Some(f.result())
     finally:

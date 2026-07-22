@@ -65,7 +65,7 @@ def run_glow(task, *args):
 
 
 def run_joblib(task, *args):
-    from glow.joblib import Parallel, delayed
+    from glow.joblib import Parallel, delayed  # noqa: PLC0415
 
     return Parallel(n_jobs=2, backend='multiprocessing')(
         delayed(task)(*a) for a in zip(*args)
@@ -73,13 +73,13 @@ def run_joblib(task, *args):
 
 
 def run_joblib_mp(task, *args):
-    from glow.joblib import Parallel, delayed
+    from glow.joblib import Parallel, delayed  # noqa: PLC0415
 
     return Parallel(n_jobs=2)(delayed(task)(*a) for a in zip(*args))
 
 
 def bench_ipc_speed(order=25, steps=100):
-    from matplotlib import pyplot as plt
+    from matplotlib import pyplot as plt  # noqa: PLC0415
 
     sizes = np.asarray([2**order, *np.logspace(order, 2, num=steps, base=2)])
     to_bytes = DTYPE.itemsize * 2  # x2, because copy+read

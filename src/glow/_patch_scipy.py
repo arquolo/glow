@@ -47,7 +47,7 @@ def _patch_handler_and_load_scipy() -> None:
     patch_size = len(new)
     old, code[:patch_size] = code[:patch_size], new
     try:
-        import scipy.stats  # noqa: F401
+        import scipy.stats  # noqa: F401,PLC0415
     finally:
         code[:patch_size] = old
 

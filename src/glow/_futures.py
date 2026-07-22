@@ -4,7 +4,7 @@ from collections.abc import Callable, Hashable, Iterable, Sequence
 from typing import Protocol, overload
 
 from ._dev import hide_frame
-from ._types import Coro, Some
+from ._types import Coro, Maybe, Some
 
 type Job[T, R] = tuple[T, cf.Future[R]]
 type AJob[T, R] = tuple[T, asyncio.Future[R]]
@@ -62,7 +62,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     if not xs:
         return
 
-    obj: Some[Sequence[R]] | BaseException
+    obj: Maybe[Sequence[R]]
     try:
         with hide_frame:
             ret = fn([x for x, _ in xs])
@@ -83,7 +83,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     if not xs:
         return
 
-    obj: Some[Sequence[R]] | BaseException
+    obj: Maybe[Sequence[R]]
     try:
         with hide_frame:
             ret = await fn([x for x, _ in xs])
@@ -106,7 +106,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
                 f.exception()  # Mark exception as retrieved
 
 
-def _check_protocol[S: Sequence](ret: S, n: int) -> Some[S] | BaseException:
+def _check_protocol[S: Sequence](ret: S, n: int) -> Maybe[S]:
     if not isinstance(ret, Sequence):
         return TypeError(
             f'Call returned non-sequence. Got {type(ret).__name__}'

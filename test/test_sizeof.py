@@ -275,7 +275,7 @@ def test_object_with_weakref():
 
 def test_torch_integration():
     try:
-        import torch
+        import torch  # noqa: PLC0415
     except ImportError:
         pytest.skip('PyTorch not installed')
 

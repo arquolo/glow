@@ -118,7 +118,7 @@ class _AbstractCache[T](Protocol):
 class _CacheMaker[T](Protocol):
     def __call__(
         self, capacity: int, capacity_bytes: int, make_node: _MakeNode
-    ) -> '_AbstractCache[T]': ...
+    ) -> _AbstractCache[T]: ...
 
 
 @dataclass(repr=False, slots=True, weakref_slot=True)

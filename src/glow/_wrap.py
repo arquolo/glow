@@ -3,7 +3,6 @@ __all__ = ['wrap']
 import types
 from collections.abc import Callable, Generator, Iterator
 from functools import partial
-from itertools import count
 from typing import Protocol, Self
 
 from wrapt import ObjectProxy
@@ -15,13 +14,12 @@ _OP_FORK_STOPITER = True
 _OP_FUNC = True
 
 
-def wrap[**P, R](func: Callable[P, R], wrapper: '_Wrapper') -> Callable[P, R]:
+def wrap[**P, R](func: Callable[P, R], wrapper: 'Wrapper') -> Callable[P, R]:
     return _Callable(func, wrapper)
 
 
-class _Wrapper(Protocol):
-    @property
-    def calls(self) -> count: ...
+class Wrapper(Protocol):
+    def new_call(self) -> None: ...
 
     # This one start right after function was called,
     # and stops right before it's called again.
@@ -42,10 +40,10 @@ class _Wrapper(Protocol):
     ) -> R: ...
 
 
-class _Proxy[T](ObjectProxy):  # type: ignore[misc]
+class _Proxy[T](ObjectProxy):
     __wrapped__: T
 
-    def __init__(self, wrapped: T, wrapper: _Wrapper) -> None:
+    def __init__(self, wrapped: T, wrapper: Wrapper) -> None:
         super().__init__(wrapped)
         self._self_wrapper = wrapper
 
@@ -59,7 +57,7 @@ class _Callable[**P, R](_Proxy[Callable[P, R]]):
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         # patch & record fn.__call__
-        next(self._self_wrapper.calls)
+        self._self_wrapper.new_call()
         with hide_frame:
             r = self._self_wrapper(self.__wrapped__, *args, **kwargs)
         return _wrap(r, self._self_wrapper)
@@ -100,10 +98,10 @@ class _CoroLike[Y, S, R](_Proxy[Generator[Y, S, R]]):
                 raise
         return _wrap(ret, self._self_wrapper)
 
-    def throw(self, value: BaseException, /) -> Y:
+    def throw(self, *args) -> Y:
         with hide_frame:
             try:
-                ret = self._self_wrapper(self.__wrapped__.throw, value)
+                ret = self._self_wrapper(self.__wrapped__.throw, *args)
             except StopIteration as stop:
                 _wrap(stop, self._self_wrapper)
                 raise
@@ -122,7 +120,7 @@ class _Generator[Y, S, R](_CoroLike[Y, S, R], _Iterator[Y]):
 
 
 def _gen[Y, S, R](
-    gen: Generator[Y, S, R], wrapper: _Wrapper
+    gen: types.GeneratorType[Y, S, R], wrapper: Wrapper
 ) -> Generator[Y, S, R]:
     assert iter(gen) is gen
     op: Get[Y] = gen.__next__
@@ -146,7 +144,7 @@ def _gen[Y, S, R](
 # -------------------------------- decoration --------------------------------
 
 
-def _wrap[T](r: T, wrapper: _Wrapper) -> T:
+def _wrap[T](r: T, wrapper: Wrapper) -> T:
     # function, generator, coroutine & async generator
     # are distinguishable only by their result
     if isinstance(r, _Proxy):
@@ -158,13 +156,13 @@ def _wrap[T](r: T, wrapper: _Wrapper) -> T:
 
     match r:
         # __iter__, __next__, send, throw, close
-        case types.GeneratorType() if _OP_FUNC:  # generator functions
+        case types.GeneratorType() if _OP_FUNC:  # genfuncs
             return _gen(r, wrapper)  # type: ignore[return-value]
-        case Generator():
-            return _Generator(r, wrapper)  # user's generators
+        case Generator():  # user's generators
+            return _Generator(r, wrapper)  # type: ignore[return-value]
 
         # __iter__, __next__
         case Iterator():
-            return _Iterator(r, wrapper)
+            return _Iterator(r, wrapper)  # type: ignore[return-value]
 
     return r

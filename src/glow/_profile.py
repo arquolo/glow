@@ -18,6 +18,7 @@ from inspect import currentframe, getmodule, isfunction
 from itertools import count, islice
 from threading import Thread
 from time import perf_counter_ns, process_time_ns, thread_time_ns
+from types import FrameType
 from typing import TYPE_CHECKING, Never
 
 from loguru import logger
@@ -27,12 +28,7 @@ from ._dev import hide_frame
 from ._repr import si, si_bin
 from ._streams import Stream, cumsum, maximum_cumsum
 from ._types import Callback, Get
-from ._wrap import wrap
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from types import FrameType
-
+from ._wrap import Wrapper, wrap
 
 if TYPE_CHECKING:
     import psutil
@@ -79,10 +75,9 @@ def memtrack(
 
     def serve() -> Never:
         this = psutil.Process()
-        callback(this.memory_info().rss)
         while True:
-            time.sleep(period)
             callback(this.memory_info().rss)
+            time.sleep(period)
 
     Thread(target=serve, daemon=True).start()
 
@@ -137,7 +132,7 @@ def _to_fname(obj) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class _Profiler:
+class _Profiler(Wrapper):
     # Call count
     calls: count = field(default_factory=count)
     # Statistics requests count
@@ -148,6 +143,9 @@ class _Profiler:
     busy_ns: Stream[int, int] = field(default_factory=cumsum)
     # Idle time - elapsed I/O time (like time.sleep, lock.acquire, e.t.c.).
     idle_ns: Stream[int, int] = field(default_factory=cumsum)
+
+    def new_call(self) -> None:
+        next(self.calls)
 
     def suspend(self) -> Get[None]:
         wall_t0 = perf_counter_ns()
@@ -237,12 +235,12 @@ time_this.finalizers = {}  # type: ignore[attr-defined]
 # --------------------------------- location ---------------------------------
 
 
-def _frame_key(frame: 'FrameType') -> tuple[str, int]:
+def _frame_key(frame: FrameType) -> tuple[str, int]:
     return frame.f_code.co_filename, frame.f_lineno
 
 
 @memoize(100, policy='lru', key_fn=_frame_key)
-def _get_source(frame: 'FrameType') -> str:
+def _get_source(frame: FrameType) -> str:
     # Get source module name
     modname = (
         spec.name
@@ -262,7 +260,7 @@ def _get_source(frame: 'FrameType') -> str:
     return f'{modname}:{codename}:{frame.f_lineno}'
 
 
-def _get_source_calls(frame: 'FrameType | None') -> 'Iterator[str]':
+def _get_source_calls(frame: FrameType | None) -> Iterator[str]:
     while frame:
         yield _get_source(frame)
         if frame.f_code.co_name == '<module>':  # Stop on module-level scope
@@ -270,7 +268,7 @@ def _get_source_calls(frame: 'FrameType | None') -> 'Iterator[str]':
         frame = frame.f_back
 
 
-def stack(skip: int = 0, limit: int | None = None) -> 'Iterator[str]':
+def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
     """Return iterator of FrameInfos, stopping on module-level scope."""
     frame = currentframe()
     calls = _get_source_calls(frame)

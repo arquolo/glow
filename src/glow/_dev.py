@@ -8,14 +8,12 @@ __all__ = [
 import copy
 import os
 import random
-from typing import TYPE_CHECKING, Self
+from types import CodeType, TracebackType
+from typing import Self
 
 import numpy as np
 
 from ._import_hook import register_post_import_hook
-
-if TYPE_CHECKING:
-    from types import CodeType, TracebackType
 
 
 class _HideFrame:
@@ -34,13 +32,13 @@ class _HideFrame:
         self,
         tp: type[BaseException] | None,
         val: BaseException | None,
-        tb: 'TracebackType | None',
+        tb: TracebackType | None,
     ) -> None:
         if val is None:
             return
         val.__traceback__ = self.drop(val.__traceback__ or tb)
 
-    def drop(self, tb: 'TracebackType | None') -> 'TracebackType | None':
+    def drop(self, tb: TracebackType | None) -> TracebackType | None:
         for _ in range(self._nframes):
             if not tb:
                 return None
@@ -52,7 +50,7 @@ def clone_exc[E: BaseException](exc: E) -> E:
     return copy.copy(exc)
 
 
-def declutter_tb(e: BaseException, code: 'CodeType') -> None:
+def declutter_tb(e: BaseException, code: CodeType) -> None:
     tb = e.__traceback__
 
     # Drop frames until `code` frame is reached

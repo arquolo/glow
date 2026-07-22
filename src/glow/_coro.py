@@ -4,6 +4,7 @@ from collections import Counter, deque
 from collections.abc import Callable, Generator, Hashable, Iterable, Iterator
 from functools import update_wrapper
 from threading import Lock
+from typing import cast
 
 import wrapt
 
@@ -21,7 +22,7 @@ def coroutine[**P, Y, S, R](
     return update_wrapper(wrapper, fn)
 
 
-class _Sync[Y, S, R](wrapt.ObjectProxy):  # type: ignore[misc]
+class _Sync[Y, S, R](wrapt.ObjectProxy):
     __wrapped__: Generator[Y, S, R]
 
     def __init__(self, wrapped: Generator[Y, S, R]) -> None:
@@ -34,14 +35,17 @@ class _Sync[Y, S, R](wrapt.ObjectProxy):  # type: ignore[misc]
         with self._self_lock:
             return op(*args, **kwargs)
 
+    def __iter__(self) -> Generator[Y, S, R]:
+        return self
+
     def __next__(self) -> Y:
         return self._call(self.__wrapped__.__next__)
 
     def send(self, item: S, /) -> Y:
         return self._call(self.__wrapped__.send, item)
 
-    def throw(self, value: BaseException, /) -> Y:
-        return self._call(self.__wrapped__.throw, value)
+    def throw(self, *args) -> Y:
+        return self._call(self.__wrapped__.throw, *args)
 
     def close(self) -> None:
         self._call(self.__wrapped__.close)
@@ -52,7 +56,7 @@ def threadsafe_iter[**P, Y, S, R](
 ) -> Callable[P, Generator[Y, S, R]]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Y, S, R]:
         gen = fn(*args, **kwargs)
-        return _Sync(gen)
+        return cast('Generator[Y, S, R]', _Sync(gen))
 
     return update_wrapper(wrapper, fn)
 

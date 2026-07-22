@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from queue import Queue
 from threading import Event
+from typing import Self
 
 import numpy as np
 import numpy.typing as npt
@@ -139,7 +140,7 @@ class Sound[S: np.number]:
         _play(self.data, self.rate, blocksize=blocksize)
 
     @classmethod
-    def load(cls, path: Path | str) -> 'Sound':
+    def load(cls, path: Path | str) -> Self:
         if soundfile is None:
             raise ImportError('Cannot import `soundfile` module')
         _check_fmt(path)
