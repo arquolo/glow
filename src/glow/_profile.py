@@ -9,13 +9,14 @@ __all__ = [
 import atexit
 import gc
 import time
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
 from inspect import currentframe, getmodule, isfunction
-from itertools import count, islice
+from itertools import accumulate, count, islice
 from threading import Thread
 from time import perf_counter_ns, process_time_ns, thread_time_ns
 from types import FrameType
@@ -203,8 +204,18 @@ def _print_stats(*names: str) -> None:
         if not (lines := profiler.stat()):
             continue
         stats.append((*lines, name))
+    if not stats:
+        return
+
+    min_t = 0
+    if len(stats) > 5:  # Keep only calls responsible for 95% time
+        durs = sorted(busy + idle for busy, idle, _, _ in stats)
+        a_durs = list(accumulate(durs))
+        min_t = durs[bisect_left(a_durs, 0.05 * a_durs[-1])]
 
     for busy, idle, tail, name in sorted(stats):
+        if busy + idle < min_t:
+            continue
         print(
             f'{busy / all_busy:6.2%}',
             f'{si(busy):>5s}s + {si(idle):>5s}s',
