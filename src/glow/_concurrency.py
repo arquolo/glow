@@ -225,7 +225,7 @@ def streaming[T, R](
         batch_size = get_trimmer(batch_size)
     q = _start_fetch_compute(func, workers, batch_size, timeout)
 
-    def wrapper(items: Sequence[T]) -> Sequence[R]:
+    def wrapper(items: Sequence[T]) -> list[R]:
         fs = {Future[R](): item for item in items}
         try:
             for f, x in fs.items():

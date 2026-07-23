@@ -13,8 +13,8 @@ type AnyJob[T, R] = tuple[T, AnyFuture[R]]
 
 # batch -> N first items to pick, 0 if too early to yield
 type UsableSize[T] = Callable[[Sequence[T]], int]
-type BatchFn[T, R] = Callable[[Sequence[T]], Sequence[R]]
-type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[Sequence[R]]]
+type BatchFn[T, R] = Callable[[Sequence[T]], list[R]]
+type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[list[R]]]
 
 
 class BatchDecorator(Protocol):
@@ -62,7 +62,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     if not xs:
         return
 
-    obj: Maybe[Sequence[R]]
+    obj: Maybe[list[R]]
     try:
         with hide_frame:
             ret = fn([x for x, _ in xs])
@@ -83,7 +83,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     if not xs:
         return
 
-    obj: Maybe[Sequence[R]]
+    obj: Maybe[list[R]]
     try:
         with hide_frame:
             ret = await fn([x for x, _ in xs])
