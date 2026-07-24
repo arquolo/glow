@@ -10,8 +10,8 @@ import atexit
 import gc
 import time
 from bisect import bisect_left
-from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections import defaultdict, deque
+from collections.abc import Callable, Generator, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
@@ -44,7 +44,7 @@ _THIS = None
 @contextmanager
 def memprof(
     name_or_callback: str | Callback[float] | None = None, /
-) -> Iterator[None]:
+) -> Generator[None]:
     global _THIS  # noqa: PLW0603
     if _THIS is None:
         import psutil  # noqa: PLC0415
@@ -89,7 +89,7 @@ def memtrack(
 @contextmanager
 def _timer_callback(
     callback: Callback[int], time: Get[int] = perf_counter_ns, /
-) -> Iterator[None]:
+) -> Generator[None]:
     begin = time()
     try:
         yield
@@ -100,7 +100,7 @@ def _timer_callback(
 @contextmanager
 def _timer_print(
     name: str | None = None, time: Get[int] = perf_counter_ns, /
-) -> Iterator[None]:
+) -> Generator[None]:
     begin = time()
     try:
         yield
@@ -271,7 +271,7 @@ def _get_source(frame: FrameType) -> str:
     return f'{modname}:{codename}:{frame.f_lineno}'
 
 
-def _get_source_calls(frame: FrameType | None) -> Iterator[str]:
+def _get_source_calls(frame: FrameType | None) -> Generator[str]:
     while frame:
         yield _get_source(frame)
         if frame.f_code.co_name == '<module>':  # Stop on module-level scope
@@ -287,7 +287,7 @@ def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
     if not limit:
         return calls
     if limit < 0:
-        return iter(list(calls)[:limit])
+        return iter(deque(calls, maxlen=-limit))
     return islice(calls, limit)  # Keep at most `limit` outer frames
 
 

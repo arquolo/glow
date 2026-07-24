@@ -88,8 +88,8 @@ def register_post_import_hook(hook: Callback[ModuleType], name: str) -> None:
 
         if (module := sys.modules.get(name)) is None:
             _HOOKS.setdefault(name, []).append(hook)
-        else:
-            hook(module)
+            return
+    hook(module)
 
 
 def when_imported[H: Callback[ModuleType]](name: str) -> Callable[[H], H]:

@@ -4,9 +4,11 @@ from collections import Counter, deque
 from collections.abc import Callable, Generator, Hashable, Iterable, Iterator
 from functools import update_wrapper
 from threading import Lock
-from typing import cast
 
-import wrapt
+try:
+    from wrapt import BaseObjectProxy as ObjectProxy  # wrapt>=2.0
+except ImportError:
+    from wrapt import ObjectProxy
 
 from ._more import _deiter
 
@@ -22,7 +24,7 @@ def coroutine[**P, Y, S, R](
     return update_wrapper(wrapper, fn)
 
 
-class _Sync[Y, S, R](wrapt.ObjectProxy):
+class _Sync[Y, S, R](ObjectProxy):
     __wrapped__: Generator[Y, S, R]
 
     def __init__(self, wrapped: Generator[Y, S, R]) -> None:
@@ -56,7 +58,7 @@ def threadsafe_iter[**P, Y, S, R](
 ) -> Callable[P, Generator[Y, S, R]]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Generator[Y, S, R]:
         gen = fn(*args, **kwargs)
-        return cast('Generator[Y, S, R]', _Sync(gen))
+        return _Sync(gen)
 
     return update_wrapper(wrapper, fn)
 

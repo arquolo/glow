@@ -2,7 +2,6 @@ __all__ = ['cache_status', 'memoize']
 
 import asyncio
 import concurrent.futures as cf
-import enum
 import functools
 from collections.abc import (
     Awaitable,
@@ -34,14 +33,8 @@ from ._futures import (
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import CachePolicy, Decorator, KeyFn, Some
+from ._types import CachePolicy, Decorator, Empty, KeyFn, Some, empty
 
-
-class _Empty(enum.Enum):
-    token = 0
-
-
-_empty: Final = _Empty.token
 _inf: Final = float('inf')
 
 
@@ -111,7 +104,7 @@ _REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
 
 
 class _AbstractCache[T](Protocol):
-    def __getitem__(self, key: Hashable, /) -> T | _Empty: ...
+    def __getitem__(self, key: Hashable, /) -> T | Empty: ...
     def __setitem__(self, key: Hashable, value: T, /) -> None: ...
 
 
@@ -175,13 +168,13 @@ class _Heap[T](_Cache[T]):
     When size limit is reached, nothing is removed
     """
 
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> T | Empty:
         if node := self.store.get(key):
             self.stats.hits += 1
             return node.value
 
         self.stats.misses += 1
-        return _empty
+        return empty
 
     def __setitem__(self, key: Hashable, value: T, /) -> None:
         if key not in self.store:
@@ -195,7 +188,7 @@ class _TimedCache[T](_Cache[T]):
     When size limit is reached, nothing is removed
     """
 
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> T | Empty:
         now = monotonic()
         self._remove_outdated(now)
 
@@ -205,7 +198,7 @@ class _TimedCache[T](_Cache[T]):
             return node.value
 
         self.stats.misses += 1
-        return _empty
+        return empty
 
     def __setitem__(self, key: Hashable, value: T, /) -> None:
         now = monotonic()
@@ -286,8 +279,8 @@ class _WeakCache[T]:
         default_factory=WeakValueDictionary
     )
 
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
-        return self.alive.get(key, _empty)
+    def __getitem__(self, key: Hashable, /) -> T | Empty:
+        return self.alive.get(key, empty)
 
     def __setitem__(self, key: Hashable, value: T, /) -> None:
         if type(value).__weakrefoffset__:  # Support weak reference.
@@ -298,11 +291,11 @@ class _WeakCache[T]:
 class _StrongCache[T](_WeakCache[T]):
     cache: _AbstractCache[T]
 
-    def __getitem__(self, key: Hashable, /) -> T | _Empty:
+    def __getitem__(self, key: Hashable, /) -> T | Empty:
         # Alive and stored items.
         # Called first to update cache stats (i.e. MRU/LRU if any).
         # `cache` has subset of objects from `alive`.
-        if (ret := self.cache[key]) is not _empty:
+        if (ret := self.cache[key]) is not empty:
             return ret
         # Item could still exist, try reference ...
         return super().__getitem__(key)
@@ -345,7 +338,7 @@ def _sync_memoize[**P, R](
 
         is_owner = False
         with lock:
-            if (ret := cs.cache[key]) is not _empty:
+            if (ret := cs.cache[key]) is not empty:
                 return ret
 
             # ... or it could be computed somewhere else, join there.
@@ -386,7 +379,7 @@ def _async_memoize[**P, R](
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         key = cs.key_fn(*args, **kwargs)
 
-        if (ret := cs.cache[key]) is not _empty:
+        if (ret := cs.cache[key]) is not empty:
             return ret
 
         # ... or it could be computed somewhere else, join there.
@@ -433,7 +426,7 @@ class _BatchedQuery[T, R]:
                 self.jobs.append((k, None, f))  # Wait for this
 
             # ... else check if it's done ...
-            elif (r := cs.cache[k]) is not _empty:  # ! Requires sync
+            elif (r := cs.cache[k]) is not empty:  # ! Requires sync
                 self._done[k] = r
 
             # ... otherwise schedule a new job.

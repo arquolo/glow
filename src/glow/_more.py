@@ -12,6 +12,7 @@ __all__ = [
 from collections import deque
 from collections.abc import (
     Callable,
+    Generator,
     Hashable,
     Iterable,
     Iterator,
@@ -21,18 +22,9 @@ from collections.abc import (
 )
 from itertools import batched, chain, count, cycle, islice, repeat
 from threading import Thread
-from typing import Protocol, overload
+from typing import overload
 
-
-class SupportsSlice[T](Sized, Protocol):
-    def __getitem__(self, s: slice, /) -> T: ...
-
-
-class HasPopleft[T](Protocol):
-    def popleft(self) -> T: ...
-
-
-# ----------------------------------------------------------------------------
+from ._types import HasPopleft, SupportsSlice
 
 
 def as_iter[T](
@@ -121,12 +113,6 @@ def _sliced[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
     return map(s.__getitem__, slices)
 
 
-def _chunked[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
-    if size == 1:  # Trivial case
-        return zip(it)
-    return batched(it, size, strict=False)
-
-
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +139,7 @@ def windowed(it, size, /):
 
 
 @overload
-def chunked[T](__it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
+def chunked[S](__it: SupportsSlice[S], size: int, /) -> Iterator[S]: ...
 
 
 @overload
@@ -172,13 +158,13 @@ def chunked(it, size):
     >>> [*chunked(iter(range(10)), 3)]
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
-    return _dispatch(_chunked, _sliced, it, size)
+    return _dispatch(batched, _sliced, it, size)
 
 
 # ----------------------------------------------------------------------------
 
 
-def _deiter[T](q: HasPopleft[T], /) -> Iterator[T]:
+def _deiter[T](q: HasPopleft[T], /) -> Generator[T]:
     # Same as iter_except(q.popleft, IndexError) from docs of itertools
     try:
         while True:
@@ -187,7 +173,7 @@ def _deiter[T](q: HasPopleft[T], /) -> Iterator[T]:
         return
 
 
-def ichunked[T](it: Iterable[T], size: int, /) -> Iterator[Iterator[T]]:
+def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]:
     """Split iterable to chunks of at most size items each.
 
     Does't consume items from passed iterable to return complete chunk
@@ -240,7 +226,7 @@ def eat(iterable: Iterable, /, *, daemon: bool = False) -> None:
         deque(iterable, 0)  # Same as `more_itertools.consume(..., n=None)`
 
 
-def roundrobin[T](*iterables: Iterable[T]) -> Iterator[T]:
+def roundrobin[T](*iterables: Iterable[T]) -> Generator[T]:
     """roundrobin('ABC', 'D', 'EF') --> A D E B F C"""
     iters = cycle(iter(it) for it in iterables)
     for pending in range(len(iterables) - 1, -1, -1):
@@ -263,14 +249,16 @@ def groupby[T, K: Hashable, V](
 ) -> dict[K, list[V]]: ...
 
 
-def groupby(iterable, /, key, value=lambda x: x):
+def groupby[T, K: Hashable](
+    iterable: Iterable[T], /, key: Callable[[T], K], value=lambda x: x
+) -> dict[K, list]:
     """Group items from iterable by key.
 
     >>> groupby([True, (), 1, 0], bool)
     {True: [True, 1], False: [(), 0]}
 
     """
-    r: dict = {}
+    r: dict[K, list] = {}
     for x in iterable:
         r.setdefault(key(x), []).append(value(x))
     return r

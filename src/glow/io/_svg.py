@@ -1,6 +1,6 @@
 __all__ = ['Svg']
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from pathlib import Path
 
 import cv2
@@ -29,7 +29,7 @@ for (let group of svg.getElementsByTagName("g")) {
 """
 
 
-def hsv_colors(count: int) -> Iterator[str]:
+def hsv_colors(count: int) -> Generator[str]:
     hues = np.linspace(0, 360, num=count, endpoint=False, dtype='i')
     for hue in hues.tolist():
         yield f'hsl({hue},100%,50%)'

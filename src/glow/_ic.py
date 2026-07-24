@@ -19,7 +19,7 @@ import inspect
 import pprint
 import shutil
 import sys
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Generator, Iterable, Iterator, Mapping
 from dataclasses import fields, is_dataclass, replace
 from datetime import datetime
 from os.path import basename
@@ -131,7 +131,7 @@ def _fmt_1d(a: np.ndarray, tol: int = 4) -> str:
     return '[' + ' '.join(f'{x:.{tol}g}' for x in a.tolist()) + ']'
 
 
-def _bool_info(arr: np.ndarray) -> Iterator[str]:
+def _bool_info(arr: np.ndarray) -> Generator[str]:
     if arr.size < 500:  # all data in Packed Hex
         line = np.packbits(arr.flat).tobytes().hex().replace('0', '_')
         yield f'bits={line!r}'
@@ -142,7 +142,7 @@ def _bool_info(arr: np.ndarray) -> Iterator[str]:
         yield from _grad_info(arr)
 
 
-def _int_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
+def _int_info(arr: np.ndarray, lo, hi, dtype) -> Generator[str]:
     range_ = int(hi) - int(lo) + 1
 
     # Small range (lo >= 0 and hi <= 10), show distribution
@@ -168,7 +168,7 @@ def _int_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
             yield f'{nuniq / range_:.2%} range'
 
 
-def _float_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
+def _float_info(arr: np.ndarray, lo, hi, dtype) -> Generator[str]:
     if dtype.kind == 'c':  # Force complex as float
         arr = arr.astype('F').view('2f')
         lo, hi = arr.min(), arr.max()  # Complex min/max uses amplitude
@@ -192,12 +192,12 @@ def _float_info(arr: np.ndarray, lo, hi, dtype) -> Iterator[str]:
     yield from map(str, np.unique(arr.data[mask]).tolist())
 
 
-def _grad_info(arr: np.ndarray | np.ma.MaskedArray) -> Iterator[str]:
+def _grad_info(arr: np.ndarray | np.ma.MaskedArray) -> Generator[str]:
     if (grad := _get_nd_grad(arr)).any():
         yield f'grad={_fmt_1d(grad)}'
 
 
-def _get_properties(arr: np.ndarray, lo, hi) -> Iterator[str]:
+def _get_properties(arr: np.ndarray, lo, hi) -> Generator[str]:
     dtype: np.dtype = arr.dtype
     assert arr.size
     match dtype.kind:

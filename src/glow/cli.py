@@ -47,7 +47,7 @@ import importlib
 import sys
 import types
 from argparse import ArgumentParser, BooleanOptionalAction, _ArgumentGroup
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import MISSING, Field, dataclass, field, fields, is_dataclass
 from inspect import getmodule, signature, stack
 from typing import (
@@ -152,7 +152,7 @@ def _unwrap_type(tp: type) -> tuple[type, _Opts]:
     raise TypeError(msg)
 
 
-def _get_fields(fn: Callable) -> Iterator[Field]:
+def _get_fields(fn: Callable) -> Generator[Field]:
     if is_dataclass(fn):  # Shortcut
         yield from fields(fn)
         return

@@ -1,3 +1,4 @@
+import enum
 from collections.abc import (
     AsyncIterable,
     AsyncIterator,
@@ -6,9 +7,10 @@ from collections.abc import (
     Hashable,
     Iterable,
     Iterator,
+    Sized,
 )
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Final, Literal, Protocol
 
 type KeyFn[**P] = Callable[P, Hashable]
 
@@ -34,3 +36,22 @@ class Decorator(Protocol):
 
 class PsDecorator[**P](Protocol):
     def __call__[R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
+
+
+class SupportsSlice[T](Sized, Protocol):
+    def __getitem__(self, s: slice, /) -> T: ...
+
+
+class SupportsWrite(Protocol):
+    def write(self, s: str, /) -> object: ...
+
+
+class HasPopleft[T](Protocol):
+    def popleft(self) -> T: ...
+
+
+class Empty(enum.Enum):
+    token = 0
+
+
+empty: Final = Empty.token

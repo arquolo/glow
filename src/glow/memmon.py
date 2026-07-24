@@ -8,7 +8,7 @@ Usage: python -m glow.memmon PID --time=PERIOD
 import sys
 import time
 from argparse import ArgumentParser
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import dataclass
 
 from prettytable import PrettyTable, TableStyle
@@ -41,7 +41,7 @@ class MemoryMonitor:
 
         return str(tab)
 
-    def _iter_stats(self) -> Iterator[tuple[str, '_Stat', str]]:
+    def _iter_stats(self) -> Generator[tuple[str, '_Stat', str]]:
         todo: list[tuple[int, Process]] = [(0, self.proc)]
 
         while todo:

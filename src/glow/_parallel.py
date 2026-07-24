@@ -8,14 +8,20 @@ __all__ = [
 ]
 
 import atexit
-import enum
 import logging
 import os
 import signal
 import sys
 import warnings
 import weakref
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sized
+from collections.abc import (
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sized,
+)
 from concurrent.futures import Executor, Future
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
@@ -28,7 +34,7 @@ from pstats import Stats
 from queue import SimpleQueue
 from threading import Lock
 from time import monotonic
-from typing import Final, Self, cast
+from typing import Self, cast
 
 import loky
 
@@ -42,7 +48,7 @@ from ._locking import AbsEvent, AbsManager, AbsQueue, f_result, q_get
 from ._more import chunked, ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
-from ._types import Some
+from ._types import Empty, Some, empty
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,12 +66,6 @@ _IDLE_WORKER_TIMEOUT = 10
 _FAST_GROW = False
 _GRANULAR_SCHEDULING = False
 
-
-class _Empty(enum.Enum):
-    token = 0
-
-
-_empty: Final = _Empty.token
 
 # ------------------- some useful interfaces and functions -------------------
 
@@ -132,7 +132,7 @@ def _initializer() -> None:
 
 
 @contextmanager
-def get_executor(max_workers: int, *, mp: bool) -> Iterator[Executor]:
+def get_executor(max_workers: int, *, mp: bool) -> Generator[Executor]:
     if mp:
         processes: loky.ProcessPoolExecutor = loky.get_reusable_executor(
             max_workers,
@@ -167,7 +167,7 @@ def _get_manager(executor: Executor) -> AbsManager:
 
 
 def _consume[T](
-    items: Iterable[T], buf: AbsQueue[T | _Empty], stop: AbsEvent
+    items: Iterable[T], buf: AbsQueue[T | Empty], stop: AbsEvent
 ) -> None:
     try:
         for item in items:
@@ -175,11 +175,11 @@ def _consume[T](
                 break
             buf.put(item)
     finally:
-        buf.put(_empty)  # Signal to stop iteration
-        buf.put(_empty)  # Match last q.get
+        buf.put(empty)  # Signal to stop iteration
+        buf.put(empty)  # Match last q.get
 
 
-class buffered[T](Iterator[T]):  # noqa: N801
+class buffered[T]:  # noqa: N801
     """Iterate in background thread with at most `latency` items ahead."""
 
     __slots__ = ('__weakref__', '_consume', '_q', 'close')
@@ -203,7 +203,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
             s.enter_context(mgr)
 
         ev: AbsEvent = mgr.Event()
-        q: AbsQueue[T | _Empty] = mgr.Queue(latency)
+        q: AbsQueue[T | Empty] = mgr.Queue(latency)
         self._consume = executor.submit(_consume, iterable, q, ev)
         self._q = q
 
@@ -224,7 +224,7 @@ class buffered[T](Iterator[T]):  # noqa: N801
 
     def __next__(self) -> T:
         if self.close.alive:
-            if (item := q_get(self._q)) is not _empty:
+            if (item := q_get(self._q)) is not empty:
                 return item
 
             self.close()
@@ -254,7 +254,7 @@ class _AutoSize:
         with self.lock:
             return self.size
 
-    def update(self, n: int, start_time: float, fut: Future[Sized]) -> None:
+    def update(self, n: int, start_time: float, fut: Future) -> None:
         # Compute as soon as future became done, discard later if not needed
         duration = monotonic() - start_time
 
@@ -305,7 +305,7 @@ def _schedule[F: Future](
     submit_chunk: Callable[..., F],
     args_zip: Iterable[Iterable],
     chunksize: int,
-) -> Iterator[F]:
+) -> Generator[F]:
     for chunk in chunked(args_zip, chunksize):
         f = submit_chunk(*chunk)
         _LOGGER.debug('Submit %d', len(chunk))
@@ -314,12 +314,13 @@ def _schedule[F: Future](
 
 def _schedule_auto[F: Future](
     submit_chunk: Callable[..., F],
-    args_zip: Iterator[Iterable],
+    args_zip: Iterable[Iterable],
     max_workers: int,
-) -> Iterator[F]:
+) -> Generator[F]:
     # For the whole wave make futures with the same job size
     size = _AutoSize()
-    while tuples := [*islice(args_zip, size.suggest() * max_workers)]:
+    args_zip_it = iter(args_zip)
+    while tuples := [*islice(args_zip_it, size.suggest() * max_workers)]:
         chunksize = len(tuples) // max_workers or 1
         for chunk in chunked(tuples, chunksize):
             f = submit_chunk(*chunk)
@@ -329,24 +330,25 @@ def _schedule_auto[F: Future](
 
 
 def _schedule_auto_v2[F: Future](
-    submit_chunk: Callable[..., F], args_zip: Iterator[Iterable]
-) -> Iterator[F]:
+    submit_chunk: Callable[..., F], args_zip: Iterable[Iterable]
+) -> Generator[F]:
     # Vary job size from future to future
     size = _AutoSize()
-    while chunk := [*islice(args_zip, size.suggest())]:
+    args_zip_it = iter(args_zip)
+    while chunk := [*islice(args_zip_it, size.suggest())]:
         f = submit_chunk(*chunk)
         _LOGGER.debug('Submit %d', len(chunk))
         f.add_done_callback(partial(size.update, len(chunk), monotonic()))
         yield f
 
 
-def _get_unwrap_iter[T](
+def _futures_to_results[T](
     s: ExitStack,
     qsize: int,
     qf: AbsQueue[Future[T]],
-    sched_iter: Iterator,
+    sched_iter: Iterable,
     is_batched: bool,
-) -> Iterator[T]:
+) -> Generator[T]:
     with s:
         if not qsize:  # No tasks to do
             return
@@ -387,7 +389,7 @@ def _enqueue[T](
     return sched_iter, q
 
 
-def _prefetch(s: ExitStack, sched_iter: Iterator, count: int | None) -> int:
+def _prefetch(s: ExitStack, sched_iter: Iterable, count: int | None) -> int:
     try:
         # Fetch up to `count` tasks to pre-fill `q`
         qsize = ilen(islice(sched_iter, count))
@@ -475,7 +477,7 @@ def starmap_n[T](
         f1s = starmap(submit_1, it)
         sched1_iter, qf = _enqueue(f1s, unordered)
         qsize = _prefetch(s, sched1_iter, prefetch)
-        return _get_unwrap_iter(s, qsize, qf, sched1_iter, False)
+        return _futures_to_results(s, qsize, qf, sched1_iter, False)
 
     submit_n = cast(
         'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
@@ -492,7 +494,7 @@ def starmap_n[T](
 
     sched_iter, qf = _enqueue(fs, unordered)
     qsize = _prefetch(s, sched_iter, prefetch)
-    chunks = _get_unwrap_iter(s, qsize, qf, sched_iter, True)
+    chunks = _futures_to_results(s, qsize, qf, sched_iter, True)
     return chain.from_iterable(chunks)
 
 

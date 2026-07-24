@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Required, TypedDict, Unpack, overload
 
@@ -14,14 +14,14 @@ def astarmap[*Ts, R](
     iterable: AnyIterable[tuple[*Ts]],
     /,
     **kwargs: Unpack[_AmapKwargs],
-) -> AsyncIterator[R]: ...
+) -> AsyncGenerator[R]: ...
 @overload
 def amap[T, R](
     func: Callable[[T], Coro[R]],
     iter1: AnyIterable[T],
     /,
     **kwargs: Unpack[_AmapKwargs],
-) -> AsyncIterator[R]: ...
+) -> AsyncGenerator[R]: ...
 @overload
 def amap[T, T2, R](
     func: Callable[[T, T2], Coro[R]],
@@ -29,7 +29,7 @@ def amap[T, T2, R](
     iter2: AnyIterable[T2],
     /,
     **kwargs: Unpack[_AmapKwargs],
-) -> AsyncIterator[R]: ...
+) -> AsyncGenerator[R]: ...
 @overload
 def amap[T, T2, T3, R](
     func: Callable[[T, T2, T3], Coro[R]],
@@ -38,7 +38,7 @@ def amap[T, T2, T3, R](
     iter3: AnyIterable[T3],
     /,
     **kwargs: Unpack[_AmapKwargs],
-) -> AsyncIterator[R]: ...
+) -> AsyncGenerator[R]: ...
 @overload
 def amap[T, T2, T3, T4, R](
     func: Callable[[T, T2, T3, T4], Coro[R]],
@@ -48,7 +48,7 @@ def amap[T, T2, T3, T4, R](
     iter4: AnyIterable[T4],
     /,
     **kwargs: Unpack[_AmapKwargs],
-) -> AsyncIterator[R]: ...
+) -> AsyncGenerator[R]: ...
 @overload
 def amap[R](
     func: Callable[..., Coro[R]],
@@ -60,22 +60,22 @@ def amap[R](
     /,
     *iters: AnyIterable,
     **kwargs: Unpack[_AmapKwargs],
-) -> AsyncIterator[R]: ...
+) -> AsyncGenerator[R]: ...
 async def amap_dict[K, T, T2](
     func: Callable[[T], Coro[T2]], obj: Mapping[K, T], /, *, limit: int
 ) -> dict[K, T2]: ...
 @overload
-def azip() -> AsyncIterator[Any]: ...
+def azip() -> AsyncGenerator[Any]: ...
 @overload
-def azip[T](iter1: AnyIterable[T], /) -> AsyncIterator[tuple[T]]: ...  # noqa: RUF100,RUF102
+def azip[T](iter1: AnyIterable[T], /) -> AsyncGenerator[tuple[T]]: ...  # noqa: RUF100,RUF102
 @overload
 def azip[T, T2](
     iter1: AnyIterable[T], iter2: AnyIterable[T2], /
-) -> AsyncIterator[tuple[T, T2]]: ...
+) -> AsyncGenerator[tuple[T, T2]]: ...
 @overload
 def azip[T, T2, T3](
     iter1: AnyIterable[T], iter2: AnyIterable[T2], iter3: AnyIterable[T3], /
-) -> AsyncIterator[tuple[T, T2, T3]]: ...
+) -> AsyncGenerator[tuple[T, T2, T3]]: ...
 @overload
 def azip[T, T2, T3, T4](
     iter1: AnyIterable[T],
@@ -83,7 +83,7 @@ def azip[T, T2, T3, T4](
     iter3: AnyIterable[T3],
     iter4: AnyIterable[T4],
     /,
-) -> AsyncIterator[tuple[T, T2, T3, T4]]: ...
+) -> AsyncGenerator[tuple[T, T2, T3, T4]]: ...
 @overload
 def azip(
     iter1: AnyIterable,
@@ -93,7 +93,7 @@ def azip(
     iter5: AnyIterable,
     /,
     *iters: AnyIterable,
-) -> AsyncIterator[tuple]: ...
+) -> AsyncGenerator[tuple]: ...
 @overload
 def astreaming(
     *,

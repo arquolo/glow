@@ -5,7 +5,10 @@ from collections.abc import Callable, Generator, Iterator
 from functools import partial
 from typing import Protocol, Self
 
-from wrapt import ObjectProxy
+try:
+    from wrapt import BaseObjectProxy as ObjectProxy  # wrapt>=2.0
+except ImportError:
+    from wrapt import ObjectProxy
 
 from ._dev import hide_frame
 from ._types import Get

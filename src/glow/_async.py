@@ -4,9 +4,8 @@ import asyncio
 from asyncio import Event, Future, Lock, Queue, Task, TaskGroup
 from collections import deque
 from collections.abc import (
-    AsyncIterator,
+    AsyncGenerator,
     Callable,
-    Collection,
     Iterable,
     Iterator,
     Mapping,
@@ -51,7 +50,7 @@ def amap[R](
     *iterables: AnyIterable,
     limit: int,
     unordered: bool = False,
-) -> AsyncIterator[R]:
+) -> AsyncGenerator[R]:
     """Async version of map(func, *iterables).
 
     Make an iterator that computes the function using arguments from
@@ -70,7 +69,7 @@ async def astarmap[*Ts, R](
     *,
     limit: int,
     unordered: bool = False,
-) -> AsyncIterator[R]:
+) -> AsyncGenerator[R]:
     """Async version of itertools.starmap(fn, iterable).
 
     Return an iterator whose values are returned from the function evaluated
@@ -111,7 +110,7 @@ async def astarmap[*Ts, R](
 
 async def _iter_results_unordered[T](
     ts: AnyIterator[Task[T]], limit: int
-) -> AsyncIterator[T]:
+) -> AsyncGenerator[T]:
     """Fetch and run async tasks.
 
     Runs exactly `limit` tasks simultaneously (less in the end of iteration).
@@ -156,37 +155,37 @@ async def _iter_results_unordered[T](
 
 async def _iter_results[T](
     ts: AnyIterator[Task[T]], limit: int
-) -> AsyncIterator[T]:
+) -> AsyncGenerator[T]:
     """Fetch and run async tasks.
 
     Runs up to `limit` tasks simultaneously (less in the end of iteration).
     Order of results is preserved.
     """
-    todo = deque[Task[T]]()
+    pending = deque[Task[T]]()
     while True:
         # Prefill task buffer
-        while len(todo) < limit and (
+        while len(pending) < limit and (
             t := (
                 next(ts, None)
                 if isinstance(ts, Iterator)
                 else await anext(ts, None)
             )
         ):
-            todo.append(t)
-        if not todo:  # No more tasks to do and nothing more to schedule
+            pending.append(t)
+        if not pending:  # No more tasks to do and nothing more to schedule
             return
 
-        # Forcefully block first task, while it's awaited,
-        # others in `todo` are also running, because they are `asyncio.Task`.
-        # So after this some of tasks from `todo` are also done.
-        yield await todo.popleft()
+        # Also allows other tasks in `pending` to run and become done.
+        # Because they are tasks.
+        # To make coroutine run it should be awaited.
+        yield await pending.popleft()
 
         # Pop tasks happened to also be DONE (after line above)
-        while todo and todo[0].done():
-            yield todo.popleft().result()
+        while pending and pending[0].done():
+            yield pending.popleft().result()
 
 
-async def azip(*iterables: AnyIterable) -> AsyncIterator[tuple]:
+async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
     if _all_sync_iters(iterables):
         for x in zip(*iterables):
             yield x
@@ -206,12 +205,12 @@ async def azip(*iterables: AnyIterable) -> AsyncIterator[tuple]:
 
 
 def _all_sync_iters(
-    iterables: Collection[AnyIterable],
-) -> TypeGuard[Collection[Iterable]]:
+    iterables: tuple[AnyIterable, ...],
+) -> TypeGuard[tuple[Iterable, ...]]:
     return all(isinstance(it, Iterable) for it in iterables)
 
 
-async def _wrapgen[T](it: Iterable[T]) -> AsyncIterator[T]:
+async def _wrapgen[T](it: Iterable[T]) -> AsyncGenerator[T]:
     for x in it:
         yield x
 
@@ -342,7 +341,7 @@ class RwLock:
         self._writable.set()
 
     @asynccontextmanager
-    async def read(self) -> AsyncIterator[None]:
+    async def read(self) -> AsyncGenerator[None]:
         await self._readable.wait()
         self._writable.clear()
         try:
@@ -353,7 +352,7 @@ class RwLock:
                 self._writable.set()
 
     @asynccontextmanager
-    async def write(self) -> AsyncIterator[None]:
+    async def write(self) -> AsyncGenerator[None]:
         self._readable.clear()  # Stop new READs
         try:
             await self._writable.wait()  # Wait for all READs or single WRITE

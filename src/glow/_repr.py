@@ -4,7 +4,10 @@ from collections import Counter
 from collections.abc import Callable
 from typing import cast
 
-from wrapt import ObjectProxy
+try:
+    from wrapt import BaseObjectProxy as ObjectProxy  # wrapt>=2.0
+except ImportError:
+    from wrapt import ObjectProxy
 
 
 def mangle() -> Callable[[str], str | None]:

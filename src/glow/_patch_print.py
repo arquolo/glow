@@ -5,9 +5,9 @@ __all__ = ['apply']
 import builtins
 from functools import update_wrapper, wraps
 from threading import RLock
-from typing import Protocol
 
 from ._import_hook import register_post_import_hook
+from ._types import SupportsWrite
 
 _print = builtins.print
 _lock = RLock()
@@ -28,7 +28,7 @@ def patch_print(module) -> None:
         *values,
         sep: str | None = ' ',
         end: str | None = '\n',
-        file: _SupportsWrite | None = None,
+        file: SupportsWrite | None = None,
         flush: bool = False,
     ) -> None:
         if sep is None:
@@ -43,7 +43,3 @@ def patch_print(module) -> None:
 def apply() -> None:
     builtins.print = locked_print
     register_post_import_hook(patch_print, 'tqdm')
-
-
-class _SupportsWrite(Protocol):
-    def write(self, s: str, /) -> object: ...

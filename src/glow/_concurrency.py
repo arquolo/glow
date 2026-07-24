@@ -7,7 +7,7 @@ __all__ = [
 ]
 
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
 from logging import getLogger
@@ -96,7 +96,7 @@ type _JobQueue[T, R] = SimpleQueue[Job[T, R]]
 
 def _build_batches[T, R](
     q: SimpleQueue[Job[T, R]], usable_size: UsableSize[T], latency: float
-) -> Iterator[list[Job[T, R]]]:
+) -> Generator[list[Job[T, R]]]:
     batch = []
     endtime = 0.0
 

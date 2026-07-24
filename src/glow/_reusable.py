@@ -17,10 +17,6 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-async def _await[T](fn: Get[T]) -> T:
-    return fn()
-
-
 def _trampoline[T](callback: Callback[T], ref: weakref.ref[T]) -> None:
     if (obj := ref()) is not None:
         callback(obj)

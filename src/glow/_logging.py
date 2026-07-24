@@ -3,7 +3,7 @@ __all__ = ['init_loguru', 'span_task']
 import inspect
 import logging
 import sys
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from functools import update_wrapper
@@ -172,7 +172,7 @@ class _TaskSpanner:
 
 
 @contextmanager
-def _span_task(task_id: str) -> Iterator[str]:
+def _span_task(task_id: str) -> Generator[str]:
     span = _span_ctx.get({})
     if parent_id := span.get('task_id'):
         task_id = f'{parent_id}/{task_id}'
