@@ -45,8 +45,8 @@ memprof = [
     "psutil",
 ]
 memmon = [
+    "prettytable",
     "psutil",
-    "tabulate"
 ]
 io = [
     "opencv-python-headless >=4, <6",

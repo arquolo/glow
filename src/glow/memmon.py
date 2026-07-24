@@ -9,10 +9,10 @@ import sys
 import time
 from argparse import ArgumentParser
 from collections.abc import Iterator
-from typing import TypedDict
+from dataclasses import dataclass
 
+from prettytable import PrettyTable, TableStyle
 from psutil import Process
-from tabulate import tabulate  # pip install tabulate
 
 
 class MemoryMonitor:
@@ -20,35 +20,26 @@ class MemoryMonitor:
         self.proc = Process(pid)
 
     def __str__(self) -> str:
-        summarized = self._summarize()
-        table = [
-            [
-                row_id,
-                *(fmt(v) for v in stat.values()),  # type: ignore[arg-type]
-                cmd,
-            ]
-            for row_id, stat, cmd in summarized
-        ]
-        return tabulate(
-            table,
-            headers=['PID', *_Stat.__annotations__, 'cmd'],
-            missingval='?',
+        stats = list(self._iter_stats())
+        tab = PrettyTable(
+            field_names=['PID', *_Stat.__dataclass_fields__, 'cmd'],
+            align='l',
         )
+        tab.set_style(TableStyle.SINGLE_BORDER)
 
-    def _summarize(self) -> Iterator[tuple[str, '_Stat', str]]:
-        stat_iter = self._iter_stats()
-        summary = _new_stat()
+        summary = _Stat()
+        for pid, stat, cmd in stats:
+            summary.uss += stat.uss
+            if sys.platform != 'win32':
+                summary.pss += stat.pss
+                summary.pshared += stat.pshared
+            tab.add_row([pid, *stat.formatted(), cmd])
 
-        for pid, stat, cmd in stat_iter:
-            summary['uss'] += stat['uss']
+        if len(stats) > 1:
+            tab.add_divider()
+            tab.add_row(['total', *summary.formatted(), '-'])
 
-            for k in ('pss', 'pshared'):  # Linux only
-                if (v := stat[k]) is not None:
-                    summary[k] = (summary[k] or 0) + v
-
-            yield pid, stat, cmd
-
-        yield 'total', summary, '-'
+        return str(tab)
 
     def _iter_stats(self) -> Iterator[tuple[str, '_Stat', str]]:
         todo: list[tuple[int, Process]] = [(0, self.proc)]
@@ -62,45 +53,52 @@ class MemoryMonitor:
                 m = get_mem_info(proc)
 
             cmd = ' '.join(f'"{s}"' if ' ' in s else s for s in cmdline)
+            cmd = cmd[:80]
             yield ('-' * depth + f' {proc.pid}', m, cmd)
 
 
-def get_mem_info(proc: Process) -> '_Stat':
-    s = _new_stat()
+@dataclass
+class _BaseStat:
+    rss: int = 0  # private + shared
+    uss: int = 0  # private
+    shared: int = 0  # shared
 
-    if sys.platform == 'win32':
+    def formatted(self) -> list[str]:
+        return [fmt(getattr(self, name)) for name in self.__dataclass_fields__]
+
+
+if sys.platform == 'win32':
+
+    def get_mem_info(proc: Process) -> '_Stat':
         mem = proc.memory_full_info()
-        s['rss'] += mem.rss  # = private + shared = WSet
-        # no PSS
-        s['uss'] += mem.uss
-        s['shared'] += mem.rss - mem.uss
-        # VMS = pagefile = private
-    else:
+        return _Stat(
+            rss=mem.rss,  # = private + shared = WSet
+            uss=mem.uss,
+            shared=mem.rss - mem.uss,
+            # VMS = pagefile = private
+        )
+
+    class _Stat(_BaseStat):
+        pass
+else:
+
+    def get_mem_info(proc: Process) -> '_Stat':
+        s = _Stat()
         for m in proc.memory_maps():
-            s['rss'] += m.rss
-            s['pss'] = (s['pss'] or 0) + m.pss
-            s['uss'] += m.private_clean + m.private_dirty
-            s['shared'] += m.shared_clean + m.shared_dirty
-        s['pshared'] = (s['pss'] or 0) - s['uss']
+            s.rss += m.rss
+            s.pss += m.pss
+            s.uss += m.private_clean + m.private_dirty
+            s.shared += m.shared_clean + m.shared_dirty
+        s.pshared = s.pss - s.uss
+        return s
 
-    return s
-
-
-def _new_stat() -> '_Stat':
-    return _Stat(rss=0, pss=None, uss=0, shared=0, pshared=None)
-
-
-class _Stat(TypedDict):
-    rss: int  # private + shared
-    pss: float | None  # private + shared (proportional), linux only
-    uss: int  # private
-    shared: int  # shared
-    pshared: float | None  # shared (proportional), linux only
+    @dataclass
+    class _Stat(_BaseStat):
+        pss: float = 0  # private + shared (proportional)
+        pshared: float = 0  # shared (proportional)
 
 
-def fmt(size: float | None) -> str | None:
-    if size is None:
-        return None
+def fmt(size: float) -> str:
     if size < 99999.5:
         return f'{size:<5.0f}'
     size = size / 1024
