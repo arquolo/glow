@@ -344,6 +344,7 @@ class RwLock:
     async def read(self) -> AsyncGenerator[None]:
         await self._readable.wait()
         self._writable.clear()
+        self._num_reads += 1
         try:
             yield
         finally:
