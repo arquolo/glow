@@ -27,7 +27,7 @@ from ._futures import (
     UsableSize,
     dispatch,
     gather_fs,
-    get_trimmer,
+    get_usable_size,
 )
 from ._locking import q_get
 from ._types import Get
@@ -152,7 +152,7 @@ def _start_fetch_compute[T, R](
 @overload
 def streaming(
     *,
-    batch_size: int | UsableSize | None = ...,
+    batch_size: int | UsableSize = ...,
     timeout: float = ...,
     workers: int = ...,
     pool_timeout: float = ...,
@@ -170,7 +170,7 @@ def streaming[T, R](
     func: BatchFn[T, R],
     /,
     *,
-    batch_size: int | UsableSize[T] | None = ...,
+    batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
     workers: int = ...,
     pool_timeout: float = ...,
@@ -181,7 +181,7 @@ def streaming[T, R](
     func: BatchFn[T, R] | None = None,
     /,
     *,
-    batch_size: int | UsableSize[T] | None = None,
+    batch_size: int | UsableSize[T] = 0,
     timeout: float = 0.1,
     workers: int = 1,
     pool_timeout: float = 20.0,
@@ -192,7 +192,7 @@ def streaming[T, R](
     - `timeout` is a time to wait till the batch is full, i.e. latency.
     - `pool_timeout` is time to wait for results.
 
-    Also if `batch_size` is not set, or set to 0, only timeout is used.
+    Also if `batch_size` is 0, only timeout is used.
 
     Uses ideas from
     - https://github.com/ShannonAI/service-streamer
@@ -222,7 +222,7 @@ def streaming[T, R](
     assert callable(func)
     assert workers >= 1
     if not callable(batch_size):
-        batch_size = get_trimmer(batch_size)
+        batch_size = partial(get_usable_size, batch_size)
     q = _start_fetch_compute(func, workers, batch_size, timeout)
 
     def wrapper(items: Sequence[T]) -> list[R]:

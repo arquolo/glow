@@ -97,7 +97,7 @@ def azip(
 @overload
 def astreaming(
     *,
-    batch_size: int | UsableSize | None = ...,
+    batch_size: int | UsableSize = ...,
     timeout: float = ...,
 ) -> ABatchDecorator: ...
 @overload
@@ -111,7 +111,7 @@ def astreaming[T, R](
     fn: ABatchFn[T, R],
     /,
     *,
-    batch_size: int | UsableSize[T] | None = ...,
+    batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
 ) -> ABatchFn[T, R]: ...
 

@@ -47,15 +47,8 @@ class PsAnyBatchDecorator[T](Protocol):
     def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
 
 
-def get_trimmer(batch_size: int | None) -> UsableSize:
-    if not batch_size:
-        return lambda _: 0
-    assert batch_size >= 1
-
-    def usable_size(seq: Sequence) -> int:
-        return 0 if len(seq) < batch_size else batch_size
-
-    return usable_size
+def get_usable_size(batch_size: int, seq: Sequence) -> int:
+    return batch_size if len(seq) >= batch_size else 0
 
 
 def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:

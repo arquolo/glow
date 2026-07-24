@@ -24,7 +24,7 @@ from ._futures import (
     PsABatchDecorator,
     UsableSize,
     adispatch,
-    get_trimmer,
+    get_usable_size,
 )
 from ._types import AnyIterable, AnyIterator, Coro
 
@@ -218,7 +218,7 @@ async def _wrapgen[T](it: Iterable[T]) -> AsyncIterator[T]:
 
 @overload
 def astreaming(
-    *, batch_size: int | None = ..., timeout: float = ...
+    *, batch_size: int = ..., timeout: float = ...
 ) -> ABatchDecorator: ...
 @overload
 def astreaming[T](
@@ -229,7 +229,7 @@ def astreaming[T, R](
     fn: ABatchFn[T, R],
     /,
     *,
-    batch_size: int | UsableSize[T] | None = ...,
+    batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
 ) -> ABatchFn[T, R]: ...
 
@@ -238,13 +238,14 @@ def astreaming[T, R](  # noqa: C901
     fn: ABatchFn[T, R] | None = None,
     /,
     *,
-    batch_size: int | UsableSize[T] | None = None,
+    batch_size: int | UsableSize[T] = 0,
     timeout: float = 0.1,
 ) -> ABatchFn[T, R] | PsABatchDecorator[T] | ABatchDecorator:
     """Compute on `timeout` or if batch is collected.
 
     `timeout` (in seconds) is a time to wait till the batch is full,
     i.e. latency.
+    Also if `batch_size` is 0, only timeout is used.
 
     Uses ideas from
     - https://github.com/ShannonAI/service-streamer
@@ -262,7 +263,7 @@ def astreaming[T, R](  # noqa: C901
         return cast('ABatchDecorator', deco)
 
     if not callable(batch_size):
-        batch_size = get_trimmer(batch_size)
+        batch_size = partial(get_usable_size, batch_size)
     assert timeout > 0
 
     buf: list[AJob[T, R]] = []

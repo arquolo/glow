@@ -15,7 +15,7 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]: ...
 @overload
 def streaming(
     *,
-    batch_size: int | UsableSize | None = ...,
+    batch_size: int | UsableSize = ...,
     timeout: float = ...,
     workers: int = ...,
     pool_timeout: float = ...,
@@ -33,7 +33,7 @@ def streaming[T, R](
     func: BatchFn[T, R],
     /,
     *,
-    batch_size: int | UsableSize[T] | None = ...,
+    batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
     workers: int = ...,
     pool_timeout: float = ...,
