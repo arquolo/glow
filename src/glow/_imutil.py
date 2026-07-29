@@ -155,6 +155,7 @@ def imrotate[T: (np.float32, np.uint8)](
     img: npt.NDArray[T],
     degrees: float,
     fit: bool | tuple[int, int] = False,
+    *,
     interpolation: int = cv2.INTER_CUBIC,
     border: int = cv2.BORDER_REPLICATE,
     blksize: int = 0,

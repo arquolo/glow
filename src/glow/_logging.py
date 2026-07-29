@@ -3,7 +3,7 @@ __all__ = ['init_loguru', 'span_task']
 import inspect
 import logging
 import sys
-from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from functools import update_wrapper
@@ -52,7 +52,7 @@ class _LoggerAddKwds(TypedDict, total=False):
 def init_loguru(
     level: str = 'WARNING',
     *,
-    names: Iterable[str] | Mapping[str, Sequence[str]] = (),
+    names: Iterable[str] | Mapping[str, Iterable[str]] = (),
     fmt: 'FormatFunction | str' = _DEFAULT_FMT,
     extra: bool = False,
     **logger_add_kwargs: Unpack[_LoggerAddKwds],

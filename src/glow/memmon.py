@@ -80,6 +80,7 @@ if sys.platform == 'win32':
 
     class _Stat(_BaseStat):
         pass
+
 else:
 
     def get_mem_info(proc: Process) -> '_Stat':

@@ -2,7 +2,13 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import overload
 
-from ._futures import BatchDecorator, BatchFn, PsBatchDecorator, UsableSize
+from ._futures import (
+    BatchDecorator,
+    BatchFn,
+    BatchFnRv,
+    PsBatchDecorator,
+    UsableSize,
+)
 from ._types import Get
 
 def threadlocal[T, **P](
@@ -37,4 +43,4 @@ def streaming[T, R](
     timeout: float = ...,
     workers: int = ...,
     pool_timeout: float = ...,
-) -> BatchFn[T, R]: ...
+) -> BatchFnRv[T, R]: ...

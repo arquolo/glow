@@ -9,7 +9,6 @@ from collections.abc import (
     Iterable,
     Iterator,
     Mapping,
-    Sequence,
 )
 from contextlib import asynccontextmanager, suppress
 from functools import partial
@@ -19,6 +18,7 @@ from ._dev import hide_frame
 from ._futures import (
     ABatchDecorator,
     ABatchFn,
+    ABatchFnRv,
     AJob,
     PsABatchDecorator,
     UsableSize,
@@ -230,7 +230,7 @@ def astreaming[T, R](
     *,
     batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
-) -> ABatchFn[T, R]: ...
+) -> ABatchFnRv[T, R]: ...
 
 
 def astreaming[T, R](  # noqa: C901
@@ -239,7 +239,7 @@ def astreaming[T, R](  # noqa: C901
     *,
     batch_size: int | UsableSize[T] = 0,
     timeout: float = 0.1,
-) -> ABatchFn[T, R] | PsABatchDecorator[T] | ABatchDecorator:
+) -> ABatchFnRv[T, R] | PsABatchDecorator[T] | ABatchDecorator:
     """Compute on `timeout` or if batch is collected.
 
     `timeout` (in seconds) is a time to wait till the batch is full,
@@ -271,7 +271,8 @@ def astreaming[T, R](  # noqa: C901
     lock = Lock()
     ncalls = 0
 
-    async def wrapper(items: Sequence[T]) -> list[R]:
+    async def wrapper(items: Iterable[T]) -> list[R]:
+        items = list(items)
         nonlocal ncalls, deadline
         if not items:
             return []

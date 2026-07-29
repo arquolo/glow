@@ -12,39 +12,41 @@ type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
 type AnyJob[T, R] = tuple[T, AnyFuture[R]]
 
 # batch -> N first items to pick, 0 if too early to yield
-type UsableSize[T] = Callable[[Sequence[T]], int]
-type BatchFn[T, R] = Callable[[Sequence[T]], list[R]]
-type ABatchFn[T, R] = Callable[[Sequence[T]], Coro[list[R]]]
+type UsableSize[T] = Callable[[list[T]], int]
+type BatchFn[T, R] = Callable[[list[T]], Sequence[R]]
+type BatchFnRv[T, R] = Callable[[Iterable[T]], list[R]]
+type ABatchFn[T, R] = Callable[[list[T]], Coro[Sequence[R]]]
+type ABatchFnRv[T, R] = Callable[[Iterable[T]], Coro[list[R]]]
 
 
 class BatchDecorator(Protocol):
-    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
 
 
 class PsBatchDecorator[T](Protocol):
-    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
 
 
 class ABatchDecorator(Protocol):
-    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
 
 
 class PsABatchDecorator[T](Protocol):
-    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
 
 
 class AnyBatchDecorator(Protocol):
     @overload
-    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
     @overload
-    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
 
 
 class PsAnyBatchDecorator[T](Protocol):
     @overload
-    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFn[T, R]: ...
+    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
     @overload
-    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFn[T, R]: ...
+    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
 
 
 def get_usable_size(batch_size: int, seq: Sequence) -> int:
@@ -58,7 +60,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     obj: Maybe[list[R]]
     try:
         with hide_frame:
-            ret = fn([x for x, _ in xs])
+            ret = list(fn([x for x, _ in xs]))
     except BaseException as exc:  # noqa: BLE001
         obj = exc
     else:
@@ -79,7 +81,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     obj: Maybe[list[R]]
     try:
         with hide_frame:
-            ret = await fn([x for x, _ in xs])
+            ret = list(await fn([x for x, _ in xs]))
     except asyncio.CancelledError:
         for _, f in xs:
             f.cancel()

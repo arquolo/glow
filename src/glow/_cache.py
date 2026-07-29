@@ -11,21 +11,23 @@ from collections.abc import (
     Iterator,
     KeysView,
     Mapping,
-    MutableMapping,
 )
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from threading import RLock
 from time import monotonic
-from typing import Any, Final, Protocol, SupportsInt, cast
+from typing import Any, Final, Protocol, SupportsInt, cast, overload
 from weakref import WeakValueDictionary
 
 from ._dev import clone_exc, hide_frame
 from ._futures import (
     ABatchFn,
+    ABatchFnRv,
     AnyFuture,
     AnyJob,
+    AnyBatchDecorator,
     BatchFn,
+    BatchFnRv,
     adispatch,
     dispatch,
     gather_fs,
@@ -100,7 +102,7 @@ def cache_status() -> str:
     )
 
 
-_REFS: MutableMapping[int, '_Cache'] = WeakValueDictionary()
+_REFS = WeakValueDictionary[int, '_Cache']()
 
 
 class _AbstractCache[T](Protocol):
@@ -131,10 +133,10 @@ class _Cache[T]:
     def __len__(self) -> int:
         return len(self.store)
 
-    def __iter__(self) -> Iterator:
-        return iter(self.store)
+    def __iter__(self) -> Iterator[Hashable]:
+        return iter(self.store.__iter__())
 
-    def keys(self) -> KeysView:
+    def keys(self) -> KeysView[Hashable]:
         return self.store.keys()
 
     def clear(self) -> None:
@@ -271,13 +273,11 @@ class _MruTimedCache[T](_TimedRecencyCache[T]):
 # --------------------------------- utilities --------------------------------
 
 
-@dataclass(frozen=True, kw_only=True)
 class _WeakCache[T]:
     """Retrieve items via weak references from everywhere."""
 
-    alive: WeakValueDictionary[Hashable, T] = field(
-        default_factory=WeakValueDictionary
-    )
+    def __init__(self) -> None:
+        self.alive = WeakValueDictionary[Hashable, T]()
 
     def __getitem__(self, key: Hashable, /) -> T | Empty:
         return self.alive.get(key, empty)
@@ -287,9 +287,10 @@ class _WeakCache[T]:
             self.alive[key] = value
 
 
-@dataclass(frozen=True, kw_only=True)
 class _StrongCache[T](_WeakCache[T]):
-    cache: _AbstractCache[T]
+    def __init__(self, cache: _AbstractCache[T]) -> None:
+        super().__init__()
+        self.cache = cache
 
     def __getitem__(self, key: Hashable, /) -> T | Empty:
         # Alive and stored items.
@@ -305,13 +306,11 @@ class _StrongCache[T](_WeakCache[T]):
         super().__setitem__(key, value)
 
 
-@dataclass(frozen=True, slots=True)
 class _CacheState[**P, R]:
-    cache: _AbstractCache[R]
-    key_fn: KeyFn[P]
-    futures: WeakValueDictionary[Hashable, AnyFuture[R]] = field(
-        default_factory=WeakValueDictionary
-    )
+    def __init__(self, cache: _AbstractCache[R], key_fn: KeyFn[P]) -> None:
+        self.cache = cache
+        self.key_fn = key_fn
+        self.futures = WeakValueDictionary[Hashable, AnyFuture[R]]()
 
 
 # --------------------------------- wrapping ---------------------------------
@@ -456,7 +455,7 @@ class _BatchedQuery[T, R]:
 
 def _sync_memoize_batched[T, R](
     fn: BatchFn[T, R], cs: _CacheState[[T], R]
-) -> BatchFn[T, R]:
+) -> BatchFnRv[T, R]:
     lock = RLock()
 
     def wrapper(tokens: Iterable[T]) -> list[R]:
@@ -487,7 +486,7 @@ def _sync_memoize_batched[T, R](
 
 def _async_memoize_batched[T, R](
     fn: ABatchFn[T, R], cs: _CacheState[[T], R]
-) -> ABatchFn[T, R]:
+) -> ABatchFnRv[T, R]:
     async def wrapper(tokens: Iterable[T]) -> list[R]:
         q = _BatchedQuery(cs, *tokens, aio=True)
 
@@ -515,22 +514,9 @@ def _async_memoize_batched[T, R](
 
 
 def _memoize[**P, R](
-    fn: Callable[P, R],
-    *,
-    cs: _CacheState[..., Any],
-    batched: bool,
+    fn: Callable[P, R], *, cs: _CacheState[..., Any]
 ) -> Callable[P, R]:
-    if batched and iscoroutinefunction(fn):
-        w = cast(
-            'Callable[P, R]',
-            _async_memoize_batched(cast('ABatchFn', fn), cs=cs),
-        )
-    elif batched:
-        w = cast(
-            'Callable[P, R]',
-            _sync_memoize_batched(cast('BatchFn', fn), cs=cs),
-        )
-    elif iscoroutinefunction(fn):
+    if iscoroutinefunction(fn):
         w = cast('Callable[P, R]', _async_memoize(fn, cs=cs))
     else:
         w = _sync_memoize(fn, cs=cs)
@@ -544,6 +530,36 @@ def _memoize[**P, R](
     return functools.update_wrapper(w, fn)
 
 
+@overload
+def _memoize_batched[T, R](
+    fn: BatchFn[T, R], *, cs: _CacheState[..., Any]
+) -> BatchFnRv[T, R]: ...
+@overload
+def _memoize_batched[T, R](
+    fn: ABatchFn[T, R], *, cs: _CacheState[..., Any]
+) -> ABatchFnRv[T, R]: ...
+
+
+def _memoize_batched[T, R](
+    fn: BatchFn[T, R] | ABatchFn[T, R], *, cs: _CacheState[..., Any]
+) -> BatchFnRv[T, R] | ABatchFnRv[T, R]:
+    if iscoroutinefunction(fn):
+        w = cast('ABatchFnRv[T, R]', _async_memoize_batched(fn, cs=cs))
+    else:
+        w = cast(
+            'BatchFnRv[T, R]',
+            _sync_memoize_batched(cast('BatchFn', fn), cs=cs),
+        )
+
+    w.running = cs.futures  # type: ignore[attr-defined]
+    if isinstance(cs.cache, _WeakCache):
+        w.wrefs = cs.cache.alive  # type: ignore[attr-defined]
+    if isinstance(cs.cache, _StrongCache):
+        w.cache = cs.cache.cache  # type: ignore[attr-defined]
+
+    return functools.update_wrapper(w, fn)  # type: ignore[return-type]
+
+
 # ----------------------------- factory wrappers -----------------------------
 
 
@@ -555,7 +571,7 @@ def memoize(
     policy: CachePolicy = None,
     key_fn: KeyFn = make_key,
     ttl: float | None = None,
-) -> Decorator:
+) -> Decorator | AnyBatchDecorator:
     """Create caching decorator.
 
     Parameters:
@@ -579,21 +595,19 @@ def memoize(
     if count == 0 and nbytes > 0:
         msg = 'Ambiguous: count=0 disables cache, but nbytes > 0.'
         raise ValueError(msg)
+
     # +/+, +/0, +/-, 0/0, 0/-, -/+, -/0, -/-
     if count > 0 and nbytes == 0:
         msg = 'Ambiguous: nbytes=0 disables cache, but count > 0.'
         raise ValueError(msg)
+
     # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
     if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
         # 0/0, 0/-, -/0 (weakrefs only)
-        return functools.partial(  # type: ignore[return-value]
-            _memoize,
-            cs=_CacheState(_WeakCache(), key_fn),
-            batched=batched,
-        )
+        cache = _WeakCache()
 
     # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
-    if cache_cls := _CACHES.get(policy):
+    elif cache_cls := _CACHES.get(policy):
         if (count < 0 and nbytes < 0) or policy is None:  # only time could cap
             cache_cls = _Heap if ttl is None else _TimedCache
         make_node = (
@@ -602,14 +616,15 @@ def memoize(
             else (_MakeNode() if ttl is None else _MakeTimedNode(ttl))
         )
         cache = cache_cls(count, nbytes, make_node)
-        return functools.partial(  # type: ignore[return-value]
-            _memoize,
-            cs=_CacheState(_StrongCache(cache=cache), key_fn),
-            batched=batched,
-        )
+        cache = _StrongCache(cache)
+    else:
+        msg = f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
+        raise ValueError(msg)
 
-    msg = f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
-    raise ValueError(msg)
+    cs = _CacheState(cache, key_fn)
+    if batched:
+        return functools.partial(_memoize, cs=cs)
+    return functools.partial(_memoize_batched, cs=cs)
 
 
 _CACHES: dict[CachePolicy, _CacheMaker] = {

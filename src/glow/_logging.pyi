@@ -1,6 +1,6 @@
 __all__ = ['init_loguru', 'span_task']
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from typing import TypedDict, Unpack, overload
 
 from loguru import FilterDict, FilterFunction, FormatFunction
@@ -18,7 +18,7 @@ class _LoggerAddKwds(TypedDict, total=False):
 def init_loguru(
     level: str = ...,
     *,
-    names: Iterable[str] | Mapping[str, Sequence[str]] = ...,
+    names: Iterable[str] | Mapping[str, Iterable[str]] = ...,
     fmt: str = ...,
     extra: bool = ...,
     **logger_add_kwargs: Unpack[_LoggerAddKwds],
@@ -27,7 +27,7 @@ def init_loguru(
 def init_loguru(
     level: str = ...,
     *,
-    names: Iterable[str] | Mapping[str, Sequence[str]] = ...,
+    names: Iterable[str] | Mapping[str, Iterable[str]] = ...,
     fmt: FormatFunction,
     **logger_add_kwargs: Unpack[_LoggerAddKwds],
 ) -> None: ...

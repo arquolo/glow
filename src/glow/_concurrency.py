@@ -7,7 +7,7 @@ __all__ = [
 ]
 
 import threading
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Callable, Generator, Iterable
 from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
 from logging import getLogger
@@ -22,6 +22,7 @@ from ._dev import hide_frame
 from ._futures import (
     BatchDecorator,
     BatchFn,
+    BatchFnRv,
     Job,
     PsBatchDecorator,
     UsableSize,
@@ -174,7 +175,7 @@ def streaming[T, R](
     timeout: float = ...,
     workers: int = ...,
     pool_timeout: float = ...,
-) -> BatchFn[T, R]: ...
+) -> BatchFnRv[T, R]: ...
 
 
 def streaming[T, R](
@@ -185,7 +186,7 @@ def streaming[T, R](
     timeout: float = 0.1,
     workers: int = 1,
     pool_timeout: float = 20.0,
-) -> BatchDecorator | PsBatchDecorator[T] | BatchFn[T, R]:
+) -> BatchDecorator | PsBatchDecorator[T] | BatchFnRv[T, R]:
     """Delay start of computation to until batch is collected.
 
     Accepts two timeouts (in seconds):
@@ -225,7 +226,7 @@ def streaming[T, R](
         batch_size = partial(get_usable_size, batch_size)
     q = _start_fetch_compute(func, workers, batch_size, timeout)
 
-    def wrapper(items: Sequence[T]) -> list[R]:
+    def wrapper(items: Iterable[T]) -> list[R]:
         fs = {Future[R](): item for item in items}
         try:
             for f, x in fs.items():

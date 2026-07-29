@@ -7,7 +7,7 @@ only-packages = true
 
 [project]
 name = "glow"
-version = "0.15.35"
+version = "0.15.36"
 description = "Functional Python tools"
 readme = "README.md"
 requires-python = ">=3.13, <3.15"
@@ -115,9 +115,6 @@ inline-quotes = "single"
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
-[tool.ruff.format]
-quote-style = "single"
-
 [tool.flake8]
 select = [
     # pyflakes,pycodestyle: n/a in ruff
@@ -170,3 +167,11 @@ warn_unused_ignores = true
 line-length = 79
 target-version = ['py313']
 skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+line_length = 79
+atomic = true
+
+[tool.ruff.format]
+quote-style = "single"

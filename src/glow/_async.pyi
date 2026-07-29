@@ -2,7 +2,13 @@ from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Required, TypedDict, Unpack, overload
 
-from ._futures import ABatchDecorator, ABatchFn, PsABatchDecorator, UsableSize
+from ._futures import (
+    ABatchDecorator,
+    ABatchFn,
+    ABatchFnRv,
+    PsABatchDecorator,
+    UsableSize,
+)
 from ._types import AnyIterable, Coro
 
 class _AmapKwargs(TypedDict, total=False):
@@ -113,7 +119,7 @@ def astreaming[T, R](
     *,
     batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
-) -> ABatchFn[T, R]: ...
+) -> ABatchFnRv[T, R]: ...
 
 class RwLock:
     def __init__(self) -> None: ...
