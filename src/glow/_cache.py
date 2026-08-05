@@ -623,8 +623,8 @@ def memoize(
 
     cs = _CacheState(cache, key_fn)
     if batched:
-        return functools.partial(_memoize, cs=cs)
-    return functools.partial(_memoize_batched, cs=cs)
+        return functools.partial(_memoize_batched, cs=cs)
+    return functools.partial(_memoize, cs=cs)
 
 
 _CACHES: dict[CachePolicy, _CacheMaker] = {
