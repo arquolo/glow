@@ -134,7 +134,7 @@ class _Cache[T]:
         return len(self.store)
 
     def __iter__(self) -> Iterator[Hashable]:
-        return iter(self.store.__iter__())
+        return iter(self.store)
 
     def keys(self) -> KeysView[Hashable]:
         return self.store.keys()
