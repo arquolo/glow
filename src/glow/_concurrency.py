@@ -242,7 +242,7 @@ def streaming[T, R](
             raise TimeoutError
 
         # Cannot time out - all are done
-        rs, err = gather_fs(enumerate(fs))
+        rs, err = gather_fs(dict(enumerate(fs)))
         if err is None:
             return list(rs.values())
         with hide_frame:

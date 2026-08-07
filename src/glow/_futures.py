@@ -1,6 +1,6 @@
 import asyncio
 import concurrent.futures as cf
-from collections.abc import Callable, Hashable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Protocol, overload
 
 from ._dev import hide_frame
@@ -9,7 +9,6 @@ from ._types import Coro, Maybe, Some
 type Job[T, R] = tuple[T, cf.Future[R]]
 type AJob[T, R] = tuple[T, asyncio.Future[R]]
 type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
-type AnyJob[T, R] = tuple[T, AnyFuture[R]]
 
 # batch -> N first items to pick, 0 if too early to yield
 type UsableSize[T] = Callable[[list[T]], int]
@@ -53,7 +52,7 @@ def get_usable_size(batch_size: int, seq: Sequence) -> int:
     return batch_size if len(seq) >= batch_size else 0
 
 
-def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
+def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
     if not xs:
         return
 
@@ -64,7 +63,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     except BaseException as exc:  # noqa: BLE001
         obj = exc
     else:
-        obj = _check_protocol(ret, len(xs))
+        obj = _maybe_make_some(ret, len(xs))
 
     if isinstance(obj, Some):
         for (_, f), res in zip(xs, obj.x):
@@ -74,7 +73,7 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: AnyJob[T, R]) -> None:
             f.set_exception(obj)
 
 
-async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
+async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AJob[T, R]) -> None:
     if not xs:
         return
 
@@ -89,7 +88,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
     except BaseException as exc:  # noqa: BLE001
         obj = exc
     else:
-        obj = _check_protocol(ret, len(xs))
+        obj = _maybe_make_some(ret, len(xs))
 
     if isinstance(obj, Some):
         for (_, f), res in zip(xs, obj.x):
@@ -101,7 +100,7 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AnyJob[T, R]) -> None:
                 f.exception()  # Mark exception as retrieved
 
 
-def _check_protocol[S: Sequence](ret: S, n: int) -> Maybe[S]:
+def _maybe_make_some[S: Sequence](ret: S, n: int) -> Maybe[S]:
     if not isinstance(ret, Sequence):
         return TypeError(
             f'Call returned non-sequence. Got {type(ret).__name__}'
@@ -113,18 +112,24 @@ def _check_protocol[S: Sequence](ret: S, n: int) -> Maybe[S]:
     return Some(ret)
 
 
-def gather_fs[K: Hashable, R](
-    fs: Iterable[tuple[K, AnyFuture[R]]],
+def gather_fs[K, R](
+    fs: Mapping[K, AnyFuture[R]],
 ) -> tuple[dict[K, R], BaseException | None]:
+    if not fs:
+        return {}, None
+
     results: dict[K, R] = {}
     errors = set[BaseException]()
-    default: BaseException | None = None
-    for k, f in fs:
+    sync_cancelled = async_cancelled = False
+    for k, f in fs.items():
         if f.cancelled():
-            exc_tp = _fut_tp_to_cancel_tp.get(type(f))
-            assert exc_tp, f'Unknown future type: {type(f).__qualname__}'
-            assert default is None or isinstance(default, exc_tp)
-            default = exc_tp()
+            match f:
+                case cf.Future() if not sync_cancelled:
+                    errors.add(cf.CancelledError())
+                    sync_cancelled = True
+                case asyncio.Future() if not async_cancelled:
+                    errors.add(asyncio.CancelledError())
+                    async_cancelled = True
         elif e := f.exception():
             errors.add(e)
         else:
@@ -132,7 +137,7 @@ def gather_fs[K: Hashable, R](
 
     match list(errors):
         case []:
-            return (results, default)
+            return (results, None)
         case [err]:
             return (results, err)
         case errs:
@@ -142,9 +147,3 @@ def gather_fs[K: Hashable, R](
             else:
                 err = BaseExceptionGroup(msg, errs)
             return (results, err)
-
-
-_fut_tp_to_cancel_tp: dict[type[AnyFuture], type[BaseException]] = {
-    cf.Future: cf.CancelledError,
-    asyncio.Future: asyncio.CancelledError,
-}

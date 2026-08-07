@@ -21,7 +21,7 @@ type AnyIterator[T] = AsyncIterator[T] | Iterator[T]
 type Get[T] = Callable[[], T]
 type Callback[T] = Callable[[T], object]
 
-type CachePolicy = Literal['lru', 'mru'] | None
+type CachePolicy = Literal['lru', 'mru']
 type Maybe[T] = 'Some[T] | BaseException'
 
 

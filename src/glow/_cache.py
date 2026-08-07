@@ -6,17 +6,22 @@ import functools
 from collections.abc import (
     Awaitable,
     Callable,
+    MutableMapping,
     Hashable,
     Iterable,
     Iterator,
     KeysView,
     Mapping,
 )
-from dataclasses import dataclass, field
-from inspect import iscoroutinefunction
+from dataclasses import dataclass
+from inspect import (
+    isasyncgenfunction,
+    iscoroutinefunction,
+    isgeneratorfunction,
+)
 from threading import RLock
 from time import monotonic
-from typing import Any, Final, Protocol, SupportsInt, cast, overload
+from typing import Final, Protocol, SupportsInt
 from weakref import WeakValueDictionary
 
 from ._dev import clone_exc, hide_frame
@@ -24,7 +29,6 @@ from ._futures import (
     ABatchFn,
     ABatchFnRv,
     AnyFuture,
-    AnyJob,
     AnyBatchDecorator,
     BatchFn,
     BatchFnRv,
@@ -35,7 +39,7 @@ from ._futures import (
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import CachePolicy, Decorator, Empty, KeyFn, Some, empty
+from ._types import CachePolicy, Decorator, Empty, KeyFn, empty
 
 _inf: Final = float('inf')
 
@@ -44,39 +48,10 @@ _inf: Final = float('inf')
 class _Node[T]:
     value: T
     nbytes: int = 0
-    deadline: float | None = None
+    deadline: float = _inf
 
     def __repr__(self) -> str:
         return repr(self.value)
-
-
-class _MakeNode:
-    def __call__[T](self, obj: T, /) -> _Node[T]:
-        return _Node(obj)
-
-    def refresh[T](self, node: _Node[T], now: float, /) -> _Node[T]:
-        return node
-
-
-class _MakeSizedNode(_MakeNode):
-    def __call__[T](self, obj: T, /) -> _Node[T]:
-        return _Node(obj, sizeof(obj), None)
-
-
-@dataclass(frozen=True, slots=True)
-class _MakeTimedNode(_MakeNode):
-    ttl: float
-
-    def __call__[T](self, obj: T, /) -> _Node[T]:
-        return _Node(obj, 0, monotonic() + self.ttl)
-
-    def refresh[T](self, node: _Node[T], now: float, /) -> _Node[T]:
-        return _Node(node.value, node.nbytes, now + self.ttl)
-
-
-class _MakeSizedTimedNode(_MakeTimedNode):
-    def __call__[T](self, obj: T, /) -> _Node[T]:
-        return _Node(obj, sizeof(obj), monotonic() + self.ttl)
 
 
 @dataclass
@@ -112,18 +87,37 @@ class _AbstractCache[T](Protocol):
 
 class _CacheMaker[T](Protocol):
     def __call__(
-        self, capacity: int, capacity_bytes: int, make_node: _MakeNode
+        self,
+        capacity: int,
+        capacity_bytes: int,
+        ttl: float = ...,
     ) -> _AbstractCache[T]: ...
 
 
-@dataclass(repr=False, slots=True, weakref_slot=True)
 class _Cache[T]:
-    capacity: int
-    capacity_bytes: int
-    make_node: _MakeNode = field(repr=False)
-    nbytes: int = 0
-    store: dict[Hashable, _Node[T]] = field(default_factory=dict)
-    stats: Stats = field(default_factory=Stats)
+    __slots__ = (
+        '__weakref__',
+        'capacity',
+        'capacity_bytes',
+        'nbytes',
+        'stats',
+        'store',
+        'ttl',
+    )
+
+    def __init__(
+        self,
+        capacity: int,
+        capacity_bytes: int,
+        ttl: float = _inf,
+        store: dict[Hashable, _Node[T]] | None = None,
+    ) -> None:
+        self.capacity = capacity
+        self.capacity_bytes = capacity_bytes
+        self.nbytes = 0
+        self.stats = Stats()
+        self.store = {} if store is None else store
+        self.ttl = ttl
 
     def __post_init__(self) -> None:
         assert self.capacity != 0
@@ -155,6 +149,30 @@ class _Cache[T]:
             args.append(f'stats={self.stats}')
         return f'{type(self).__name__}({", ".join(args)})'
 
+    def __getitem__(self, key: Hashable, /) -> T | Empty:
+        deadline = self._prune_and_get_new_deadline()
+
+        if node := self.store.pop(key, None):
+            self.stats.hits += 1
+            node.deadline = deadline
+            self.store[key] = node  # move front
+            return node.value
+
+        self.stats.misses += 1
+        return empty
+
+    def __setitem__(self, key: Hashable, value: T, /) -> None:
+        node = self.store.pop(key, None)  # pop before GC to reuse size
+        deadline = self._prune_and_get_new_deadline()
+
+        if node:
+            node.deadline = deadline
+            self.store[key] = node  # move front
+        else:
+            nbytes = sizeof(value) if self.capacity_bytes > 0 else 0
+            node = _Node(value, nbytes, deadline)
+            self._maybe_insert(key, node)
+
     def _maybe_insert(self, key: Hashable, node: _Node[T], /) -> None:
         if (0 < self.capacity <= len(self.store)) or (
             0 < self.capacity_bytes < self.nbytes + node.nbytes
@@ -163,74 +181,36 @@ class _Cache[T]:
         self.store[key] = node
         self.nbytes += node.nbytes
 
-
-class _Heap[T](_Cache[T]):
-    """
-    No time limit.
-    When size limit is reached, nothing is removed
-    """
-
-    def __getitem__(self, key: Hashable, /) -> T | Empty:
-        if node := self.store.get(key):
-            self.stats.hits += 1
-            return node.value
-
-        self.stats.misses += 1
-        return empty
-
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
-        if key not in self.store:
-            node = self.make_node(value)
-            self._maybe_insert(key, node)
+    def _prune_and_get_new_deadline(self) -> float:
+        return _inf
 
 
 class _TimedCache[T](_Cache[T]):
     """
-    Time limit for each entry.
-    When size limit is reached, nothing is removed
+    Drops items older than `now - ttl`
     """
 
-    def __getitem__(self, key: Hashable, /) -> T | Empty:
+    def _prune_and_get_new_deadline(self) -> float:
         now = monotonic()
-        self._remove_outdated(now)
-
-        if node := self.store.pop(key, None):
-            self.stats.hits += 1
-            self.store[key] = self.make_node.refresh(node, now)  # move front
-            return node.value
-
-        self.stats.misses += 1
-        return empty
-
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
-        now = monotonic()
-        node = self.store.pop(key, None)  # pop before GC to reuse size
-        self._remove_outdated(now)
-        if node:
-            self.store[key] = self.make_node.refresh(node, now)  # move front
-        else:
-            node = self.make_node(value)
-            self._maybe_insert(key, node)
-
-    def _remove_outdated(self, now: float) -> None:
+        deadline = now + self.ttl
         while self.store:
             key, node = next(iter(self.store.items()))
-            if (node.deadline or _inf) > now:
-                return  # reached alive node before free space
+            if node.deadline > now:
+                return deadline  # reached alive node before free space
             self.store.pop(key)  # dead node, delete
             self.nbytes -= node.nbytes
             self.stats.dropped += 1
+        return deadline
 
 
-class _TimedRecencyCache[T](_TimedCache[T]):
+class _EvictableCache[T](_Cache[T]):
     """
-    Time limit for each entry.
-    When size limit is reached, eviction happens.
+    Evicts nodes when cache is too large
     """
 
     def _maybe_insert(self, key: Hashable, node: _Node[T], /) -> None:
         if self.store and len(self.store) == self.capacity:  # no space
-            self.nbytes -= self.pop().nbytes  # evict
+            self.nbytes -= self.pop()  # evict
             self.stats.dropped += 1
 
         if self.capacity_bytes > 0:  # byte-bound cache
@@ -238,36 +218,50 @@ class _TimedRecencyCache[T](_TimedCache[T]):
             if max_self_bytes_to_fit < 0:  # cache will never fit this
                 return
             while self.store and self.nbytes > max_self_bytes_to_fit:  # evict
-                self.nbytes -= self.pop().nbytes
+                self.nbytes -= self.pop()
                 self.stats.dropped += 1
 
         self.store[key] = node
         self.nbytes += node.nbytes
 
-    def pop(self) -> _Node[T]:
+    def pop(self) -> int:
         raise NotImplementedError
 
 
-class _LruTimedCache[T](_TimedRecencyCache[T]):
-    """
-    Time limit for each entry.
-    When size limit is reached, least recently used are evicted
-    """
+class _LruMixin:
+    """Evicts least recently used node when cache is too large."""
 
-    def pop(self) -> _Node[T]:
+    store: MutableMapping[Hashable, _Node]
+
+    def pop(self) -> int:
         """Drop oldest node."""
-        return self.store.pop(next(iter(self.store)))
+        return self.store.pop(next(iter(self.store))).nbytes
 
 
-class _MruTimedCache[T](_TimedRecencyCache[T]):
-    """
-    Time limit for each entry.
-    When size limit is reached, most recently used are evicted
-    """
+class _MruMixin:
+    """Evicts most recently used node when cache is too large."""
 
-    def pop(self) -> _Node[T]:
+    store: MutableMapping[Hashable, _Node]
+
+    def pop(self) -> int:
         """Drop most recently added node."""
-        return self.store.popitem()[1]
+        return self.store.popitem()[1].nbytes
+
+
+class _LruCache[T](_LruMixin, _EvictableCache[T]):
+    pass
+
+
+class _MruCache[T](_MruMixin, _EvictableCache[T]):
+    pass
+
+
+class _TimedLruCache[T](_LruMixin, _EvictableCache[T], _TimedCache[T]):
+    pass
+
+
+class _TimedMruCache[T](_MruMixin, _EvictableCache[T], _TimedCache[T]):
+    pass
 
 
 # --------------------------------- utilities --------------------------------
@@ -306,13 +300,6 @@ class _StrongCache[T](_WeakCache[T]):
         super().__setitem__(key, value)
 
 
-class _CacheState[**P, R]:
-    def __init__(self, cache: _AbstractCache[R], key_fn: KeyFn[P]) -> None:
-        self.cache = cache
-        self.key_fn = key_fn
-        self.futures = WeakValueDictionary[Hashable, AnyFuture[R]]()
-
-
 # --------------------------------- wrapping ---------------------------------
 
 
@@ -328,24 +315,24 @@ def _result[T](f: cf.Future[T]) -> T:
 
 def _sync_memoize[**P, R](
     fn: Callable[P, R],
-    cs: _CacheState[P, R],
+    cache: _AbstractCache[R],
+    key_fn: KeyFn[P],
 ) -> Callable[P, R]:
+    futures = WeakValueDictionary[Hashable, cf.Future[R]]()
     lock = RLock()
 
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = cs.key_fn(*args, **kwargs)
+        key = key_fn(*args, **kwargs)
 
         is_owner = False
         with lock:
-            if (ret := cs.cache[key]) is not empty:
+            if (ret := cache[key]) is not empty:
                 return ret
 
             # ... or it could be computed somewhere else, join there.
-            f = cs.futures.get(key)
-            if f:
-                assert isinstance(f, cf.Future)
-            else:
-                cs.futures[key] = f = cf.Future[R]()
+            f = futures.get(key)
+            if not f:
+                futures[key] = f = cf.Future[R]()
                 is_owner = True
 
         # Release lock to allow function to run
@@ -359,34 +346,36 @@ def _sync_memoize[**P, R](
         except BaseException as exc:
             f.set_exception(clone_exc(exc))
             with lock:
-                cs.futures.pop(key)
+                futures.pop(key)
             raise
         else:
             f.set_result(ret)
             with lock:
-                cs.cache[key] = ret
-                cs.futures.pop(key)
+                cache[key] = ret
+                futures.pop(key)
             return ret
 
-    return wrapper
+    return _update_wrapper(wrapper, fn, cache, futures)
 
 
 def _async_memoize[**P, R](
     fn: Callable[P, Awaitable[R]],
-    cs: _CacheState[P, R],
+    cache: _AbstractCache[R],
+    key_fn: KeyFn[P],
 ) -> Callable[P, Awaitable[R]]:
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = cs.key_fn(*args, **kwargs)
+    futures = WeakValueDictionary[Hashable, asyncio.Future[R]]()
 
-        if (ret := cs.cache[key]) is not empty:
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        key = key_fn(*args, **kwargs)
+
+        if (ret := cache[key]) is not empty:
             return ret
 
         # ... or it could be computed somewhere else, join there.
-        if f := cs.futures.get(key):
-            assert isinstance(f, asyncio.Future)
+        if f := futures.get(key):
             with hide_frame:
                 return await f
-        cs.futures[key] = f = asyncio.Future[R]()
+        futures[key] = f = asyncio.Future[R]()
 
         # NOTE: fn() is not within threading.Lock, thus it's not thread safe
         # NOTE: but it's async-safe because this `await` is only one here.
@@ -395,172 +384,154 @@ def _async_memoize[**P, R](
                 ret = await fn(*args, **kwargs)
         except BaseException as exc:
             f.set_exception(clone_exc(exc))
-            cs.futures.pop(key)
+            futures.pop(key)
             raise
         else:
             f.set_result(ret)
-            cs.cache[key] = ret
-            cs.futures.pop(key)
+            cache[key] = ret
+            futures.pop(key)
             return ret
 
-    return wrapper
+    return _update_wrapper(wrapper, fn, cache, futures)
 
 
 # ----------------------- wrapper with batching support ----------------------
 
 
-class _BatchedQuery[T, R]:
+class _BatchedQuery[T, F: AnyFuture, R]:
     def __init__(
-        self, cs: _CacheState[[T], R], *tokens: T, aio: bool = False
+        self,
+        cache: _AbstractCache[R],
+        futures: MutableMapping[Hashable, F],
+        new_future: type[F],
+        *keyed_tokens: tuple[Hashable, T],
     ) -> None:
-        self._cs = cs
-        self._keys = [cs.key_fn(t) for t in tokens]  # All keys with duplicates
-
-        self.jobs: list[tuple[Hashable, Some[T] | None, AnyFuture[R]]] = []
+        self._keys = [k for k, _ in keyed_tokens]  # All keys with duplicates
         self._done: dict[Hashable, R] = {}
 
-        for k, t in dict(zip(self._keys, tokens)).items():
+        self.running = set[F]()  # Wait for these
+        self.pending: list[tuple[T, F]] = []  # Populate those
+        self._futures: dict[Hashable, F] = {}
+
+        for k, t in dict(keyed_tokens).items():
             # If this key is processing right now, wait till its done ...
-            if f := cs.futures.get(k):  # ! Requires sync
-                self.jobs.append((k, None, f))  # Wait for this
+            if f := futures.get(k):  # ! Protect
+                self._futures[k] = f
+                self.running.add(f)  # Wait for these
 
             # ... else check if it's done ...
-            elif (r := cs.cache[k]) is not empty:  # ! Requires sync
+            elif (r := cache[k]) is not empty:  # ! Protect
                 self._done[k] = r
 
             # ... otherwise schedule a new job.
             else:
-                f = (asyncio.Future if aio else cf.Future)[R]()
-                self.jobs.append((k, Some(t), f))  # Resolve this manually
-                cs.futures[k] = f  # ! Requires sync
+                futures[k] = self._futures[k] = f = new_future()  # ! Protect
+                self.pending.append((t, f))  # Resolve this manually
 
-    @property
-    def pending_jobs(self) -> list[AnyJob[T, R]]:
-        return [(a.x, f) for _, a, f in self.jobs if a]
+    def partial_result(
+        self,
+    ) -> tuple[dict[Hashable, R], BaseException | None]:
+        return gather_fs(self._futures)
 
-    def running_as[F: AnyFuture](self, tp: type[F]) -> set[F]:
-        return {f for _, a, f in self.jobs if not a and isinstance(f, tp)}
-
-    def sync(self, stash: Mapping[Hashable, R]) -> None:
+    def merge(
+        self, stash: Mapping[Hashable, R], cache: _AbstractCache[R]
+    ) -> None:
         for k, r in stash.items():
-            self._done[k] = self._cs.cache[k] = r
+            self._done[k] = cache[k] = r
 
-        # Force next callers to use cache  # ! optional
-        for k, _, _ in self.jobs:
-            self._cs.futures.pop(k, None)
+    # TODO: check whether this necessary
+    def cleanup(self, futures: MutableMapping[Hashable, F]) -> None:
+        for k in self._futures:  # Force next callers to use cache
+            futures.pop(k, None)
 
     def result(self) -> list[R]:
         return [self._done[k] for k in self._keys]
 
 
 def _sync_memoize_batched[T, R](
-    fn: BatchFn[T, R], cs: _CacheState[[T], R]
+    fn: BatchFn[T, R], cache: _AbstractCache[R], key_fn: KeyFn
 ) -> BatchFnRv[T, R]:
+    futures = WeakValueDictionary[Hashable, cf.Future[R]]()
     lock = RLock()
 
     def wrapper(tokens: Iterable[T]) -> list[R]:
+        keyed_tokens = [(key_fn(t), t) for t in tokens]
+
         with lock:
-            q = _BatchedQuery(cs, *tokens)
+            q = _BatchedQuery(cache, futures, cf.Future[R], *keyed_tokens)
 
-        stash: dict[Hashable, R] = {}
+        if not q.pending and not q.running:
+            return q.result()
+
         try:
-            if jobs := q.pending_jobs:
-                dispatch(fn, *jobs)
-
-            if fs := q.running_as(cf.Future):
-                cf.wait(fs)
-
-            stash, err = gather_fs((k, f) for k, _, f in q.jobs)
-        finally:
-            if q.jobs:
-                with lock:
-                    q.sync(stash)
+            if q.pending:
+                dispatch(fn, *q.pending)
+            if q.running:
+                cf.wait(q.running)
+            stash, err = q.partial_result()
+        except:
+            with lock:
+                q.cleanup(futures)
+            raise
+        else:
+            with lock:
+                q.merge(stash, cache)
+                q.cleanup(futures)
 
         if err is None:
             return q.result()
         with hide_frame:
             raise err
 
-    return wrapper
+    return _update_wrapper(wrapper, fn, cache, futures)
 
 
 def _async_memoize_batched[T, R](
-    fn: ABatchFn[T, R], cs: _CacheState[[T], R]
+    fn: ABatchFn[T, R], cache: _AbstractCache[R], key_fn: KeyFn[T]
 ) -> ABatchFnRv[T, R]:
+    futures = WeakValueDictionary[Hashable, asyncio.Future[R]]()
+
     async def wrapper(tokens: Iterable[T]) -> list[R]:
-        q = _BatchedQuery(cs, *tokens, aio=True)
+        keyed_tokens = [(key_fn(t), t) for t in tokens]
+        q = _BatchedQuery(cache, futures, asyncio.Future[R], *keyed_tokens)
 
-        stash: dict[Hashable, R] = {}
+        if not q.pending and not q.running:
+            return q.result()
+
         try:
-            if jobs := q.pending_jobs:
-                await adispatch(fn, *jobs)
-
-            if fs := q.running_as(asyncio.Future):
-                await asyncio.wait(fs)
-
-            stash, err = gather_fs((k, f) for k, _, f in q.jobs)
+            if q.pending:
+                await adispatch(fn, *q.pending)
+            if q.running:
+                await asyncio.wait(q.running)
+            stash, err = q.partial_result()
+            q.merge(stash, cache)
         finally:
-            q.sync(stash)
+            q.cleanup(futures)
 
         if err is None:
             return q.result()
         with hide_frame:
             raise err
 
+    return _update_wrapper(wrapper, fn, cache, futures)
+
+
+def _update_wrapper[F: Callable](
+    wrapper: F,
+    fn: Callable,
+    cache: _AbstractCache,
+    futures: MutableMapping,
+) -> F:
+    wrapper.futures = futures  # type: ignore[attr-defined]
+    if isinstance(cache, _WeakCache):
+        wrapper.wrefs = cache.alive  # type: ignore[attr-defined]
+    if isinstance(cache, _StrongCache):
+        wrapper.cache = cache.cache  # type: ignore[attr-defined]
+    functools.update_wrapper(wrapper, fn)
     return wrapper
 
 
-# ------------------------------- decorations --------------------------------
-
-
-def _memoize[**P, R](
-    fn: Callable[P, R], *, cs: _CacheState[..., Any]
-) -> Callable[P, R]:
-    if iscoroutinefunction(fn):
-        w = cast('Callable[P, R]', _async_memoize(fn, cs=cs))
-    else:
-        w = _sync_memoize(fn, cs=cs)
-
-    w.running = cs.futures  # type: ignore[attr-defined]
-    if isinstance(cs.cache, _WeakCache):
-        w.wrefs = cs.cache.alive  # type: ignore[attr-defined]
-    if isinstance(cs.cache, _StrongCache):
-        w.cache = cs.cache.cache  # type: ignore[attr-defined]
-
-    return functools.update_wrapper(w, fn)
-
-
-@overload
-def _memoize_batched[T, R](
-    fn: BatchFn[T, R], *, cs: _CacheState[..., Any]
-) -> BatchFnRv[T, R]: ...
-@overload
-def _memoize_batched[T, R](
-    fn: ABatchFn[T, R], *, cs: _CacheState[..., Any]
-) -> ABatchFnRv[T, R]: ...
-
-
-def _memoize_batched[T, R](
-    fn: BatchFn[T, R] | ABatchFn[T, R], *, cs: _CacheState[..., Any]
-) -> BatchFnRv[T, R] | ABatchFnRv[T, R]:
-    if iscoroutinefunction(fn):
-        w = cast('ABatchFnRv[T, R]', _async_memoize_batched(fn, cs=cs))
-    else:
-        w = cast(
-            'BatchFnRv[T, R]',
-            _sync_memoize_batched(cast('BatchFn', fn), cs=cs),
-        )
-
-    w.running = cs.futures  # type: ignore[attr-defined]
-    if isinstance(cs.cache, _WeakCache):
-        w.wrefs = cs.cache.alive  # type: ignore[attr-defined]
-    if isinstance(cs.cache, _StrongCache):
-        w.cache = cs.cache.cache  # type: ignore[attr-defined]
-
-    return functools.update_wrapper(w, fn)  # type: ignore[return-type]
-
-
-# ----------------------------- factory wrappers -----------------------------
+# -------------------------------- decoration --------------------------------
 
 
 def memoize(
@@ -568,7 +539,7 @@ def memoize(
     *,
     nbytes: SupportsInt | None = None,
     batched: bool = False,
-    policy: CachePolicy = None,
+    policy: CachePolicy | None = None,
     key_fn: KeyFn = make_key,
     ttl: float | None = None,
 ) -> Decorator | AnyBatchDecorator:
@@ -591,15 +562,15 @@ def memoize(
     """
     count = -1 if count is None else int(count)
     nbytes = -1 if nbytes is None else si_bin(int(nbytes))
-    # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
-    if count == 0 and nbytes > 0:
-        msg = 'Ambiguous: count=0 disables cache, but nbytes > 0.'
-        raise ValueError(msg)
 
-    # +/+, +/0, +/-, 0/0, 0/-, -/+, -/0, -/-
-    if count > 0 and nbytes == 0:
-        msg = 'Ambiguous: nbytes=0 disables cache, but count > 0.'
-        raise ValueError(msg)
+    # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
+    if (count == 0 and nbytes > 0) or (count > 0 and nbytes == 0):
+        raise ValueError(
+            'Ambiguity: if one of count/nbytes is 0,'
+            f'then other should be 0 or -1. Got: {count} and {nbytes}'
+        )
+    if count < 0 and nbytes < 0:  # Unbound cache, eviction policy is useless
+        policy = None
 
     # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
     if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
@@ -607,28 +578,32 @@ def memoize(
         cache = _WeakCache()
 
     # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
-    elif cache_cls := _CACHES.get(policy):
-        if (count < 0 and nbytes < 0) or policy is None:  # only time could cap
-            cache_cls = _Heap if ttl is None else _TimedCache
-        make_node = (
-            (_MakeSizedNode() if ttl is None else _MakeSizedTimedNode(ttl))
-            if nbytes > 0
-            else (_MakeNode() if ttl is None else _MakeTimedNode(ttl))
-        )
-        cache = cache_cls(count, nbytes, make_node)
-        cache = _StrongCache(cache)
+    elif cache_cls := _CACHES.get((policy, bool(ttl))):
+        cache = _StrongCache(cache_cls(count, nbytes, ttl or _inf))
     else:
         msg = f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
         raise ValueError(msg)
 
-    cs = _CacheState(cache, key_fn)
-    if batched:
-        return functools.partial(_memoize_batched, cs=cs)
-    return functools.partial(_memoize, cs=cs)
+    def wrap(fn: Callable) -> Callable:
+        if isasyncgenfunction(fn) or isgeneratorfunction(fn):
+            raise TypeError(f'Generator functions are not supported. Got {fn}')
+
+        if iscoroutinefunction(fn):
+            if batched:
+                return _async_memoize_batched(fn, cache, key_fn)
+            return _async_memoize(fn, cache, key_fn)
+        if batched:
+            return _sync_memoize_batched(fn, cache, key_fn)
+        return _sync_memoize(fn, cache, key_fn)
+
+    return wrap
 
 
-_CACHES: dict[CachePolicy, _CacheMaker] = {
-    None: _TimedCache,
-    'lru': _LruTimedCache,
-    'mru': _MruTimedCache,
+_CACHES: dict[tuple[CachePolicy | None, bool], _CacheMaker] = {
+    (None, False): _Cache,
+    ('lru', False): _LruCache,
+    ('mru', False): _MruCache,
+    (None, True): _TimedCache,
+    ('lru', True): _TimedLruCache,
+    ('mru', True): _TimedMruCache,
 }
