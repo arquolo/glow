@@ -28,6 +28,7 @@ from ._coro import as_actor, coroutine, summary
 from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru, span_task
+from ._mcqueue import MulticastQueue
 from ._more import (
     as_iter,
     chunked,
@@ -90,6 +91,7 @@ else:
 
 
 __all__ = [
+    'MulticastQueue',
     'Reusable',
     'RwLock',
     'Uid',
