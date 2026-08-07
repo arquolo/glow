@@ -1,6 +1,7 @@
 # General
 
 - Add docs for all exported functions
+- Improve test coverage.
 
 ### `__init__`
 
@@ -12,25 +13,14 @@ Implement proper serialization of np.ndarray/np.memmap via anonymous mmap on Win
 - `child` -> `parent` = keep in shared if already there, otherwise move as usual.
 - Drop shared data at pool shutdown.
 
-### `.wrap -> .cache`
-
-Add case `capacity=None` for unbound cache like in `functools`.
+### `.cache`
 
 Use `evict: _Eviction` instead of `policy` argument.
-
-Combine all underlying modules to single module one, or find a better split.
-
-Decorators for any callable with hashable args and kwargs:
-
-- `call_once` - converts function to singleton (memoization of parameter-less function).
-- `memoize` - cache calls with coalencing (unite with `shared_call`)
 
 Decorators for callables accepting sequences of hashable items `(items: Sequence[Hashable]) -> list[Result]`:
 
 - `stream_batched` - group calls to batches
 - `memoize_batched` - cache and coalence calls
-
-Improve test coverage.
 
 ### `whereami`
 
@@ -47,5 +37,3 @@ Improve test coverage.
 ### `._repr._Si`
 
 Add proper string formatting using `format_spec`
-
-## `io` contents
