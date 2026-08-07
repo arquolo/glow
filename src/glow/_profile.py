@@ -250,7 +250,7 @@ def _frame_key(frame: FrameType) -> tuple[str, int]:
     return frame.f_code.co_filename, frame.f_lineno
 
 
-@memoize(100, policy='lru', key_fn=_frame_key)
+@memoize(1000, nbytes=65536, policy='lru', key_fn=_frame_key)
 def _get_source(frame: FrameType) -> str:
     # Get source module name
     modname = (
