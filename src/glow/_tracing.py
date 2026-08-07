@@ -1,4 +1,4 @@
-__all__ = ['trace', 'trace_module', 'whereami']
+__all__ = ['trace', 'trace_module']
 
 from collections.abc import Callable
 from contextlib import suppress
