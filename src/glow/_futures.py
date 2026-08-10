@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Protocol, overload
 
 from ._dev import hide_frame
-from ._types import Coro, Maybe, Some
+from ._types import ACallable, Maybe, Some
 
 type Job[T, R] = tuple[T, cf.Future[R]]
 type AJob[T, R] = tuple[T, asyncio.Future[R]]
@@ -14,8 +14,8 @@ type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
 type UsableSize[T] = Callable[[list[T]], int]
 type BatchFn[T, R] = Callable[[list[T]], Sequence[R]]
 type BatchFnRv[T, R] = Callable[[Iterable[T]], list[R]]
-type ABatchFn[T, R] = Callable[[list[T]], Coro[Sequence[R]]]
-type ABatchFnRv[T, R] = Callable[[Iterable[T]], Coro[list[R]]]
+type ABatchFn[T, R] = ACallable[[list[T]], Sequence[R]]
+type ABatchFnRv[T, R] = ACallable[[Iterable[T]], list[R]]
 
 
 class BatchDecorator(Protocol):

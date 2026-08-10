@@ -26,9 +26,9 @@ from loguru import logger
 
 from ._cache import memoize
 from ._dev import hide_frame
+from ._pipes import cumsum, maximum_cumsum
 from ._repr import si, si_bin
-from ._streams import Stream, cumsum, maximum_cumsum
-from ._types import Callback, Get
+from ._types import Callback, Get, Pipe
 from ._wrap import Wrapper, wrap
 
 if TYPE_CHECKING:
@@ -139,11 +139,11 @@ class _Profiler(Wrapper):
     # Statistics requests count
     reads: count = field(default_factory=count)
     # Parallelism/concurrency
-    active_calls: Stream[int, int] = field(default_factory=maximum_cumsum)
+    active_calls: Pipe[int, int] = field(default_factory=maximum_cumsum)
     # Time spent executing this thread, including kernel time, but not I/O.
-    busy_ns: Stream[int, int] = field(default_factory=cumsum)
+    busy_ns: Pipe[int, int] = field(default_factory=cumsum)
     # Idle time - elapsed I/O time (like time.sleep, lock.acquire, e.t.c.).
-    idle_ns: Stream[int, int] = field(default_factory=cumsum)
+    idle_ns: Pipe[int, int] = field(default_factory=cumsum)
 
     def new_call(self) -> None:
         next(self.calls)

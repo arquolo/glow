@@ -1,27 +1,26 @@
-__all__ = ['Stream', 'cumsum', 'maximum_cumsum']
+__all__ = ['cumsum', 'maximum_cumsum']
 
 from collections import deque
-from dataclasses import dataclass
 from itertools import accumulate
 
-from ._types import Callback, Get
+from ._types import Callback, Get, Pipe
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class Stream[Y, S]:
-    init: S
-    push: Callback[S]
-    pop: Get[Y]
+class _Pipe[In, Out](Pipe):
+    def __init__(self, zero: In, push: Callback[In], pop: Get[Out]) -> None:
+        self._zero = zero
+        self._push = push
+        self._pop = pop
 
-    def send(self, value: S) -> Y:
-        self.push(value)
-        return self.pop()
+    def send(self, value: In) -> Out:
+        self._push(value)
+        return self._pop()
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}({self.send(self.init)})'
+        return f'{self.__class__.__name__}({self.send(self._zero)})'
 
 
-def cumsum() -> Stream[int, int]:
+def cumsum() -> Pipe[int, int]:
     """Stream running cumulative sum.
 
     Coroutine version of:
@@ -35,15 +34,15 @@ def cumsum() -> Stream[int, int]:
         ... [m.send(x) for x in numbers]
         [-1, -3, 0, -4, 1, 8]
     """
-    todo = deque[int]()
+    buf = deque[int]()
+    return _Pipe(
+        zero=0,
+        push=buf.append,
+        pop=accumulate(iter(buf.popleft, None)).__next__,
+    )
 
-    values = iter(todo.popleft, None)
-    partial_sums = accumulate(values)
 
-    return Stream(init=0, push=todo.append, pop=partial_sums.__next__)
-
-
-def maximum_cumsum() -> Stream[int, int]:
+def maximum_cumsum() -> Pipe[int, int]:
     """Stream running maximum cumulative sum.
 
     Coroutine version of:
@@ -57,10 +56,10 @@ def maximum_cumsum() -> Stream[int, int]:
         ... [m.send(x) for x in numbers]
         [1, 1, 1, 2, 2, 2]
     """
-    todo = deque[int]()
+    buf = deque[int]()
 
-    values = iter(todo.popleft, None)
+    values = iter(buf.popleft, None)
     partial_sums = accumulate(values)
     max_partial_sums = accumulate(partial_sums, max)
 
-    return Stream(init=0, push=todo.append, pop=max_partial_sums.__next__)
+    return _Pipe(zero=0, push=buf.append, pop=max_partial_sums.__next__)

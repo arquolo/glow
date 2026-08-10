@@ -4,7 +4,7 @@ from asyncio import CancelledError
 import pytest
 
 from glow import MulticastQueue
-from glow._mcqueue import QueueShutdownError
+from glow._types import QueueShutdownError
 
 
 async def worker(mq: MulticastQueue[int], total: int) -> None:

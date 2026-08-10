@@ -92,8 +92,6 @@ def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 # ----------------------------- batch collation ------------------------------
 
-type _JobQueue[T, R] = SimpleQueue[Job[T, R]]
-
 
 def _build_batches[T, R](
     q: SimpleQueue[Job[T, R]], usable_size: UsableSize[T], latency: float

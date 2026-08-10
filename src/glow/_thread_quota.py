@@ -44,13 +44,13 @@ def _safe_call[**P, T](
 
 # ------------------------------ implementation ------------------------------
 
-type _Pipe = SimpleQueue['ThreadQuota | None']
+type _ExecutorPipe = SimpleQueue['ThreadQuota | None']
 
 _shutdown = False  # set only by `_python_exit`
 _shutdown_lock = Lock()  # Blocks worker creation on interpreter shutdown
 _executors = WeakSet['ThreadQuota']()
 _workers = WeakSet[Thread]()
-_idle = deque[_Pipe]()
+_idle = deque[_ExecutorPipe]()
 
 
 def _python_exit() -> None:
@@ -68,7 +68,7 @@ def _python_exit() -> None:
 _register_atexit(_python_exit)
 
 
-def _worker(q: _Pipe) -> None:
+def _worker(q: _ExecutorPipe) -> None:
     try:
         while executor := _safe_call(q.get, timeout=_TIMEOUT):
             while work_item := _safe_call(executor._work_items.popleft):

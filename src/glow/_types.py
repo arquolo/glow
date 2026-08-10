@@ -1,12 +1,10 @@
 import enum
 from collections.abc import (
     AsyncIterable,
-    AsyncIterator,
     Callable,
     Coroutine,
     Hashable,
     Iterable,
-    Iterator,
     Sized,
 )
 from dataclasses import dataclass
@@ -15,8 +13,9 @@ from typing import Any, Final, Literal, Protocol
 type KeyFn[**P] = Callable[P, Hashable]
 
 type Coro[T] = Coroutine[Any, Any, T]
+type ACallable[**P, R] = Callable[P, Coro[R]]
+type ASCallable[*Ts, R] = Callable[[*Ts], Coro[R]]
 type AnyIterable[T] = AsyncIterable[T] | Iterable[T]
-type AnyIterator[T] = AsyncIterator[T] | Iterator[T]
 
 type Get[T] = Callable[[], T]
 type Callback[T] = Callable[[T], object]
@@ -42,16 +41,24 @@ class SupportsSlice[T](Sized, Protocol):
     def __getitem__(self, s: slice, /) -> T: ...
 
 
-class SupportsWrite(Protocol):
-    def write(self, s: str, /) -> object: ...
+class SupportsWrite[T = str](Protocol):
+    def write(self, s: T, /) -> object: ...
 
 
 class HasPopleft[T](Protocol):
     def popleft(self) -> T: ...
 
 
+class Pipe[In, Out](Protocol):
+    def send(self, value: In) -> Out: ...
+
+
 class Empty(enum.Enum):
     token = 0
+
+
+class QueueShutdownError(Exception):
+    """Raised on access to terminated Queue."""
 
 
 empty: Final = Empty.token

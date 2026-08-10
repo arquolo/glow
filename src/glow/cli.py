@@ -51,9 +51,7 @@ from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import MISSING, Field, dataclass, field, fields, is_dataclass
 from inspect import getmodule, signature, stack
 from typing import (
-    Any,
     Literal,
-    Required,
     TypedDict,
     Union,
     get_args,
@@ -111,20 +109,19 @@ def arg(
 
 
 class _Opts(TypedDict, total=False):
-    type: Required[Callable]
     nargs: str
     choices: Iterable
 
 
-def _unwrap_type(tp: type) -> tuple[type, _Opts]:
+def _unwrap_type(tp: type) -> tuple[type, Callable, _Opts]:
     origin = get_origin(tp)
     args = get_args(tp)
     if not origin or not args:  # Not a generic type
-        return tp, {'type': tp}
+        return tp, tp, {}
 
     if origin is list:  # `List[T]`
-        cls, opts = _unwrap_type(args[0])
-        return cls, {**opts, 'nargs': argparse.ZERO_OR_MORE}
+        cls, vtp, opts = _unwrap_type(args[0])
+        return cls, vtp, {**opts, 'nargs': argparse.ZERO_OR_MORE}
 
     if (  # `Optional[T]` or `T | None`
         origin in {Union, types.UnionType}
@@ -132,10 +129,10 @@ def _unwrap_type(tp: type) -> tuple[type, _Opts]:
         and types.NoneType in args
     ):
         [tp_] = set(args) - {types.NoneType}
-        cls, opts = _unwrap_type(tp_)
+        cls, vtp, opts = _unwrap_type(tp_)
         if opts.get('nargs') == argparse.ZERO_OR_MORE:
-            return cls, opts
-        return cls, {**opts, 'nargs': argparse.OPTIONAL}
+            return cls, vtp, opts
+        return cls, vtp, {**opts, 'nargs': argparse.OPTIONAL}
 
     if origin is Literal:  # `Literal[x, y]`
         choices = get_args(tp)
@@ -143,7 +140,7 @@ def _unwrap_type(tp: type) -> tuple[type, _Opts]:
             msg = f'Literal parameters should have the same type. Got: {tps}'
             raise TypeError(msg)
         [cls] = tps
-        return cls, {'type': cls, 'choices': choices}
+        return cls, cls, {'choices': choices}
 
     msg = (
         'Only list, Optional and Literal are supported as generic types. '
@@ -231,7 +228,7 @@ def _visit_field(
     seen: dict[str, list],
 ) -> _Node:
     tp, meta = _get_metadata(tp, fd)
-    cls, opts = _unwrap_type(tp)
+    cls, vtp, opts = _unwrap_type(tp)
 
     if cls is not bool and fd.default is not MISSING:
         meta.help += f' (default: {fd.default})'
@@ -240,7 +237,6 @@ def _visit_field(
         arg_group = parser.add_argument_group(fd.name)
         return fd.name, cls, _visit_nested(arg_group, cls, seen)
 
-    vtp = opts['type']
     if (
         isinstance(vtp, type)
         and issubclass(vtp, Iterable)
@@ -273,14 +269,19 @@ def _visit_field(
         if opts.get('nargs') == argparse.OPTIONAL:
             del opts['nargs']
         parser.add_argument(
-            f'--{meta.name}', *flags, **opts, default=default, help=meta.help
+            f'--{meta.name}',
+            *flags,
+            **opts,
+            default=default,
+            type=vtp,
+            help=meta.help,
         )
 
     elif isinstance(parser, ArgumentParser):  # Allow only for root parser
         if meta.flag:
             msg = f'Positional-only field "{fd.name}" should not have flag'
             raise ValueError(msg)
-        parser.add_argument(meta.name, **opts, help=meta.help)
+        parser.add_argument(meta.name, **opts, type=vtp, help=meta.help)
 
     else:
         msg = (
@@ -292,9 +293,7 @@ def _visit_field(
     return fd.name
 
 
-def _construct[T](
-    src: dict[str, Any], fn: Callable[..., T], args: Iterable[_Node]
-) -> T:
+def _construct[T](src: dict, fn: Callable[..., T], args: Iterable[_Node]) -> T:
     kwargs = {}
     for a in args:
         if isinstance(a, str):
@@ -338,9 +337,10 @@ def _import_from_string(qualname: str):
 
     mod = importlib.import_module(modname)
 
-    obj: Any = mod
+    a0, *a1n = attrname.split('.')
     try:
-        for a in attrname.split('.'):
+        obj = getattr(mod, a0)
+        for a in a1n:
             obj = getattr(obj, a)
     except AttributeError:
         msg = f'Attribute "{attrname}" not found in module "{modname}".'

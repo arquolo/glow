@@ -6,12 +6,12 @@ import functools
 from collections.abc import (
     Awaitable,
     Callable,
-    MutableMapping,
     Hashable,
     Iterable,
     Iterator,
     KeysView,
     Mapping,
+    MutableMapping,
 )
 from dataclasses import dataclass
 from inspect import (
@@ -28,8 +28,8 @@ from ._dev import clone_exc, hide_frame
 from ._futures import (
     ABatchFn,
     ABatchFnRv,
-    AnyFuture,
     AnyBatchDecorator,
+    AnyFuture,
     BatchFn,
     BatchFnRv,
     adispatch,
