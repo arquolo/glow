@@ -1,21 +1,22 @@
 import asyncio
 import concurrent.futures as cf
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from typing import Protocol, overload
 
 from ._dev import hide_frame
-from ._types import ACallable, Maybe, Some
+from ._more import each_is
+from ._types import AUnary, Unary
 
 type Job[T, R] = tuple[T, cf.Future[R]]
 type AJob[T, R] = tuple[T, asyncio.Future[R]]
 type AnyFuture[R] = cf.Future[R] | asyncio.Future[R]
 
 # batch -> N first items to pick, 0 if too early to yield
-type UsableSize[T] = Callable[[list[T]], int]
-type BatchFn[T, R] = Callable[[list[T]], Sequence[R]]
-type BatchFnRv[T, R] = Callable[[Iterable[T]], list[R]]
-type ABatchFn[T, R] = ACallable[[list[T]], Sequence[R]]
-type ABatchFnRv[T, R] = ACallable[[Iterable[T]], list[R]]
+type UsableSize[T] = Unary[list[T], int]
+type BatchFn[T, R] = Unary[list[T], Sequence[R]]
+type BatchFnRv[T, R] = Unary[Iterable[T], list[R]]
+type ABatchFn[T, R] = AUnary[list[T], Sequence[R]]
+type ABatchFnRv[T, R] = AUnary[Iterable[T], list[R]]
 
 
 class BatchDecorator(Protocol):
@@ -56,72 +57,54 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
     if not xs:
         return
 
-    obj: Maybe[list[R]]
     try:
         with hide_frame:
-            ret = list(fn([x for x, _ in xs]))
+            ret = fn([x for x, _ in xs])
     except BaseException as exc:  # noqa: BLE001
-        obj = exc
-    else:
-        obj = _maybe_make_some(ret, len(xs))
-
-    if isinstance(obj, Some):
-        for (_, f), res in zip(xs, obj.x):
-            f.set_result(res)
-    else:
         for _, f in xs:
-            f.set_exception(obj)
+            f.set_exception(exc)
+    else:
+        _populate_futures(ret, [f for _, f in xs])
 
 
 async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AJob[T, R]) -> None:
     if not xs:
         return
 
-    obj: Maybe[list[R]]
     try:
         with hide_frame:
-            ret = list(await fn([x for x, _ in xs]))
+            ret = await fn([x for x, _ in xs])
     except asyncio.CancelledError:
         for _, f in xs:
             f.cancel()
         raise
     except BaseException as exc:  # noqa: BLE001
-        obj = exc
-    else:
-        obj = _maybe_make_some(ret, len(xs))
-
-    if isinstance(obj, Some):
-        for (_, f), res in zip(xs, obj.x):
-            f.set_result(res)
-    else:
         for _, f in xs:
-            f.set_exception(obj)
-            if isinstance(f, asyncio.Future):
-                f.exception()  # Mark exception as retrieved
+            f.set_exception(exc)
+    else:
+        _populate_futures(ret, [f for _, f in xs])
 
 
-def _maybe_make_some[S: Sequence](ret: S, n: int) -> Maybe[S]:
-    if not isinstance(ret, Sequence):
-        return TypeError(
-            f'Call returned non-sequence. Got {type(ret).__name__}'
-        )
-    if len(ret) != n:
-        return RuntimeError(
-            f'Call with {n} arguments incorrectly returned {len(ret)} results'
-        )
-    return Some(ret)
+def _populate_futures[T](ret, fs: Sequence[AnyFuture[T]]) -> None:
+    err: Exception
+    if isinstance(ret, Sequence):
+        if (nf := len(fs)) == (n := len(ret)):
+            for f, x in zip(fs, ret):
+                f.set_result(x)
+            return
+        err = RuntimeError(f'Call with {nf} arguments returned {n} results')
+    else:
+        err = TypeError(f'Returned {type(ret).__name__} instead of sequence')
+    for f in fs:
+        f.set_exception(err)
 
 
-def gather_fs[K, R](
-    fs: Mapping[K, AnyFuture[R]],
-) -> tuple[dict[K, R], BaseException | None]:
-    if not fs:
-        return {}, None
-
-    results: dict[K, R] = {}
+def fs_to_results[K, F: AnyFuture, R](
+    fs: Iterable[tuple[K, F]], results: dict[K, R]
+) -> BaseException | None:
     errors = set[BaseException]()
     sync_cancelled = async_cancelled = False
-    for k, f in fs.items():
+    for k, f in fs:
         if f.cancelled():
             match f:
                 case cf.Future() if not sync_cancelled:
@@ -137,13 +120,10 @@ def gather_fs[K, R](
 
     match list(errors):
         case []:
-            return (results, None)
+            return None
         case [err]:
-            return (results, err)
+            return err
+        case errs if each_is(errs, Exception):
+            return ExceptionGroup('Got multiple exceptions', errs)
         case errs:
-            msg = 'Got multiple exceptions'
-            if all(isinstance(e, Exception) for e in errs):
-                err = ExceptionGroup(msg, errs)  # type: ignore[type-var]
-            else:
-                err = BaseExceptionGroup(msg, errs)
-            return (results, err)
+            return BaseExceptionGroup('Got multiple exceptions', errs)

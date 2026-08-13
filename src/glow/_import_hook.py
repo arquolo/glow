@@ -1,17 +1,18 @@
 __all__ = ['register_post_import_hook', 'when_imported']
 
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from importlib import abc, util
 from importlib.machinery import ModuleSpec
 from threading import RLock
 from types import ModuleType
+from typing import Protocol
 
-from ._types import Callback
+from ._types import Unary
 
 _INITIALIZED = False
 _LOCK = RLock()
-_HOOKS: dict[str, list[Callback[ModuleType]]] = {}
+_HOOKS: dict[str, list[Unary[ModuleType]]] = {}
 
 
 class _ImportHookChainedLoader(abc.Loader):
@@ -71,7 +72,7 @@ class _ImportHookFinder(abc.MetaPathFinder, set[str]):
         return None
 
 
-def register_post_import_hook(hook: Callback[ModuleType], name: str) -> None:
+def register_post_import_hook(hook: Unary[ModuleType], name: str) -> None:
     """Register a new post import hook for the target module name.
 
     This will result in a proxy callback being registered which will defer
@@ -92,14 +93,18 @@ def register_post_import_hook(hook: Callback[ModuleType], name: str) -> None:
     hook(module)
 
 
-def when_imported[H: Callback[ModuleType]](name: str) -> Callable[[H], H]:
+def when_imported(name: str) -> '_HookDecorator':
     """Create decorator making a function a post import hook for a module.
 
     Simplified version of wrapt.when_imported.
     """
 
-    def wrapper(hook: H) -> H:
+    def wrapper[F: Unary[ModuleType]](hook: F) -> F:
         register_post_import_hook(hook, name)
         return hook
 
     return wrapper
+
+
+class _HookDecorator(Protocol):
+    def __call__[F: Unary[ModuleType]](self, hook: F, /) -> F: ...

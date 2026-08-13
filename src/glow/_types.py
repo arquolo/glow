@@ -18,7 +18,8 @@ type ASCallable[*Ts, R] = Callable[[*Ts], Coro[R]]
 type AnyIterable[T] = AsyncIterable[T] | Iterable[T]
 
 type Get[T] = Callable[[], T]
-type Callback[T] = Callable[[T], object]
+type Unary[T, R = object] = Callable[[T], R]
+type AUnary[T, R = object] = ACallable[[T], R]
 
 type CachePolicy = Literal['lru', 'mru']
 type Maybe[T] = 'Some[T] | BaseException'
@@ -35,6 +36,10 @@ class Decorator(Protocol):
 
 class PsDecorator[**P](Protocol):
     def __call__[R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
+
+
+class SupportsNext[T](Protocol):
+    def __next__(self, /) -> T: ...
 
 
 class SupportsSlice[T](Sized, Protocol):

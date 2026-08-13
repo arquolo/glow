@@ -10,12 +10,13 @@ import threading
 from collections.abc import Callable, Generator, Iterable
 from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
-from logging import getLogger
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
 from typing import Never, cast, overload
 from warnings import warn
+
+from loguru import logger
 
 from ._cache import memoize
 from ._dev import hide_frame
@@ -27,22 +28,20 @@ from ._futures import (
     PsBatchDecorator,
     UsableSize,
     dispatch,
-    gather_fs,
+    fs_to_results,
     get_usable_size,
 )
 from ._locking import q_get
 from ._types import Get
 
-_LOGGER = getLogger(__name__)
 
-
-def threadlocal[**P, T](
-    fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
-) -> Get[T]:
+def threadlocal[**P, R](
+    fn: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
+) -> Get[R]:
     """Create thread-local singleton factory function (functools.partial)."""
     local_ = threading.local()
 
-    def wrapper() -> T:
+    def wrapper() -> R:
         try:
             return local_.obj
         except AttributeError:
@@ -116,7 +115,7 @@ def _build_batches[T, R](
             rem = endtime - monotonic()
             batch.append(q.get(timeout=rem) if rem > 0 else q.get(block=False))
         except Empty:
-            _LOGGER.debug(f'worker timed out {latency:.3f}s - qd {len(batch)}')
+            logger.debug(f'worker timed out {latency:.3f}s - qd {len(batch)}')
             yield batch[:]
             batch = []
 
@@ -240,7 +239,8 @@ def streaming[T, R](
             raise TimeoutError
 
         # Cannot time out - all are done
-        rs, err = gather_fs(dict(enumerate(fs)))
+        rs: dict[int, R] = {}
+        err = fs_to_results(enumerate(fs), rs)
         if err is None:
             return list(rs.values())
         with hide_frame:

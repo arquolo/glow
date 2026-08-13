@@ -16,7 +16,7 @@ from typing import Self
 import loky
 
 from ._import_hook import when_imported
-from ._types import Callback
+from ._types import Unary
 
 _SYSTEM_SHM_MIN_SIZE = int(2e9)
 _SYSTEM_SHM = Path('/dev/shm')
@@ -106,7 +106,7 @@ def _torch_hook(torch) -> None:
 
 def _dumps(
     obj: object,
-    callback: Callback[pickle.PickleBuffer] | None = None,
+    callback: Unary[pickle.PickleBuffer] | None = None,
 ) -> bytes:
     fp = io.BytesIO()
     p = pickle.Pickler(fp, -1, buffer_callback=callback)

@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import AsyncGenerator, Iterable, Mapping, MutableSet
 from contextlib import asynccontextmanager, suppress
 from functools import partial
-from typing import Literal, Self, TypeGuard, cast, overload
+from typing import Literal, Self, cast, overload
 from weakref import finalize
 
 from ._dev import hide_frame
@@ -20,6 +20,7 @@ from ._futures import (
     adispatch,
     get_usable_size,
 )
+from ._more import each_is
 from ._types import ACallable, AnyIterable, ASCallable, Get, QueueShutdownError
 
 
@@ -53,7 +54,7 @@ def amap[R](
 
     For extra options, see `astarmap`.
     """
-    it = zip(*iterables) if _all_sync_iters(iterables) else azip(*iterables)
+    it = zip(*iterables) if each_is(iterables, Iterable) else azip(*iterables)
     return astarmap(func, it, limit=limit, unordered=unordered)
 
 
@@ -183,7 +184,7 @@ async def _iter_results[T](
 
 
 async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
-    if _all_sync_iters(iterables):
+    if each_is(iterables, Iterable):
         for x in zip(*iterables):
             yield x
         return
@@ -199,12 +200,6 @@ async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
             return
         else:
             yield tuple(ret)
-
-
-def _all_sync_iters(
-    iterables: tuple[AnyIterable, ...],
-) -> TypeGuard[tuple[Iterable, ...]]:
-    return all(isinstance(it, Iterable) for it in iterables)
 
 
 async def _wrapgen[T](it: Iterable[T]) -> AsyncGenerator[T]:
@@ -315,6 +310,7 @@ def astreaming[T, R](  # noqa: C901
                 async with lock:
                     await adispatch(fn, *batch)
 
+        # NOTE: if any `f` will die, will raise only first exception, not all
         with hide_frame:
             return await asyncio.gather(*fs)
 

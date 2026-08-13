@@ -2,13 +2,13 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import overload
 
-from ._types import Callback, Decorator, Get
+from ._types import Decorator, Get, Unary
 
 def memprof(
-    name_or_callback: str | Callback[float] | None = ..., /
+    name_or_callback: str | Unary[float] | None = ..., /
 ) -> AbstractContextManager[None]: ...
 def memtrack(
-    callback: Callable[[int], None] = ..., period: float = ...
+    callback: Unary[int, None] = ..., period: float = ...
 ) -> None: ...
 @overload
 def timer(
@@ -20,7 +20,7 @@ def timer(
 ) -> AbstractContextManager[None]: ...
 @overload
 def timer(
-    callback: Callback[int] | None,
+    callback: Unary[int] | None,
     time: Get[int] = ...,
     /,
     *,

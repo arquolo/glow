@@ -28,7 +28,7 @@ from ._cache import memoize
 from ._dev import hide_frame
 from ._pipes import cumsum, maximum_cumsum
 from ._repr import si, si_bin
-from ._types import Callback, Get, Pipe
+from ._types import Get, Pipe, Unary
 from ._wrap import Wrapper, wrap
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ _THIS = None
 
 @contextmanager
 def memprof(
-    name_or_callback: str | Callback[float] | None = None, /
+    name_or_callback: str | Unary[float] | None = None, /
 ) -> Generator[None]:
     global _THIS  # noqa: PLW0603
     if _THIS is None:
@@ -67,7 +67,7 @@ def memprof(
 
 
 def memtrack(
-    callback: Callable[[int], None] = (
+    callback: Unary[int] = (
         lambda size: logger.trace(f'Process RSS: {si_bin(size)}')
     ),
     period: float = 30,
@@ -88,7 +88,7 @@ def memtrack(
 
 @contextmanager
 def _timer_callback(
-    callback: Callback[int], time: Get[int] = perf_counter_ns, /
+    callback: Unary[int], time: Get[int] = perf_counter_ns, /
 ) -> Generator[None]:
     begin = time()
     try:
@@ -111,7 +111,7 @@ def _timer_print(
 
 
 def timer(
-    name_or_callback: str | Callback[int] | None = None,
+    name_or_callback: str | Unary[int] | None = None,
     time: Get[int] = perf_counter_ns,
     /,
     *,

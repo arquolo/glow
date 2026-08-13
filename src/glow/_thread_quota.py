@@ -32,9 +32,9 @@ _WORKER_TIMEOUT = 1  # X seconds for worker to wait for next executor to serve
 # ------------------------------- generics -----------------------------------
 
 
-def _safe_call[**P, T](
-    fn: Callable[P, T], *args: P.args, **kwargs: P.kwargs
-) -> T | None:
+def _safe_call[**P, R](
+    fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs
+) -> R | None:
     try:
         return fn(*args, **kwargs)
     except (Empty, IndexError, ValueError):

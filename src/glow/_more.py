@@ -20,11 +20,11 @@ from collections.abc import (
     Sequence,
     Sized,
 )
-from itertools import batched, chain, count, cycle, islice, repeat
+from itertools import batched, chain, compress, cycle, islice, repeat
 from threading import Thread
-from typing import overload
+from typing import TypeGuard, overload
 
-from ._types import HasPopleft, SupportsSlice
+from ._types import HasPopleft, SupportsSlice, Unary
 
 
 def as_iter[T](
@@ -135,6 +135,10 @@ def windowed(it, size, /):
     >>> [*windowed(iter(range(6)), 3)]
     [(0, 1, 2), (1, 2, 3), (2, 3, 4), (3, 4, 5)]
     """
+    if size < 0:
+        raise ValueError('size must be >= 0')
+    if size == 0:
+        return iter([()])
     return _dispatch(_windowed, _sliced_windowed, it, size)
 
 
@@ -164,13 +168,23 @@ def chunked(it, size):
 # ----------------------------------------------------------------------------
 
 
-def _deiter[T](q: HasPopleft[T], /) -> Generator[T]:
-    # Same as iter_except(q.popleft, IndexError) from docs of itertools
+def each_is[T](items: Sequence, tp: type[T]) -> TypeGuard[Sequence[T]]:
+    return all(isinstance(it, tp) for it in items)
+
+
+# ----------------------------------------------------------------------------
+
+
+def unqueue[T](q: HasPopleft[T], /) -> Generator[T]:
+    # Same as more_itertools.iter_except(q.popleft, IndexError)
     try:
         while True:
             yield q.popleft()
     except IndexError:
         return
+
+
+# ----------------------------------------------------------------------------
 
 
 def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]:
@@ -185,6 +199,8 @@ def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]:
     >>> [[*chunk] for chunk in s]
     [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
     """
+    if size <= 0:
+        raise ValueError('size must be >= 0')
     if size == 1:  # Trivial case
         yield from map(iter, zip(it))
         return
@@ -198,7 +214,7 @@ def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]:
         tail = deque[T]()
 
         # Include early fetched item into chunk
-        yield chain(_deiter(head), body, _deiter(tail))
+        yield chain(unqueue(head), body, unqueue(tail))
 
         # Advance and fill internal cache, expand tail with items from body
         tail += body
@@ -213,17 +229,24 @@ def ilen(iterable: Iterable, /) -> int:
     This consumes iterable, so handle with care.
     See `more_itertools.ilen`.
     """
-    counter = count()
-    deque(zip(iterable, counter), maxlen=0)
-    return next(counter)
+    # zip(xs) -> (x0,), (x1,), ..., (xn,) - all are truthy
+    # repeat(1) -> 1, 1, ...
+    # compress(xs, ys) -> (x for x, y in zip(xs, ys) if y), and all Ys are true
+    # thus its equal to sum(1 for _ in iterable)
+    return sum(compress(repeat(1), zip(iterable)))
 
 
 def eat(iterable: Iterable, /, *, daemon: bool = False) -> None:
-    """Consume iterable, daemonize if needed (move to background thread)."""
+    """
+    Consume iterable, optionally in  background thread.
+
+    See `more_itertools.consume`.
+    """
     if daemon:
         Thread(target=deque, args=(iterable, 0), daemon=True).start()
     else:
-        deque(iterable, 0)  # Same as `more_itertools.consume(..., n=None)`
+        # feed the entire iterator into a zero-length deque
+        deque(iterable, 0)
 
 
 def roundrobin[T](*iterables: Iterable[T]) -> Generator[T]:
@@ -239,18 +262,18 @@ def roundrobin[T](*iterables: Iterable[T]) -> Generator[T]:
 
 @overload
 def groupby[T, K: Hashable](
-    iterable: Iterable[T], /, key: Callable[[T], K]
+    iterable: Iterable[T], /, key: Unary[T, K]
 ) -> dict[K, list[T]]: ...
 
 
 @overload
 def groupby[T, K: Hashable, V](
-    iterable: Iterable[T], /, key: Callable[[T], K], value: Callable[[T], V]
+    iterable: Iterable[T], /, key: Unary[T, K], value: Unary[T, V]
 ) -> dict[K, list[V]]: ...
 
 
 def groupby[T, K: Hashable](
-    iterable: Iterable[T], /, key: Callable[[T], K], value=lambda x: x
+    iterable: Iterable[T], /, key: Unary[T, K], value=lambda x: x
 ) -> dict[K, list]:
     """Group items from iterable by key.
 

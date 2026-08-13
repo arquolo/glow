@@ -1,7 +1,6 @@
 __all__ = ['countable', 'mangle', 'repr_as_obj', 'si', 'si_bin']
 
 from collections import Counter
-from collections.abc import Callable
 from typing import cast
 
 try:
@@ -9,8 +8,10 @@ try:
 except ImportError:
     from wrapt import ObjectProxy
 
+from ._types import Unary
 
-def mangle() -> Callable[[str], str | None]:
+
+def mangle() -> Unary[str, str | None]:
     """Append number to already seen strings, making them distinct.
 
     >>> mangled = mangle()
@@ -36,7 +37,7 @@ def mangle() -> Callable[[str], str | None]:
     return call
 
 
-def countable() -> Callable[[object], int]:
+def countable() -> Unary[object, int]:
     """Accumulate and enumerate objects. Readable alternative to id().
 
     >>> id_ = countable()

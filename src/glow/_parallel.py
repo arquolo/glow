@@ -8,25 +8,17 @@ __all__ = [
 ]
 
 import atexit
-import logging
 import os
 import signal
 import sys
 import warnings
 import weakref
-from collections.abc import (
-    Callable,
-    Generator,
-    Iterable,
-    Iterator,
-    Mapping,
-    Sized,
-)
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from concurrent.futures import Executor, Future
 from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
-from itertools import chain, islice, starmap
+from itertools import batched, chain, islice, repeat, starmap
 from multiprocessing import dummy
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
@@ -37,6 +29,7 @@ from time import monotonic
 from typing import Self, cast
 
 import loky
+from loguru import logger
 
 try:
     import psutil
@@ -45,12 +38,10 @@ except ImportError:
 
 from ._dev import hide_frame
 from ._locking import AbsEvent, AbsManager, AbsQueue, f_result, q_get
-from ._more import chunked, ilen
+from ._more import ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
-from ._types import Empty, Some, empty
-
-_LOGGER = logging.getLogger(__name__)
+from ._types import Empty, Some, Unary, empty
 
 _TOTAL_CPUS = os.process_cpu_count()
 _NUM_CPUS = _TOTAL_CPUS or 0
@@ -64,6 +55,7 @@ _IDLE_WORKER_TIMEOUT = 10
 _FAST_GROW = False
 _GRANULAR_SCHEDULING = False
 
+_debug2 = logger.opt(depth=2).debug
 
 # ------------------- some useful interfaces and functions -------------------
 
@@ -273,7 +265,7 @@ class _AutoSize:
 
             if self.duration < self.MIN_DURATION:  # Too high IPC overhead
                 size = self._new_scale() if _FAST_GROW else self.size * 2
-                _LOGGER.debug('Increasing batch size to %d', size)
+                _debug2(f'Increasing batch size to {size}')
 
             elif (
                 self.duration <= self.MAX_DURATION  # Range is optimal
@@ -283,7 +275,7 @@ class _AutoSize:
 
             else:  # Too high latency
                 size = self._new_scale()
-                _LOGGER.debug('Reducing batch size to %d', size)
+                _debug2(f'Reducing batch size to {size}')
 
             self.size = size
             self.duration = 0.0
@@ -303,9 +295,9 @@ def _schedule[F: Future](
     args_zip: Iterable[Iterable],
     chunksize: int,
 ) -> Generator[F]:
-    for chunk in chunked(args_zip, chunksize):
+    for chunk in batched(args_zip, chunksize, strict=False):
         f = submit_chunk(*chunk)
-        _LOGGER.debug('Submit %d', len(chunk))
+        _debug2(f'Submit {len(chunk)}')
         yield f
 
 
@@ -319,9 +311,9 @@ def _schedule_auto[F: Future](
     args_zip_it = iter(args_zip)
     while tuples := [*islice(args_zip_it, size.suggest() * max_workers)]:
         chunksize = len(tuples) // max_workers or 1
-        for chunk in chunked(tuples, chunksize):
+        for chunk in batched(tuples, chunksize, strict=False):
             f = submit_chunk(*chunk)
-            _LOGGER.debug('Submit %d', len(chunk))
+            _debug2(f'Submit {len(chunk)}')
             f.add_done_callback(partial(size.update, len(chunk), monotonic()))
             yield f
 
@@ -334,69 +326,65 @@ def _schedule_auto_v2[F: Future](
     args_zip_it = iter(args_zip)
     while chunk := [*islice(args_zip_it, size.suggest())]:
         f = submit_chunk(*chunk)
-        _LOGGER.debug('Submit %d', len(chunk))
+        _debug2(f'Submit {len(chunk)}')
         f.add_done_callback(partial(size.update, len(chunk), monotonic()))
         yield f
 
 
 def _futures_to_results[T](
     s: ExitStack,
-    qsize: int,
-    qf: AbsQueue[Future[T]],
-    sched_iter: Iterable,
-    is_batched: bool,
+    fq: AbsQueue[Future[T]],  # queue to fetch done futures from
+    sched_it: Iterable,  # <- `next()` on this could submit future
+    on_yield: Unary[T],
 ) -> Generator[T]:
-    with s:
-        if not qsize:  # No tasks to do
-            return
-        _LOGGER.debug('Prefetched %d jobs', qsize)
+    with s, hide_frame:  # hide this frame for error in `sched_it.__next__()`
+        for _ in sched_it:
+            # Retrieve done task
+            obj = f_result(q_get(fq))
+            if not isinstance(obj, Some):
+                with hide_frame:
+                    raise obj
 
-        # Unwrap 1st / schedule `N-qsize` / unwrap `qsize-1`
-        with hide_frame:
-            for _ in chain([None], sched_iter, range(qsize - 1)):
-                # Retrieve done task, exactly `N` calls
-                obj = f_result(q_get(qf))
-                if not isinstance(obj, Some):
-                    with hide_frame:
-                        raise obj
-                if is_batched and isinstance(obj.x, Sized):
-                    _LOGGER.debug('Done %d items', len(obj.x))
-                else:
-                    _LOGGER.debug('Done 1')
-                yield obj.x
+            on_yield(obj.x)
+            yield obj.x
 
 
-def _enqueue[T](
-    fs: Iterable[Future[T]],
+def _make_task_queue[F: Future](
     unordered: bool,
-) -> tuple[Iterator, SimpleQueue[Future[T]]]:
-    q = SimpleQueue[Future[T]]()
+) -> tuple[Unary[F, None], SimpleQueue[F]]:
+    q = SimpleQueue[F]()
 
     # In `unordered` mode `q` contains only "DONE" tasks,
     # else there are also "PENDING" and "RUNNING" tasks.
     # FIXME: unordered=True -> random freezes (in q.get -> Empty)
     q_put = cast(
-        'Callable[[Future[T]], None]',
+        'Unary[F, None]',
         methodcaller('add_done_callback', q.put) if unordered else q.put,
     )
-
-    # On each `next()` schedules new task
-    sched_iter = map(q_put, fs)
-
-    return sched_iter, q
+    return q_put, q
 
 
-def _prefetch(s: ExitStack, sched_iter: Iterable, count: int | None) -> int:
+def _prefetch[F: Future](
+    fs: Iterator[F],
+    on_submit: Unary[F],
+    n: int | None,
+    on_stop: Callable[[], None],
+) -> Iterator:
     try:
-        # Fetch up to `count` tasks to pre-fill `q`
-        qsize = ilen(islice(sched_iter, count))
+        sched = map(on_submit, fs)
+        qsize = ilen(islice(sched, n))
     except BaseException:
-        # Unwind stack here on an error
-        s.close()
+        on_stop()
         raise
-    else:
-        _LOGGER.debug('Prefetched %d jobs', qsize)
-        return qsize
+    if qsize <= 0:  # Empty `fs`
+        on_stop()
+        return iter(())
+    _debug2(f'Prefetched {qsize} jobs')
+
+    # During iteration skips 1st submit (cause it's already done),
+    # then schedules remaining `N-qlen` tasks,
+    # and then steps `qlen-1` times to empty extract remaining tasks.
+    return chain([None], sched, repeat(None, qsize - 1))
 
 
 def _batch_invoke[*Ts, R](
@@ -460,7 +448,6 @@ def starmap_n[T](
     elif prefetch is not None:
         prefetch = max(prefetch + max_workers, 1)
 
-    it = iter(iterable)
     s = ExitStack()
     submit = s.enter_context(get_executor(max_workers, mp=mp)).submit
 
@@ -469,29 +456,31 @@ def starmap_n[T](
     else:
         chunksize = chunksize or 1
 
+    qput, fq = _make_task_queue(unordered)
+
     if chunksize == 1:
         submit_1 = cast('Callable[..., Future[T]]', partial(submit, func))
-        f1s = starmap(submit_1, it)
-        sched1_iter, qf = _enqueue(f1s, unordered)
-        qsize = _prefetch(s, sched1_iter, prefetch)
-        return _futures_to_results(s, qsize, qf, sched1_iter, False)
+        f1s = starmap(submit_1, iterable)
+        sched1 = _prefetch(f1s, qput, prefetch, on_stop=s.close)
+        return _futures_to_results(s, fq, sched1, lambda _: _debug2('Done 1'))
 
     submit_n = cast(
         'Callable[..., Future[list[T]]]', partial(submit, _batch_invoke, func)
     )
     if chunksize is not None:
         # Fixed chunksize
-        fs = _schedule(submit_n, it, chunksize)
+        fs = _schedule(submit_n, iterable, chunksize)
     elif not _GRANULAR_SCHEDULING:
         # Dynamic chunksize scaling, submit tasks in waves
-        fs = _schedule_auto(submit_n, it, max_workers)
+        fs = _schedule_auto(submit_n, iterable, max_workers)
     else:
         # Dynamic chunksize scaling
-        fs = _schedule_auto_v2(submit_n, it)
+        fs = _schedule_auto_v2(submit_n, iterable)
 
-    sched_iter, qf = _enqueue(fs, unordered)
-    qsize = _prefetch(s, sched_iter, prefetch)
-    chunks = _futures_to_results(s, qsize, qf, sched_iter, True)
+    sched = _prefetch(fs, qput, prefetch, on_stop=s.close)
+    chunks = _futures_to_results(
+        s, fq, sched, lambda xs: _debug2(f'Done {len(xs)} items')
+    )
     return chain.from_iterable(chunks)
 
 
@@ -524,7 +513,7 @@ def map_n[T](
 
 
 def map_n_dict[K, T, T2](
-    func: Callable[[T], T2],
+    func: Unary[T, T2],
     obj: Mapping[K, T],
     /,
     *,

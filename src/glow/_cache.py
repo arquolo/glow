@@ -4,13 +4,11 @@ import asyncio
 import concurrent.futures as cf
 import functools
 from collections.abc import (
-    Awaitable,
     Callable,
     Hashable,
     Iterable,
     Iterator,
     KeysView,
-    Mapping,
     MutableMapping,
 )
 from dataclasses import dataclass
@@ -34,12 +32,12 @@ from ._futures import (
     BatchFnRv,
     adispatch,
     dispatch,
-    gather_fs,
+    fs_to_results,
 )
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import CachePolicy, Decorator, Empty, KeyFn, empty
+from ._types import ACallable, CachePolicy, Decorator, Empty, KeyFn, empty
 
 _inf: Final = float('inf')
 
@@ -359,10 +357,8 @@ def _sync_memoize[**P, R](
 
 
 def _async_memoize[**P, R](
-    fn: Callable[P, Awaitable[R]],
-    cache: _AbstractCache[R],
-    key_fn: KeyFn[P],
-) -> Callable[P, Awaitable[R]]:
+    fn: ACallable[P, R], cache: _AbstractCache[R], key_fn: KeyFn[P]
+) -> ACallable[P, R]:
     futures = WeakValueDictionary[Hashable, asyncio.Future[R]]()
 
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -428,15 +424,13 @@ class _BatchedQuery[T, F: AnyFuture, R]:
                 futures[k] = self._futures[k] = f = new_future()  # ! Protect
                 self.pending.append((t, f))  # Resolve this manually
 
-    def partial_result(
-        self,
-    ) -> tuple[dict[Hashable, R], BaseException | None]:
-        return gather_fs(self._futures)
+        self._stash: dict[Hashable, R] = {}
 
-    def merge(
-        self, stash: Mapping[Hashable, R], cache: _AbstractCache[R]
-    ) -> None:
-        for k, r in stash.items():
+    def partial_result(self) -> BaseException | None:
+        return fs_to_results(self._futures.items(), self._stash)
+
+    def merge(self, cache: _AbstractCache[R]) -> None:
+        for k, r in self._stash.items():
             self._done[k] = cache[k] = r
 
     # TODO: check whether this necessary
@@ -458,7 +452,7 @@ def _sync_memoize_batched[T, R](
         keyed_tokens = [(key_fn(t), t) for t in tokens]
 
         with lock:
-            q = _BatchedQuery(cache, futures, cf.Future[R], *keyed_tokens)
+            q = _BatchedQuery(cache, futures, cf.Future, *keyed_tokens)
 
         if not q.pending and not q.running:
             return q.result()
@@ -468,14 +462,14 @@ def _sync_memoize_batched[T, R](
                 dispatch(fn, *q.pending)
             if q.running:
                 cf.wait(q.running)
-            stash, err = q.partial_result()
+            err = q.partial_result()
         except:
             with lock:
                 q.cleanup(futures)
             raise
         else:
             with lock:
-                q.merge(stash, cache)
+                q.merge(cache)
                 q.cleanup(futures)
 
         if err is None:
@@ -493,7 +487,7 @@ def _async_memoize_batched[T, R](
 
     async def wrapper(tokens: Iterable[T]) -> list[R]:
         keyed_tokens = [(key_fn(t), t) for t in tokens]
-        q = _BatchedQuery(cache, futures, asyncio.Future[R], *keyed_tokens)
+        q = _BatchedQuery(cache, futures, asyncio.Future, *keyed_tokens)
 
         if not q.pending and not q.running:
             return q.result()
@@ -503,8 +497,8 @@ def _async_memoize_batched[T, R](
                 await adispatch(fn, *q.pending)
             if q.running:
                 await asyncio.wait(q.running)
-            stash, err = q.partial_result()
-            q.merge(stash, cache)
+            err = q.partial_result()
+            q.merge(cache)
         finally:
             q.cleanup(futures)
 

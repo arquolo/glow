@@ -7,7 +7,7 @@ from functools import partial
 from threading import Thread
 
 from ._cache import memoize
-from ._types import Callback, Get
+from ._types import Get, Unary
 
 
 @memoize()
@@ -17,7 +17,7 @@ def make_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def _trampoline[T](callback: Callback[T], ref: weakref.ref[T]) -> None:
+def _trampoline[T](callback: Unary[T], ref: weakref.ref[T]) -> None:
     if (obj := ref()) is not None:
         callback(obj)
 
@@ -26,7 +26,7 @@ def _trampoline[T](callback: Callback[T], ref: weakref.ref[T]) -> None:
 class Reusable[T]:
     make: Get[T]
     delay: float
-    finalize: Callback[T] | None = None
+    finalize: Unary[T] | None = None
 
     _loop: asyncio.AbstractEventLoop = field(default_factory=make_loop)
     _deleter: asyncio.TimerHandle | None = None
