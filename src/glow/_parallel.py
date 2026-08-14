@@ -52,9 +52,7 @@ from ._types import Empty, Some, empty
 
 _LOGGER = logging.getLogger(__name__)
 
-_TOTAL_CPUS = (
-    os.process_cpu_count() if sys.version_info >= (3, 13) else os.cpu_count()
-)
+_TOTAL_CPUS = os.process_cpu_count()
 _NUM_CPUS = _TOTAL_CPUS or 0
 
 if (_env_cpus := os.getenv('GLOW_CPUS')) is not None:
@@ -151,8 +149,7 @@ def get_executor(max_workers: int, *, mp: bool) -> Generator[Executor]:
         try:
             yield threads
         finally:
-            is_success = sys.exception() is None
-            threads.shutdown(wait=is_success, cancel_futures=True)
+            threads.shutdown(cancel_futures=True)
 
 
 def _get_manager(executor: Executor) -> AbsManager:
