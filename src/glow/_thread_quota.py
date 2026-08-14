@@ -7,16 +7,16 @@
 
 __all__ = ['ThreadQuota']
 
-import os
 import sys
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Executor, Future
 from concurrent.futures._base import LOGGER
 from concurrent.futures.thread import _WorkItem
+from itertools import count
 from queue import Empty, SimpleQueue
 from threading import _register_atexit  # type: ignore[attr-defined]
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 from weakref import WeakSet
 
 if sys.version_info >= (3, 14):
@@ -26,9 +26,8 @@ if sys.version_info >= (3, 14):
 else:
     _worker_ctx = None
 
-# TODO: investigate hangups when _TIMEOUT <= .01
-_TIMEOUT = 1
-_MIN_IDLE = os.cpu_count() or 1
+# TODO: investigate hangups when _WORKER_TIMEOUT <= .01
+_WORKER_TIMEOUT = 1  # X seconds for worker to wait for next executor to serve
 
 # ------------------------------- generics -----------------------------------
 
@@ -70,8 +69,14 @@ _register_atexit(_python_exit)
 
 def _worker(q: _ExecutorPipe) -> None:
     try:
-        while executor := _safe_call(q.get, timeout=_TIMEOUT):
-            while work_item := _safe_call(executor._work_items.popleft):
+        while executor := _safe_call(q.get, timeout=_WORKER_TIMEOUT):
+            while True:
+                with executor._shutdown_lock:
+                    work_item = _safe_call(executor._work_items.popleft)
+                    if work_item is None:  # Decrease worker usage for executor
+                        executor._idle.append(1)
+                        break
+
                 if sys.version_info >= (3, 14):
                     work_item.run(_worker_ctx)  # Process task
                 else:
@@ -80,7 +85,6 @@ def _worker(q: _ExecutorPipe) -> None:
                     executor._shutdown = True
                     return
 
-            executor._idle.append(1)  # Decrease worker usage for executor
             _idle.append(q)  # Mark worker as idle, LIFO/stack
             if _shutdown:
                 return
@@ -88,15 +92,16 @@ def _worker(q: _ExecutorPipe) -> None:
     except BaseException:  # noqa: BLE001
         LOGGER.critical('Exception in worker', exc_info=True)
     finally:
-        if _TIMEOUT:
-            _safe_call(_idle.remove, q)  # Omit when '_idle' tracks weakrefs
+        _safe_call(_idle.remove, q)  # Omit when '_idle' tracks weakrefs
 
 
 class ThreadQuota(Executor):
-    __slots__ = ('_idle', '_shutdown', '_shutdown_lock', '_work_items')
+    __slots__ = ('_fs', '_idle', '_shutdown', '_shutdown_lock', '_work_items')
 
     def __init__(self, max_workers: int) -> None:
+        assert max_workers > 0
         self._work_items = deque[_WorkItem]()
+        self._fs = set[Future]()
         self._idle = [1] * max_workers  # semaphore
 
         self._shutdown_lock = Lock()
@@ -129,6 +134,7 @@ class ThreadQuota(Executor):
                 self._work_items.append(_WorkItem(f, (fn, args, kwargs)))
             else:
                 self._work_items.append(_WorkItem(f, fn, args, kwargs))
+            self._fs.add(f)
 
             if _safe_call(self._idle.pop):  # Pool is not maximized yet
                 if q := _safe_call(_idle.pop):  # Use idle worker
@@ -139,6 +145,12 @@ class ThreadQuota(Executor):
                     w = Thread(target=_worker, args=[q])
                     w.start()
                     _workers.add(w)
+
+        f.add_done_callback(self._forget)
+
+    def _forget(self, f: Future) -> None:
+        with self._shutdown_lock:
+            self._fs.discard(f)
 
     def shutdown(
         self, wait: bool = True, *, cancel_futures: bool = False
@@ -152,10 +164,13 @@ class ThreadQuota(Executor):
                 while work_item := _safe_call(self._work_items.pop):
                     work_item.future.cancel()
 
-            # TODO: if not `wait` - stop sub-workers
-            if not _TIMEOUT:
-                # Keep at most 25% of workers idle
-                while len(_idle) > max(len(_workers) / 4, _MIN_IDLE) and (
-                    q := _safe_call(_idle.popleft)
-                ):
-                    q.put(None)
+            if not wait or not self._fs:
+                return
+            empty = Event()
+            nleft = count(len(self._fs) - 1, -1)
+            for f in self._fs:
+                f.add_done_callback(
+                    lambda _: None if next(nleft) else empty.set()
+                )
+
+        empty.wait()
