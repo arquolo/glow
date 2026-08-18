@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 
 import pytest
 
-from glow.cli import Meta, parse_args
+from glow.cli import Meta, run
 
 
 @dataclass
@@ -121,7 +121,7 @@ class AnnotatedKeyword:
 )
 def test_good_class(argv: list[str], expected: Any):
     cls = type(expected)
-    result, _ = parse_args(cls, argv)
+    result = run(cls, argv)
     assert isinstance(result, cls)
     assert result == expected
 
@@ -141,7 +141,7 @@ def test_good_class(argv: list[str], expected: Any):
 )
 def test_bad_class(cls: type[Any], exc_type: type[BaseException]):
     with pytest.raises(exc_type):
-        parse_args(cls, [])
+        run(cls, [])
 
 
 def _no_op():
@@ -207,6 +207,6 @@ def _arg_kwarg(a: int, b: str = 'hello'):
     ],
 )
 def test_good_func[T](argv: list[str], func: Callable[..., T], expected: T):
-    result, _ = parse_args(func, argv)
+    result = run(func, argv)
     assert type(result) is type(expected)
     assert result == expected

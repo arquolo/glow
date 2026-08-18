@@ -7,11 +7,11 @@ class Args:
     a: int
     b: str = 'hello'
 
-args, parser = parse_args(Args)
+args = run(Args)
 ```
 Or with plain function:
 ```
-@parse_args
+@run
 def main(name: str = 'user'):
     print(f'Hello {name}')
 ```
@@ -40,7 +40,7 @@ Reasons not to use alternatives:
     (https://github.com/tiangolo/typer/issues/197).
 """
 
-__all__ = ['arg', 'parse_args']
+__all__ = ['arg', 'parse_args', 'run']
 
 import argparse
 import importlib
@@ -54,10 +54,12 @@ from typing import (
     Literal,
     TypedDict,
     Union,
+    overload,
     get_args,
     get_origin,
     get_type_hints,
 )
+from warnings import warn
 
 from typing_inspection.introspection import (
     UNKNOWN,
@@ -309,8 +311,39 @@ def parse_args[T](
     args: Sequence[str] | None = None,
     prog: str | None = None,
 ) -> tuple[T, ArgumentParser]:
+    warn('Deprecated. Use `run()` for this', DeprecationWarning, stacklevel=2)
+    return run(fn, args, prog, return_parser=True)
+
+
+@overload
+def run[T](
+    fn: Callable[..., T],
+    /,
+    args: Sequence[str] | None = ...,
+    prog: str | None = ...,
+    *,
+    return_parser: Literal[False] = ...,
+) -> T: ...
+@overload
+def run[T](
+    fn: Callable[..., T],
+    /,
+    args: Sequence[str] | None = ...,
+    prog: str | None = ...,
+    *,
+    return_parser: Literal[True],
+) -> tuple[T, ArgumentParser]: ...
+
+
+def run[T](
+    fn: Callable[..., T],
+    /,
+    args: Sequence[str] | None = None,
+    prog: str | None = None,
+    *,
+    return_parser: bool = False,
+) -> tuple[T, ArgumentParser] | T:
     """Create parser from type hints of callable, parse args and do call."""
-    # TODO: Rename to `run`
     if not callable(fn):
         raise TypeError(f'Expectet callable. Got: {type(fn).__qualname__}')
 
@@ -323,7 +356,7 @@ def parse_args[T](
 
     namespace = parser.parse_args(args)
     obj = _construct(vars(namespace), fn, nodes)
-    return obj, parser
+    return (obj, parser) if return_parser else obj
 
 
 def _import_from_string(qualname: str):
@@ -351,4 +384,4 @@ def _import_from_string(qualname: str):
 if __name__ == '__main__':
     qualname, *argv = sys.argv
     obj = _import_from_string(qualname)
-    parse_args(obj, argv)
+    run(obj, argv)

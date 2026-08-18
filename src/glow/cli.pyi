@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import Any, Literal, overload
 
 from ._types import Get
 
@@ -46,6 +46,24 @@ def arg(
     compare: bool = ...,
     metadata: Mapping[str, object] = ...,
 ) -> Any: ...
+@overload
+def run[T](
+    fn: Callable[..., T],
+    /,
+    args: Sequence[str] | None = ...,
+    prog: str | None = ...,
+    *,
+    return_parser: Literal[False] = ...,
+) -> T: ...
+@overload
+def run[T](
+    fn: Callable[..., T],
+    /,
+    args: Sequence[str] | None = ...,
+    prog: str | None = ...,
+    *,
+    return_parser: Literal[True],
+) -> tuple[T, ArgumentParser]: ...
 def parse_args[T](
     fn: Callable[..., T], args: Sequence[str] = ..., prog: str = ...
 ) -> tuple[T, ArgumentParser]: ...
