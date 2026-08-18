@@ -29,6 +29,17 @@ type Maybe[T] = 'Some[T] | BaseException'
 class Some[T]:
     x: T
 
+    @classmethod
+    def maybe[**P, R](
+        cls, fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs
+    ) -> Maybe[R]:
+        try:
+            ret = fn(*args, **kwargs)
+        except BaseException as exc:  # noqa: BLE001
+            return exc
+        else:
+            return Some(ret)
+
 
 class Decorator(Protocol):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
