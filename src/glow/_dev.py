@@ -8,7 +8,7 @@ __all__ = [
 import copy
 import os
 import random
-from types import CodeType, TracebackType
+from types import CodeType, FrameType, TracebackType
 from typing import Self
 
 import numpy as np
@@ -62,6 +62,13 @@ def declutter_tb(e: BaseException, code: CodeType) -> None:
 
 
 hide_frame = _HideFrame()
+
+
+# ---------------------------------------------------------------------------
+
+
+def frame_key(frame: FrameType | None) -> tuple[str, int] | None:
+    return (frame.f_code.co_filename, frame.f_lineno) if frame else None
 
 
 # ---------------------------------------------------------------------------

@@ -10,13 +10,12 @@ import threading
 from collections.abc import Callable, Generator, Iterable
 from concurrent.futures import Future, wait
 from functools import partial, update_wrapper
+from logging import getLogger
 from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
 from typing import Never, cast, overload
 from warnings import warn
-
-from loguru import logger
 
 from ._cache import memoize
 from ._dev import hide_frame
@@ -33,6 +32,8 @@ from ._futures import (
 )
 from ._locking import q_get
 from ._types import Get
+
+_debug1 = partial(getLogger(__name__).debug, stacklevel=2)
 
 
 def threadlocal[**P, R](
@@ -115,7 +116,7 @@ def _build_batches[T, R](
             rem = endtime - monotonic()
             batch.append(q.get(timeout=rem) if rem > 0 else q.get(block=False))
         except Empty:
-            logger.debug(f'worker timed out {latency:.3f}s - qd {len(batch)}')
+            _debug1(f'worker timed out {latency:.3f}s - qd {len(batch)}')
             yield batch[:]
             batch = []
 
@@ -132,7 +133,7 @@ def _start_fetch_compute[T, R](
     batching_lock = Lock()
     batches = _build_batches(q, batch_size, timeout)
 
-    def loop() -> Never:
+    def batchify() -> Never:
         while True:
             with batching_lock:
                 batch = next(batches)
@@ -142,8 +143,8 @@ def _start_fetch_compute[T, R](
             else:
                 sleep(0.001)
 
-    for _ in range(workers):
-        Thread(target=loop, daemon=True).start()
+    for idx in range(workers):
+        Thread(target=batchify, name=f'batch-maker:{idx}', daemon=True).start()
     return q
 
 

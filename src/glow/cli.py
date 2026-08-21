@@ -54,10 +54,10 @@ from typing import (
     Literal,
     TypedDict,
     Union,
-    overload,
     get_args,
     get_origin,
     get_type_hints,
+    overload,
 )
 from warnings import warn
 

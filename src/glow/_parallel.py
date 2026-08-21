@@ -19,6 +19,7 @@ from contextlib import ExitStack, contextmanager
 from cProfile import Profile
 from functools import partial
 from itertools import batched, chain, islice, repeat, starmap
+from logging import getLogger
 from multiprocessing import dummy
 from multiprocessing.managers import BaseManager
 from operator import methodcaller
@@ -29,7 +30,6 @@ from time import monotonic
 from typing import Self, cast
 
 import loky
-from loguru import logger
 
 try:
     import psutil
@@ -54,8 +54,7 @@ _IDLE_WORKER_TIMEOUT = 10
 # TODO: investigate whether this improves load
 _FAST_GROW = False
 _GRANULAR_SCHEDULING = False
-
-_debug2 = logger.opt(depth=2).debug
+_debug2 = partial(getLogger(__name__).debug, stacklevel=3)
 
 # ------------------- some useful interfaces and functions -------------------
 

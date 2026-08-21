@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 from loguru import logger
 
-from ._dev import hide_frame
+from ._cache import memoize
+from ._dev import frame_key, hide_frame
 
 if TYPE_CHECKING:
     from loguru import FilterDict, FilterFunction, FormatFunction
@@ -107,13 +108,22 @@ class _InterceptHandler(logging.Handler):
 
         # Find caller from where originated the logged message.
         frame: FrameType | None = logging.currentframe()
-        depth = 0
-        while frame and 'logging' in frame.f_code.co_filename:
-            frame = frame.f_back
-            depth += 1
+        depth = _frame_to_depth(frame)
 
         opt = logger.opt(exception=record.exc_info, depth=depth)
         opt.log(level, record.getMessage())
+
+
+@memoize(1000, nbytes=65536, policy='lru', key_fn=frame_key)
+def _frame_to_depth(f: FrameType | None) -> int:
+    depth = 0
+    while f and 'logging' in f.f_code.co_filename:
+        f = f.f_back
+        depth += 1
+    return depth
+
+
+# ---------------------------------------------------------------------------
 
 
 def span_task[**P, R](

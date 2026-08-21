@@ -17,15 +17,14 @@ from dataclasses import dataclass, field
 from functools import partial
 from inspect import currentframe, getmodule, isfunction
 from itertools import accumulate, count, islice
+from logging import getLogger
 from threading import Thread
 from time import perf_counter_ns, process_time_ns, thread_time_ns
 from types import FrameType
 from typing import TYPE_CHECKING, Never
 
-from loguru import logger
-
 from ._cache import memoize
-from ._dev import hide_frame
+from ._dev import frame_key, hide_frame
 from ._pipes import cumsum, maximum_cumsum
 from ._repr import si, si_bin
 from ._types import Get, Pipe, Unary
@@ -37,6 +36,7 @@ if TYPE_CHECKING:
     _THIS: psutil.Process | None
 
 _THIS = None
+_LOGGER = getLogger(__name__)
 
 # ---------------------------------- memory ----------------------------------
 
@@ -68,7 +68,7 @@ def memprof(
 
 def memtrack(
     callback: Unary[int] = (
-        lambda size: logger.trace(f'Process RSS: {si_bin(size)}')
+        lambda size: _LOGGER.debug(f'Process RSS: {si_bin(size)}')
     ),
     period: float = 30,
 ) -> None:
@@ -246,11 +246,7 @@ time_this.finalizers = {}  # type: ignore[attr-defined]
 # --------------------------------- location ---------------------------------
 
 
-def _frame_key(frame: FrameType) -> tuple[str, int]:
-    return frame.f_code.co_filename, frame.f_lineno
-
-
-@memoize(1000, nbytes=65536, policy='lru', key_fn=_frame_key)
+@memoize(1000, nbytes=65536, policy='lru', key_fn=frame_key)
 def _get_source(frame: FrameType) -> str:
     # Get source module name
     modname = (
