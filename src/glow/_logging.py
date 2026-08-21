@@ -8,12 +8,12 @@ from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from functools import update_wrapper
 from types import FrameType
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, TypedDict, Unpack, cast
 
 from loguru import logger
 
 from ._cache import memoize
-from ._dev import frame_key, hide_frame
+from ._dev import hide_frame
 
 if TYPE_CHECKING:
     from loguru import FilterDict, FilterFunction, FormatFunction
@@ -99,7 +99,7 @@ def _set_handler(modname: str, handler: logging.Handler) -> None:
 
 
 class _InterceptHandler(logging.Handler):
-    def emit(self, record: Any) -> None:
+    def emit(self, record: logging.LogRecord) -> None:
         # Get corresponding Loguru level if it exists.
         try:
             level = logger.level(record.levelname).name
@@ -107,17 +107,18 @@ class _InterceptHandler(logging.Handler):
             level = record.levelno
 
         # Find caller from where originated the logged message.
-        frame: FrameType | None = logging.currentframe()
-        depth = _frame_to_depth(frame)
+        f = logging.currentframe()
+        depth = _frame_to_depth(f, (record.pathname, record.lineno))
 
         opt = logger.opt(exception=record.exc_info, depth=depth)
         opt.log(level, record.getMessage())
 
 
-@memoize(1000, nbytes=65536, policy='lru', key_fn=frame_key)
-def _frame_to_depth(f: FrameType | None) -> int:
+@memoize(1000, nbytes=65536, policy='lru', key_fn=lambda _, target: target)
+def _frame_to_depth(f: FrameType | None, target: tuple[str, int]) -> int:
+    # Initial frame is always <this-file>:_InterceptHandler.emit:110
     depth = 0
-    while f and 'logging' in f.f_code.co_filename:
+    while f and (f.f_code.co_filename, f.f_lineno) != target:
         f = f.f_back
         depth += 1
     return depth

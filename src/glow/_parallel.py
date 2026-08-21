@@ -443,7 +443,7 @@ def starmap_n[T](
         raise ValueError(msg)
 
     if unordered:
-        prefetch = max(max_workers, 1)
+        prefetch = max(max_workers, 1)  # No prefetch cause workers 100% loaded
     elif prefetch is not None:
         prefetch = max(prefetch + max_workers, 1)
 
