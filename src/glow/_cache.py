@@ -21,8 +21,8 @@ from ._dev import clone_exc, hide_frame
 from ._futures import (
     ABatchFn,
     ABatchFnRv,
-    AnyBatchDecorator,
     AnyFuture,
+    BatchDecorator,
     BatchFn,
     BatchFnRv,
     adispatch,
@@ -517,7 +517,7 @@ def memoize(
     policy: CachePolicy | None = ...,
     key_fn: KeyFn = make_key,
     ttl: float | None = ...,
-) -> AnyBatchDecorator: ...
+) -> BatchDecorator: ...
 
 
 def memoize(
@@ -528,7 +528,7 @@ def memoize(
     policy: CachePolicy | None = None,
     key_fn: KeyFn = make_key,
     ttl: float | None = None,
-) -> Decorator | AnyBatchDecorator:
+) -> Decorator | BatchDecorator:
     """Create caching decorator.
 
     Parameters:

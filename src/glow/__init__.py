@@ -15,17 +15,9 @@ from ._array import (
     around,
     pascal,
 )
-from ._async import (
-    MulticastQueue,
-    RwLock,
-    amap,
-    amap_dict,
-    astarmap,
-    astreaming,
-    azip,
-)
+from ._async import MulticastQueue, RwLock, amap, amap_dict, astarmap, azip
 from ._cache import cache_status, call_once, coalesce, memoize
-from ._concurrency import streaming, threadlocal
+from ._concurrency import threadlocal
 from ._coro import as_actor, consumer, summary
 from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
@@ -53,6 +45,7 @@ from ._profile import memprof, memtrack, time_this, timer, whereami
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._reusable import Reusable
 from ._sizeof import sizeof
+from ._streaming import streaming
 from ._tracing import trace, trace_module
 from ._uuid import Uid
 
@@ -108,7 +101,6 @@ __all__ = [
     'as_actor',
     'as_iter',
     'astarmap',
-    'astreaming',
     'azip',
     'buffered',
     'cache_status',

@@ -2,13 +2,6 @@ from collections.abc import AsyncGenerator, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Required, Self, TypedDict, Unpack, overload
 
-from ._futures import (
-    ABatchDecorator,
-    ABatchFn,
-    ABatchFnRv,
-    PsABatchDecorator,
-    UsableSize,
-)
 from ._types import ACallable, AnyIterable, ASCallable
 
 class _AmapKwargs(TypedDict, total=False):
@@ -100,22 +93,6 @@ def azip(
     /,
     *iters: AnyIterable,
 ) -> AsyncGenerator[tuple]: ...
-@overload
-def astreaming(
-    *, batch_size: int | UsableSize = ..., timeout: float = ...
-) -> ABatchDecorator: ...
-@overload
-def astreaming[T](
-    *, batch_size: UsableSize[T], timeout: float = ...
-) -> PsABatchDecorator[T]: ...
-@overload
-def astreaming[T, R](
-    fn: ABatchFn[T, R],
-    /,
-    *,
-    batch_size: int | UsableSize[T] = ...,
-    timeout: float = ...,
-) -> ABatchFnRv[T, R]: ...
 
 class RwLock:
     def __init__(self) -> None: ...

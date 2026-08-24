@@ -281,7 +281,7 @@ def test_stream_dyn_lim():
 async def test_astream_1():
     calls = []
 
-    @glow.astreaming(batch_size=3)
+    @glow.streaming(batch_size=3)
     async def fn(xs):
         calls.append(xs)
         return xs
@@ -294,7 +294,7 @@ async def test_astream_1():
 async def test_astream_2():
     calls = []
 
-    @glow.astreaming(batch_size=3)
+    @glow.streaming(batch_size=3)
     async def fn(xs):
         print(xs)
         calls.append(xs)
@@ -310,7 +310,7 @@ async def test_astream_2():
 async def test_astream_dyn_lim():
     calls = []
 
-    @glow.astreaming(batch_size=_usable_items)
+    @glow.streaming(batch_size=_usable_items)
     async def fn(xs):
         print(xs)
         calls.append(xs)

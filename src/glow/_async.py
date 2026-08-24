@@ -3,30 +3,17 @@ __all__ = [
     'amap',
     'amap_dict',
     'astarmap',
-    'astreaming',
     'azip',
 ]
 
 import asyncio
-from asyncio import CancelledError, Event, Future, Lock, Queue, Task, TaskGroup
+from asyncio import CancelledError, Event, Future, Queue, Task, TaskGroup
 from collections import deque
 from collections.abc import AsyncGenerator, Iterable, Mapping, MutableSet
-from contextlib import asynccontextmanager, suppress
-from functools import partial
-from typing import Literal, Self, cast, overload
+from contextlib import asynccontextmanager
+from typing import Literal, Self
 from weakref import finalize
 
-from ._dev import hide_frame
-from ._futures import (
-    ABatchDecorator,
-    ABatchFn,
-    ABatchFnRv,
-    AJob,
-    PsABatchDecorator,
-    UsableSize,
-    adispatch,
-    get_usable_size,
-)
 from ._more import each_is
 from ._types import ACallable, AnyIterable, ASCallable, Get, QueueShutdownError
 
@@ -212,131 +199,6 @@ async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
 async def _wrapgen[T](it: Iterable[T]) -> AsyncGenerator[T]:
     for x in it:
         yield x
-
-
-@overload
-def astreaming(
-    *,
-    batch_size: int = ...,
-    timeout: float = ...,
-    pool_timeout: float | None = ...,
-) -> ABatchDecorator: ...
-@overload
-def astreaming[T](
-    *,
-    batch_size: UsableSize[T],
-    timeout: float = ...,
-    pool_timeout: float | None = ...,
-) -> PsABatchDecorator[T]: ...
-@overload
-def astreaming[T, R](
-    fn: ABatchFn[T, R],
-    /,
-    *,
-    batch_size: int | UsableSize[T] = ...,
-    timeout: float = ...,
-    pool_timeout: float | None = ...,
-) -> ABatchFnRv[T, R]: ...
-
-
-def astreaming[T, R](  # noqa: C901
-    fn: ABatchFn[T, R] | None = None,
-    /,
-    *,
-    batch_size: int | UsableSize[T] = 0,
-    timeout: float = 0.1,
-    pool_timeout: float | None = None,
-) -> ABatchFnRv[T, R] | PsABatchDecorator[T] | ABatchDecorator:
-    """Compute on `timeout` or if batch is collected.
-
-    Accepts two timeouts (in seconds):
-    - `timeout` is a time to wait till the batch is full, i.e. latency.
-    - `pool_timeout` is time to wait for results.
-    Also if `batch_size` is 0, only timeout is used.
-
-    Uses ideas from
-    - https://github.com/ShannonAI/service-streamer
-    - https://github.com/leon0707/batch_processor
-    - ray.serve.batch
-      https://github.com/ray-project/ray/blob/master/python/ray/serve/batching.py
-
-    Note: currently supports only functions and bound methods.
-
-    Implementation details:
-    - any caller enqueues jobs and starts waiting
-    """
-    if fn is None:
-        deco = partial(
-            astreaming,
-            batch_size=batch_size,
-            timeout=timeout,
-            pool_timeout=pool_timeout,
-        )
-        return cast('ABatchDecorator', deco)
-
-    if not callable(batch_size):
-        batch_size = partial(get_usable_size, batch_size)
-    assert timeout > 0
-
-    buf: list[AJob[T, R]] = []
-    deadline = float('-inf')
-    not_last = Event()
-    lock = Lock()
-    ncalls = 0
-
-    async def wrapper(items: Iterable[T]) -> list[R]:
-        items = list(items)
-        nonlocal ncalls, deadline
-        if not items:
-            return []
-
-        # There's another handling call with tail, wake it up
-        if not ncalls and buf:
-            not_last.set()
-
-        ncalls += 1
-        fs: list[Future[R]] = []
-        try:
-            for x in items:
-                f = Future[R]()
-                fs.append(f)
-                buf.append((x, f))
-
-                if len(buf) == 1:  # Got first job, reset deadline
-                    deadline = asyncio.get_running_loop().time() + timeout
-
-                usable = batch_size([x for x, _ in buf])
-                if not usable:
-                    continue
-
-                # Full batch, dispatch
-                if usable < len(buf):  # Restart from last append
-                    deadline = asyncio.get_running_loop().time() + timeout
-                batch, buf[:] = buf[:usable], buf[usable:]
-                async with lock:
-                    await adispatch(fn, *batch)
-        finally:
-            ncalls -= 1
-
-        if not ncalls and buf:  # Was last call, wait for another
-            not_last.clear()
-
-            notified = False
-            with suppress(TimeoutError):
-                async with asyncio.timeout_at(deadline):
-                    notified = await not_last.wait()
-
-            if not notified:
-                batch, buf[:] = buf[:], []
-                async with lock:
-                    await adispatch(fn, *batch)
-
-        # NOTE: if any `f` will die, will raise only first exception, not all
-        with hide_frame:
-            async with asyncio.timeout(pool_timeout):
-                return await asyncio.gather(*fs)
-
-    return wrapper
 
 
 # ----------------------------- read/write guard -----------------------------

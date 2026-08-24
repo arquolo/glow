@@ -20,29 +20,13 @@ type ABatchFnRv[T, R] = AUnary[Iterable[T], list[R]]
 
 
 class BatchDecorator(Protocol):
+    @overload
     def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
+    @overload
+    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
 
 
 class PsBatchDecorator[T](Protocol):
-    def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
-
-
-class ABatchDecorator(Protocol):
-    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
-
-
-class PsABatchDecorator[T](Protocol):
-    def __call__[R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
-
-
-class AnyBatchDecorator(Protocol):
-    @overload
-    def __call__[T, R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
-    @overload
-    def __call__[T, R](self, fn: ABatchFn[T, R], /) -> ABatchFnRv[T, R]: ...
-
-
-class PsAnyBatchDecorator[T](Protocol):
     @overload
     def __call__[R](self, fn: BatchFn[T, R], /) -> BatchFnRv[T, R]: ...
     @overload

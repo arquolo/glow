@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Literal, SupportsInt, overload
 
-from ._futures import AnyBatchDecorator, PsAnyBatchDecorator
+from ._futures import BatchDecorator, PsBatchDecorator
 from ._types import CachePolicy, Decorator, Get, KeyFn, PsDecorator
 
 def cache_status() -> str: ...
@@ -80,7 +80,7 @@ def memoize[**P](
 @overload
 def memoize(
     *, batched: Literal[True], ttl: float | None = ...
-) -> AnyBatchDecorator: ...
+) -> BatchDecorator: ...
 
 # byte-capped
 @overload
@@ -90,7 +90,7 @@ def memoize(
     batched: Literal[True],
     policy: CachePolicy | None = ...,
     ttl: float | None = ...,
-) -> AnyBatchDecorator: ...
+) -> BatchDecorator: ...
 
 # count or optionally, byte-capped
 @overload
@@ -101,7 +101,7 @@ def memoize(
     batched: Literal[True],
     policy: CachePolicy | None = ...,
     ttl: float | None = ...,
-) -> AnyBatchDecorator: ...
+) -> BatchDecorator: ...
 
 # --------------------------- batched, parametric ----------------------------
 
@@ -109,7 +109,7 @@ def memoize(
 @overload
 def memoize[T](
     *, batched: Literal[True], key_fn: KeyFn[T], ttl: float | None = ...
-) -> PsAnyBatchDecorator[T]: ...
+) -> PsBatchDecorator[T]: ...
 
 # byte-capped
 @overload
@@ -120,7 +120,7 @@ def memoize[T](
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[T],
     ttl: float | None = ...,
-) -> PsAnyBatchDecorator[T]: ...
+) -> PsBatchDecorator[T]: ...
 
 # count or optionally, byte-capped
 @overload
@@ -132,4 +132,4 @@ def memoize[T](
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[T],
     ttl: float | None = ...,
-) -> PsAnyBatchDecorator[T]: ...
+) -> PsBatchDecorator[T]: ...
