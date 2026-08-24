@@ -433,11 +433,6 @@ class _BatchedQuery[T, F: AnyFuture, R]:
         for k, r in self._stash.items():
             self._done[k] = cache[k] = r
 
-    # TODO: check whether this necessary
-    def cleanup(self, futures: MutableMapping[Hashable, F]) -> None:
-        for k in self._futures:  # Force next callers to use cache
-            futures.pop(k, None)
-
     def result(self) -> list[R]:
         return [self._done[k] for k in self._keys]
 
@@ -457,20 +452,13 @@ def _sync_memoize_batched[T, R](
         if not q.pending and not q.running:
             return q.result()
 
-        try:
-            if q.pending:
-                dispatch(fn, *q.pending)
-            if q.running:
-                cf.wait(q.running)
-            err = q.partial_result()
-        except:
-            with lock:
-                q.cleanup(futures)
-            raise
-        else:
-            with lock:
-                q.merge(cache)
-                q.cleanup(futures)
+        if q.pending:
+            dispatch(fn, *q.pending)
+        if q.running:
+            cf.wait(q.running)
+        err = q.partial_result()
+        with lock:
+            q.merge(cache)
 
         if err is None:
             return q.result()
@@ -492,15 +480,12 @@ def _async_memoize_batched[T, R](
         if not q.pending and not q.running:
             return q.result()
 
-        try:
-            if q.pending:
-                await adispatch(fn, *q.pending)
-            if q.running:
-                await asyncio.wait(q.running)
-            err = q.partial_result()
-            q.merge(cache)
-        finally:
-            q.cleanup(futures)
+        if q.pending:
+            await adispatch(fn, *q.pending)
+        if q.running:
+            await asyncio.wait(q.running)
+        err = q.partial_result()
+        q.merge(cache)
 
         if err is None:
             return q.result()
