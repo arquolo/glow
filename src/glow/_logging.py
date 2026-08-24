@@ -162,9 +162,7 @@ class _TaskSpanner:
 
     def __call__[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
         if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
-            raise RuntimeError(
-                f'Generator functions are not supported. Got {fn}'
-            )
+            raise TypeError(f'Generator functions are not supported. Got {fn}')
 
         if inspect.iscoroutinefunction(fn):
 

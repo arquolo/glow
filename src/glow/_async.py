@@ -1,4 +1,11 @@
-__all__ = ['RwLock', 'amap', 'amap_dict', 'astarmap', 'azip']
+__all__ = [
+    'RwLock',
+    'amap',
+    'amap_dict',
+    'astarmap',
+    'astreaming',
+    'azip',
+]
 
 import asyncio
 from asyncio import CancelledError, Event, Future, Lock, Queue, Task, TaskGroup
@@ -209,11 +216,17 @@ async def _wrapgen[T](it: Iterable[T]) -> AsyncGenerator[T]:
 
 @overload
 def astreaming(
-    *, batch_size: int = ..., timeout: float = ...
+    *,
+    batch_size: int = ...,
+    timeout: float = ...,
+    pool_timeout: float | None = ...,
 ) -> ABatchDecorator: ...
 @overload
 def astreaming[T](
-    *, batch_size: UsableSize[T], timeout: float = ...
+    *,
+    batch_size: UsableSize[T],
+    timeout: float = ...,
+    pool_timeout: float | None = ...,
 ) -> PsABatchDecorator[T]: ...
 @overload
 def astreaming[T, R](
@@ -222,6 +235,7 @@ def astreaming[T, R](
     *,
     batch_size: int | UsableSize[T] = ...,
     timeout: float = ...,
+    pool_timeout: float | None = ...,
 ) -> ABatchFnRv[T, R]: ...
 
 
@@ -231,11 +245,13 @@ def astreaming[T, R](  # noqa: C901
     *,
     batch_size: int | UsableSize[T] = 0,
     timeout: float = 0.1,
+    pool_timeout: float | None = None,
 ) -> ABatchFnRv[T, R] | PsABatchDecorator[T] | ABatchDecorator:
     """Compute on `timeout` or if batch is collected.
 
-    `timeout` (in seconds) is a time to wait till the batch is full,
-    i.e. latency.
+    Accepts two timeouts (in seconds):
+    - `timeout` is a time to wait till the batch is full, i.e. latency.
+    - `pool_timeout` is time to wait for results.
     Also if `batch_size` is 0, only timeout is used.
 
     Uses ideas from
@@ -250,7 +266,12 @@ def astreaming[T, R](  # noqa: C901
     - any caller enqueues jobs and starts waiting
     """
     if fn is None:
-        deco = partial(astreaming, batch_size=batch_size, timeout=timeout)
+        deco = partial(
+            astreaming,
+            batch_size=batch_size,
+            timeout=timeout,
+            pool_timeout=pool_timeout,
+        )
         return cast('ABatchDecorator', deco)
 
     if not callable(batch_size):
@@ -312,7 +333,8 @@ def astreaming[T, R](  # noqa: C901
 
         # NOTE: if any `f` will die, will raise only first exception, not all
         with hide_frame:
-            return await asyncio.gather(*fs)
+            async with asyncio.timeout(pool_timeout):
+                return await asyncio.gather(*fs)
 
     return wrapper
 

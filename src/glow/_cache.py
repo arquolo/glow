@@ -1,25 +1,20 @@
-__all__ = ['cache_status', 'memoize']
+__all__ = [
+    'cache_status',
+    'call_once',
+    'coalesce',
+    'memoize',
+]
 
 import asyncio
 import concurrent.futures as cf
 import functools
-from collections.abc import (
-    Callable,
-    Hashable,
-    Iterable,
-    Iterator,
-    KeysView,
-    MutableMapping,
-)
+import inspect
+from collections.abc import Callable, Hashable, Iterable, Iterator, KeysView
 from dataclasses import dataclass
-from inspect import (
-    isasyncgenfunction,
-    iscoroutinefunction,
-    isgeneratorfunction,
-)
 from threading import RLock
 from time import monotonic
-from typing import Final, Protocol, SupportsInt
+from typing import Final, Literal, Protocol, SupportsInt, overload
+from warnings import warn
 from weakref import WeakValueDictionary
 
 from ._dev import clone_exc, hide_frame
@@ -37,7 +32,7 @@ from ._futures import (
 from ._keys import make_key
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import ACallable, CachePolicy, Decorator, Empty, KeyFn, empty
+from ._types import ACallable, CachePolicy, Decorator, Empty, Get, KeyFn, empty
 
 _inf: Final = float('inf')
 
@@ -226,39 +221,27 @@ class _EvictableCache[T](_Cache[T]):
         raise NotImplementedError
 
 
-class _LruMixin:
+class _LruCache[T](_EvictableCache[T]):
     """Evicts least recently used node when cache is too large."""
-
-    store: MutableMapping[Hashable, _Node]
 
     def pop(self) -> int:
         """Drop oldest node."""
         return self.store.pop(next(iter(self.store))).nbytes
 
 
-class _MruMixin:
+class _MruCache[T](_EvictableCache[T]):
     """Evicts most recently used node when cache is too large."""
-
-    store: MutableMapping[Hashable, _Node]
 
     def pop(self) -> int:
         """Drop most recently added node."""
         return self.store.popitem()[1].nbytes
 
 
-class _LruCache[T](_LruMixin, _EvictableCache[T]):
+class _TimedLruCache[T](_LruCache, _TimedCache[T]):
     pass
 
 
-class _MruCache[T](_MruMixin, _EvictableCache[T]):
-    pass
-
-
-class _TimedLruCache[T](_LruMixin, _EvictableCache[T], _TimedCache[T]):
-    pass
-
-
-class _TimedMruCache[T](_MruMixin, _EvictableCache[T], _TimedCache[T]):
+class _TimedMruCache[T](_MruCache, _TimedCache[T]):
     pass
 
 
@@ -357,7 +340,9 @@ def _sync_memoize[**P, R](
 
 
 def _async_memoize[**P, R](
-    fn: ACallable[P, R], cache: _AbstractCache[R], key_fn: KeyFn[P]
+    fn: ACallable[P, R],
+    cache: _AbstractCache[R],
+    key_fn: KeyFn[P],
 ) -> ACallable[P, R]:
     futures = WeakValueDictionary[Hashable, asyncio.Future[R]]()
 
@@ -398,7 +383,7 @@ class _BatchedQuery[T, F: AnyFuture, R]:
     def __init__(
         self,
         cache: _AbstractCache[R],
-        futures: MutableMapping[Hashable, F],
+        futures: WeakValueDictionary[Hashable, F],
         new_future: type[F],
         *keyed_tokens: tuple[Hashable, T],
     ) -> None:
@@ -499,7 +484,7 @@ def _update_wrapper[F: Callable](
     wrapper: F,
     fn: Callable,
     cache: _AbstractCache,
-    futures: MutableMapping,
+    futures: WeakValueDictionary,
 ) -> F:
     wrapper.futures = futures  # type: ignore[attr-defined]
     if isinstance(cache, _WeakCache):
@@ -511,6 +496,28 @@ def _update_wrapper[F: Callable](
 
 
 # -------------------------------- decoration --------------------------------
+
+
+@overload
+def memoize(
+    count: SupportsInt | None = ...,
+    *,
+    nbytes: SupportsInt | None = ...,
+    batched: Literal[False] = ...,
+    policy: CachePolicy | None = ...,
+    key_fn: KeyFn = make_key,
+    ttl: float | None = ...,
+) -> Decorator: ...
+@overload
+def memoize(
+    count: SupportsInt | None = ...,
+    *,
+    nbytes: SupportsInt | None = ...,
+    batched: Literal[True],
+    policy: CachePolicy | None = ...,
+    key_fn: KeyFn = make_key,
+    ttl: float | None = ...,
+) -> AnyBatchDecorator: ...
 
 
 def memoize(
@@ -534,6 +541,7 @@ def memoize(
 
     Uses:
     - @memoize() - unbound cache;
+    - @memoize(0) - cache by weakref only and just merge simulateneous calls;
     - @memoize(batched=True) - unbound cache for batched calls;
     - @memoize(<int>, policy=...) - limit cache size by object count;
     - @memoize(nbytes=..., policy=...) - limit cache size by total object size;
@@ -564,10 +572,10 @@ def memoize(
         raise ValueError(msg)
 
     def wrap(fn: Callable) -> Callable:
-        if isasyncgenfunction(fn) or isgeneratorfunction(fn):
+        if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
             raise TypeError(f'Generator functions are not supported. Got {fn}')
 
-        if iscoroutinefunction(fn):
+        if inspect.iscoroutinefunction(fn):
             if batched:
                 return _async_memoize_batched(fn, cache, key_fn)
             return _async_memoize(fn, cache, key_fn)
@@ -576,6 +584,35 @@ def memoize(
         return _sync_memoize(fn, cache, key_fn)
 
     return wrap
+
+
+def call_once[T](fn: Get[T], /) -> Get[T]:
+    """Make callable a singleton.
+
+    Supports async-def functions (but not async-gen functions).
+    DO NOT USE with recursive functions
+    """
+    warn(
+        'Deprecated. Use `@memoize()` for this',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return memoize()(fn)
+
+
+def coalesce[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
+    """
+    Merge duplicate parallel invocations to the one, keep results til GC.
+
+    Supports async-def functions (but not async-gen functions).
+    DO NOT USE with recursive functions
+    """
+    warn(
+        'Deprecated. Use `@memoize(0)` for this',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return memoize(0)(fn)
 
 
 _CACHES: dict[tuple[CachePolicy | None, bool], _CacheMaker] = {

@@ -24,14 +24,8 @@ from ._async import (
     astreaming,
     azip,
 )
-from ._cache import cache_status, memoize
-from ._concurrency import (
-    call_once,
-    shared_call,
-    streaming,
-    threadlocal,
-    weak_memoize,
-)
+from ._cache import cache_status, call_once, coalesce, memoize
+from ._concurrency import streaming, threadlocal
 from ._coro import as_actor, consumer, summary
 from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
@@ -122,6 +116,7 @@ __all__ = [
     'chunked',
     'circle',
     'clone_exc',
+    'coalesce',
     'consumer',
     'countable',
     'cumsum',
@@ -152,7 +147,6 @@ __all__ = [
     'register_post_import_hook',
     'repr_as_obj',
     'roundrobin',
-    'shared_call',
     'si',
     'si_bin',
     'sizeof',
@@ -165,7 +159,6 @@ __all__ = [
     'timer',
     'trace',
     'trace_module',
-    'weak_memoize',
     'when_imported',
     'whereami',
     'windowed',

@@ -1,9 +1,6 @@
 __all__ = [
-    'call_once',
-    'shared_call',
     'streaming',
     'threadlocal',
-    'weak_memoize',
 ]
 
 import threading
@@ -15,9 +12,7 @@ from queue import Empty, SimpleQueue
 from threading import Lock, Thread
 from time import monotonic, sleep
 from typing import Never, cast, overload
-from warnings import warn
 
-from ._cache import memoize
 from ._dev import hide_frame
 from ._futures import (
     BatchDecorator,
@@ -50,44 +45,6 @@ def threadlocal[**P, R](
             return local_.obj
 
     return update_wrapper(wrapper, fn)
-
-
-def call_once[T](fn: Get[T], /) -> Get[T]:
-    """Make callable a singleton.
-
-    Supports async-def functions (but not async-gen functions).
-    DO NOT USE with recursive functions
-    """
-    warn(
-        'Deprecated. Use `@memoize()` for this',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return memoize()(fn)
-
-
-def shared_call[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
-    """Merge duplicate parallel invocations of callable to a single one.
-
-    Supports async-def functions (but not async-gen functions).
-    DO NOT USE with recursive functions
-    """
-    warn(
-        'Deprecated. Use `@memoize(0)` for this',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return memoize(0)(fn)
-
-
-def weak_memoize[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
-    """Preserve each result of each call until they are garbage collected."""
-    warn(
-        'Deprecated. Use `@memoize(0)` for this',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return memoize(0)(fn)
 
 
 # ----------------------------- batch collation ------------------------------
