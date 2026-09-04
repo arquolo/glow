@@ -27,7 +27,7 @@ Tested on Ubuntu & Windows.
 - `glow.io.*` - I/O wrappers to access data in convenient formats
 
 ## Core features
-- `glow.mapped` - convenient tool to parallelize computations
+- `glow.map_n/starmap_n` - convenient tool to parallelize computations
 - `glow.memoize` - use if you want to reduce number of calls for any function
 
 ## IO features
