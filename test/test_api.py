@@ -1,6 +1,13 @@
 from glow.api import env
 
 
+def test_types():
+    assert list(env) == []
+    assert {**env} == {}
+    assert dict(env) == {}
+    assert 'test' not in env
+
+
 def test_context():
     assert env == {}
 
