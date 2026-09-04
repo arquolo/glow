@@ -146,12 +146,7 @@ def streaming[T, R](  # noqa: C901
 
         return update_wrapper(awrapper, afn)
 
-    st = _Stream(cast('BatchFn[T, R]', fn), batch_size, timeout)
-
-    for idx in range(workers):
-        Thread(
-            target=st.batchify, name=f'batch-maker:{idx}', daemon=True
-        ).start()
+    st = _Stream(cast('BatchFn[T, R]', fn), batch_size, timeout, workers)
 
     def wrapper(items: Iterable[T]) -> list[R]:
         fs = {cf.Future[R](): item for item in items}
@@ -188,6 +183,7 @@ class _Stream[T, R]:
         func: BatchFn[T, R],
         usable_size: UsableSize[T],
         timeout: float,
+        workers: int,
     ) -> None:
         # TODO: Use scalable ThreadPool.
         # Track count of active dispatches and scale workers accordingly
@@ -200,7 +196,19 @@ class _Stream[T, R]:
         self._jobs: list[Job[T, R]] = []
         self._deadline = float('-inf')
 
-    def batchify(self) -> Never:
+        self._run_lock = threading.Lock()  # acquired = started
+        self._workers = workers
+
+    def enqueue(self, fs: dict[cf.Future[R], T]) -> None:
+        if self._run_lock.acquire(blocking=False):  # Start if not yet started
+            for _ in range(self._workers):
+                # TODO: scale thread count depending on pool load
+                Thread(target=self._batchify, daemon=True).start()
+
+        for f, x in fs.items():
+            self._q.put((x, f))  # Schedule task
+
+    def _batchify(self) -> Never:
         while True:
             with self._lock:
                 batch = self._next_batch()
@@ -209,10 +217,6 @@ class _Stream[T, R]:
                 dispatch(self._func, *batch)
             else:
                 sleep(0.001)
-
-    def enqueue(self, fs: dict[cf.Future[R], T]) -> None:
-        for f, x in fs.items():
-            self._q.put((x, f))  # Schedule task
 
     def _next_batch(self) -> list[Job[T, R]]:
         if not self._jobs:  # Wait indefinitely till the first item
