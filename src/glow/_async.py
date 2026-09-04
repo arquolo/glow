@@ -292,7 +292,7 @@ class MulticastQueue[T]:
         """Subscribe to queue to get items from its beginning."""
         self._nsubs += 1
 
-        def unsubsribe() -> None:
+        def unsubscribe() -> None:
             self._nsubs -= 1
             if self._state in ('terminated', 'closed'):  # Already stopped
                 return
@@ -305,7 +305,7 @@ class MulticastQueue[T]:
                 )
             _cancel_all(self._putters, msg='No waiters to store values for')
 
-        return _MulticastQueueIterator(self, unsubsribe)
+        return _MulticastQueueIterator(self, unsubscribe)
 
     async def get(self, idx: int) -> T:
         if idx >= len(self._buf):
@@ -378,7 +378,11 @@ class _MulticastQueueIterator[T]:
     async def __anext__(self) -> T:
         try:
             value = await self._mq.get(self._pos)
-        except (IndexError, CancelledError) as exc:
+        except IndexError as exc:
+            raise StopAsyncIteration from exc
+        except CancelledError as exc:
+            if (t := asyncio.current_task()) and t.cancelling():
+                raise  # anext() was cancelled outside
             raise StopAsyncIteration from exc
         else:
             self._pos += 1
