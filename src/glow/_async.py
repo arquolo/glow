@@ -7,7 +7,7 @@ __all__ = [
 ]
 
 import asyncio
-from asyncio import CancelledError, Event, Future, Queue, Task, TaskGroup
+from asyncio import CancelledError, Condition, Future, Queue, Task, TaskGroup
 from collections import deque
 from collections.abc import AsyncGenerator, Iterable, Mapping, MutableSet
 from contextlib import asynccontextmanager
@@ -216,36 +216,44 @@ class RwLock:
     """
 
     def __init__(self) -> None:
+        self._cv = Condition()
         self._num_reads = 0
-        self._readable = Event()
-        self._readable.set()
-        self._writable = Event()
-        self._writable.set()
+        self._readable = True
+        self._num_writers = 0
 
     @asynccontextmanager
     async def read(self) -> AsyncGenerator[None]:
-        await self._readable.wait()
-        self._writable.clear()
-        self._num_reads += 1
+        cv = self._cv
+        async with cv:
+            await cv.wait_for(lambda: self._readable and not self._num_writers)
+            self._num_reads += 1
         try:
             yield
         finally:
-            self._num_reads -= 1
-            if self._num_reads == 0:
-                self._writable.set()
+            async with cv:
+                self._num_reads -= 1
+                if self._num_reads == 0:
+                    cv.notify_all()
 
     @asynccontextmanager
     async def write(self) -> AsyncGenerator[None]:
-        self._readable.clear()  # Stop new READs
-        try:
-            await self._writable.wait()  # Wait for all READs or single WRITE
-            self._writable.clear()  # Only single WRITE is allowed
+        cv = self._cv
+        async with cv:
+            self._num_writers += 1
             try:
-                yield
+                await cv.wait_for(
+                    lambda: self._readable and not self._num_reads
+                )
             finally:
-                self._writable.set()
+                self._num_writers -= 1
+                cv.notify_all()
+            self._readable = False
+        try:
+            yield
         finally:
-            self._readable.set()
+            async with cv:
+                self._readable = True
+                cv.notify_all()
 
 
 # --------------------------- multi-consumer queue ---------------------------
