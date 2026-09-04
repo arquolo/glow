@@ -183,14 +183,18 @@ async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
             yield x
         return
 
-    aiters = (
+    aiters = [
         _wrapgen(it) if isinstance(it, Iterable) else aiter(it)
         for it in iterables
-    )
+    ]
     while True:
+        tasks = [asyncio.ensure_future(ait.__anext__()) for ait in aiters]
         try:
-            ret = await asyncio.gather(*(anext(ait) for ait in aiters))
+            ret = await asyncio.gather(*tasks)
         except StopAsyncIteration:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             return
         else:
             yield tuple(ret)
