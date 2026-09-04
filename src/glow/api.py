@@ -4,9 +4,10 @@ from collections import ChainMap
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from .. import repr_as_obj
+from . import repr_as_obj
 
 
+# TODO: rewrite using contextvars
 class _Env(ChainMap):
     """Environment with scopes.
 
