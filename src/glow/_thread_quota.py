@@ -96,12 +96,18 @@ def _worker(q: _ExecutorPipe) -> None:
 
 
 class ThreadQuota(Executor):
-    __slots__ = ('_fs', '_idle', '_shutdown', '_shutdown_lock', '_work_items')
+    __slots__ = (
+        '_futures',
+        '_idle',
+        '_shutdown',
+        '_shutdown_lock',
+        '_work_items',
+    )
 
     def __init__(self, max_workers: int) -> None:
         assert max_workers > 0
         self._work_items = deque[_WorkItem]()
-        self._fs = set[Future]()
+        self._futures = set[Future]()
         self._idle = [1] * max_workers  # semaphore
 
         self._shutdown_lock = Lock()
@@ -134,7 +140,7 @@ class ThreadQuota(Executor):
                 self._work_items.append(_WorkItem(f, (fn, args, kwargs)))
             else:
                 self._work_items.append(_WorkItem(f, fn, args, kwargs))
-            self._fs.add(f)
+            self._futures.add(f)
 
             if _safe_call(self._idle.pop):  # Pool is not maximized yet
                 if q := _safe_call(_idle.pop):  # Use idle worker
@@ -150,27 +156,31 @@ class ThreadQuota(Executor):
 
     def _forget(self, f: Future) -> None:
         with self._shutdown_lock:
-            self._fs.discard(f)
+            self._futures.discard(f)
 
     def shutdown(
         self, wait: bool = True, *, cancel_futures: bool = False
     ) -> None:
+        all_done = None
+
         with self._shutdown_lock:
-            if self._shutdown:
-                return
             self._shutdown = True
 
+            futures_to_cancel = set[Future]()
             if cancel_futures:
-                while work_item := _safe_call(self._work_items.pop):
-                    work_item.future.cancel()
+                futures_to_cancel = {w.future for w in self._work_items}
+                self._work_items.clear()
 
-            if not wait or not self._fs:
-                return
-            empty = Event()
-            nleft = count(len(self._fs) - 1, -1)
-            for f in self._fs:
-                f.add_done_callback(
-                    lambda _: None if next(nleft) else empty.set()
-                )
+            if wait and self._futures:
+                all_done = Event()
+                nleft = count(len(self._futures) - 1, -1)
+                for f in self._futures:
+                    f.add_done_callback(
+                        lambda _: None if next(nleft) else all_done.set()
+                    )
 
-        empty.wait()
+        for f in futures_to_cancel:
+            f.cancel()  # Also invokes callbacks
+
+        if all_done:
+            all_done.wait()
