@@ -37,11 +37,11 @@ except ImportError:
     psutil = None
 
 from ._dev import hide_frame
-from ._locking import AbsEvent, AbsManager, AbsQueue, f_result, q_get
+from ._locking import AbsEvent, AbsManager, AbsQueue, maybe_future, q_get
 from ._more import ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
-from ._types import Empty, Some, Unary, empty
+from ._types import Empty, Unary, empty
 
 _TOTAL_CPUS = os.process_cpu_count()
 _NUM_CPUS = _TOTAL_CPUS or 0
@@ -217,8 +217,8 @@ class buffered[T]:  # noqa: N801
 
             self.close()
             # Reraise exception from source iterable if any
-            obj = f_result(self._consume, cancel=False)
-            if not isinstance(obj, Some):
+            obj = maybe_future(self._consume)
+            if isinstance(obj, BaseException):
                 with hide_frame:
                     raise obj
 
@@ -339,13 +339,13 @@ def _futures_to_results[T](
     with s, hide_frame:  # hide this frame for error in `sched_it.__next__()`
         for _ in sched_it:
             # Retrieve done task
-            obj = f_result(q_get(fq))
-            if not isinstance(obj, Some):
+            obj = maybe_future(q_get(fq), cancel=True)
+            if isinstance(obj, BaseException):
                 with hide_frame:
                     raise obj
 
-            on_yield(obj.x)
-            yield obj.x
+            on_yield(obj[0])
+            yield obj[0]
 
 
 def _make_task_queue[F: Future](

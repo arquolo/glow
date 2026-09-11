@@ -2,8 +2,7 @@ __all__ = [
     'AbsEvent',
     'AbsManager',
     'AbsQueue',
-    'f_exception',
-    'f_result',
+    'maybe_future',
     'q_get',
 ]
 
@@ -13,7 +12,7 @@ from queue import Empty
 from time import sleep
 from typing import Protocol
 
-from ._types import Maybe, Some
+from ._types import Maybe
 
 _PERIOD = 0.01  # or sys.getswitchinterval() which is 0.005 on win32
 
@@ -33,9 +32,9 @@ class AbsManager(Protocol):
     def Queue(self, /, maxsize: int) -> AbsQueue: ...  # noqa: N802
 
 
-def f_result[T](f: Future[T], cancel: bool = True) -> Maybe[T]:
+def maybe_future[T](f: Future[T], cancel: bool = False) -> Maybe[T]:
     try:
-        return exc if (exc := f_exception(f)) else Some(f.result())
+        return exc if (exc := f_exception(f)) else [f.result()]
     finally:
         if cancel:
             f.cancel()

@@ -7,7 +7,6 @@ from collections.abc import (
     Iterable,
     Sized,
 )
-from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol
 
 type KeyFn[**P] = Callable[P, Hashable]
@@ -22,12 +21,7 @@ type Unary[T, R = object] = Callable[[T], R]
 type AUnary[T, R = object] = ACallable[[T], R]
 
 type CachePolicy = Literal['lru', 'mru']
-type Maybe[T] = 'Some[T] | BaseException'
-
-
-@dataclass(frozen=True, slots=True)
-class Some[T]:
-    x: T
+type Maybe[T] = 'list[T] | BaseException'
 
 
 class Decorator(Protocol):

@@ -30,6 +30,7 @@ from ._futures import (
     fs_to_results,
 )
 from ._keys import make_key
+from ._locking import maybe_future
 from ._repr import si_bin
 from ._sizeof import sizeof
 from ._types import ACallable, CachePolicy, Decorator, Empty, Get, KeyFn, empty
@@ -284,16 +285,6 @@ class _StrongCache[T](_WeakCache[T]):
 # --------------------------------- wrapping ---------------------------------
 
 
-def _result[T](f: cf.Future[T]) -> T:
-    if f.cancelled():
-        with hide_frame:
-            raise cf.CancelledError
-    if exc := f.exception():
-        with hide_frame:
-            raise exc
-    return f.result()
-
-
 def _sync_memoize[**P, R](
     fn: Callable[P, R],
     cache: _AbstractCache[R],
@@ -319,7 +310,10 @@ def _sync_memoize[**P, R](
         # Release lock to allow function to run
         if not is_owner:
             with hide_frame:
-                return _result(f)
+                obj = maybe_future(f)
+                if isinstance(obj, BaseException):
+                    raise obj
+            return obj[0]
 
         try:
             with hide_frame:
@@ -365,6 +359,7 @@ def _async_memoize[**P, R](
                 ret = await fn(*args, **kwargs)
         except BaseException as exc:
             f.set_exception(clone_exc(exc))
+            f.exception()  # Mark as retrieved if nobody awaits the future.
             futures.pop(key)
             raise
         else:
