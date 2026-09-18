@@ -5,7 +5,7 @@ from typing import Protocol, overload
 
 from ._dev import hide_frame
 from ._more import each_is
-from ._types import AUnary, Unary
+from ._types import AUnary, Maybe, Unary
 
 type Job[T, R] = tuple[T, cf.Future[R]]
 type AJob[T, R] = tuple[T, asyncio.Future[R]]
@@ -83,9 +83,20 @@ def _populate_futures[T](ret, fs: Sequence[AnyFuture[T]]) -> None:
         f.set_exception(err)
 
 
-def fs_to_results[K, F: AnyFuture, R](
-    fs: Iterable[tuple[K, F]], results: dict[K, R]
-) -> BaseException | None:
+def as_maybe[T](xs: Sequence[T] | object, nargs: int) -> Maybe[T]:
+    if not isinstance(xs, Sequence):
+        return TypeError(f'Returned {type(xs).__name__} instead of sequence')
+    if len(xs) != nargs:
+        return RuntimeError(
+            f'Call with {nargs} arguments returned {len(xs)} results'
+        )
+    return list(xs)
+
+
+def fs_to_results[K, R](
+    fs: Iterable[tuple[K, cf.Future[R] | asyncio.Future[R]]],
+) -> tuple[dict[K, R], BaseException | None]:
+    results: dict[K, R] = {}
     errors = set[BaseException]()
     sync_cancelled = async_cancelled = False
     for k, f in fs:
@@ -104,10 +115,10 @@ def fs_to_results[K, F: AnyFuture, R](
 
     match list(errors):
         case []:
-            return None
+            return results, None
         case [err]:
-            return err
+            return results, err
         case errs if each_is(errs, Exception):
-            return ExceptionGroup('Got multiple exceptions', errs)
+            return results, ExceptionGroup('Got multiple exceptions', errs)
         case errs:
-            return BaseExceptionGroup('Got multiple exceptions', errs)
+            return results, BaseExceptionGroup('Got multiple exceptions', errs)

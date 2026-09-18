@@ -2,7 +2,7 @@ import asyncio
 import gc
 from collections.abc import AsyncGenerator, Generator
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Event
 from typing import Any, NoReturn
 from unittest.mock import MagicMock
 
@@ -98,6 +98,129 @@ def test_merges_concurrent_calls() -> None:
     assert calls == 1
 
 
+def test_drop_waits_for_running_call_and_invalidates() -> None:
+    memo = glow.memoize()
+    started = Event()
+    release = Event()
+    loaded = False
+
+    @memo
+    def load(value):
+        nonlocal loaded
+        started.set()
+        release.wait()
+        loaded = True
+        return value
+
+    @memo.drop
+    def update(value):
+        assert loaded
+        return value + 1
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        loading = pool.submit(load, 1)
+        started.wait()
+        updating = pool.submit(update, 1)
+        release.set()
+
+    assert loading.result() == 1
+    assert updating.result() == 2
+    assert not load.cache  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_async_drop_waits_for_running_call_and_invalidates() -> None:
+    memo = glow.memoize()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    loaded = False
+
+    @memo
+    async def load(value):
+        nonlocal loaded
+        started.set()
+        await release.wait()
+        loaded = True
+        return value
+
+    @memo.drop
+    async def update(value):
+        assert loaded
+        return value + 1
+
+    loading = asyncio.create_task(load(1))
+    await started.wait()
+    updating = asyncio.create_task(update(1))
+    release.set()
+
+    assert await loading == 1
+    assert await updating == 2
+    assert not load.cache  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_cancelling_async_drop_does_not_report_callback_error() -> None:
+    loop = asyncio.get_running_loop()
+    contexts = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: contexts.append(context))
+    memo = glow.memoize()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @memo
+    async def load(value):
+        started.set()
+        await release.wait()
+        return value
+
+    @memo.drop
+    async def update(value):
+        return value
+
+    loading = asyncio.create_task(load(1))
+    await started.wait()
+    updating = asyncio.create_task(update(1))
+    await asyncio.sleep(0)
+    updating.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await updating
+        release.set()
+        await loading
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+    assert not contexts
+
+
+def test_drop_invalidates_when_function_raises() -> None:
+    memo = glow.memoize()
+
+    @memo
+    def load(value):
+        return value
+
+    @memo.drop
+    def update(value):
+        raise RuntimeError('boom')
+
+    assert load(1) == 1
+    with pytest.raises(RuntimeError, match='boom'):
+        update(1)
+
+    assert not load.cache  # type: ignore[attr-defined]
+
+
+def test_cache_status_lists_live_caches() -> None:
+    @glow.memoize()
+    def fn():
+        return None
+
+    assert f'{id(fn.cache):x}: {fn.cache!r}' in glow.cache_status()  # type: ignore[attr-defined]
+
+
 def test_does_not_cache_exceptions() -> None:
     calls = 0
 
@@ -183,6 +306,33 @@ def test_rejects_ambiguous_capacity(count, nbytes) -> None:
 def test_rejects_unknown_policy() -> None:
     with pytest.raises(ValueError, match='Unknown cache policy'):
         glow.memoize(1, policy='random')  # type: ignore[call-overload]
+
+
+@pytest.mark.parametrize(
+    ('cache_is_async', 'message'),
+    [
+        (False, 'Cannot use sync cache for async function'),
+        (True, 'Cannot use async cache for sync function'),
+    ],
+)
+def test_rejects_mixed_sync_and_async_functions(
+    cache_is_async, message
+) -> None:
+    memo = glow.memoize()
+
+    def sync_fn():
+        return None
+
+    async def async_fn():
+        return None
+
+    cached, dropped = (
+        (async_fn, sync_fn) if cache_is_async else (sync_fn, async_fn)
+    )
+    memo(cached)
+
+    with pytest.raises(TypeError, match=message):
+        memo.drop(dropped)
 
 
 def test_rejects_generator_function() -> None:

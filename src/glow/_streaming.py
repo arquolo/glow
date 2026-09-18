@@ -163,8 +163,7 @@ def streaming[T, R](  # noqa: C901
             raise TimeoutError
 
         # Cannot time out - all are done
-        rs: dict[int, R] = {}
-        err = fs_to_results(enumerate(fs), rs)
+        rs, err = fs_to_results(enumerate(fs))
         if err is None:
             return list(rs.values())
         with hide_frame:

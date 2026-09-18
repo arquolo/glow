@@ -13,7 +13,7 @@ from collections.abc import Callable, Hashable, Iterable, Iterator, KeysView
 from dataclasses import dataclass
 from threading import RLock
 from time import monotonic
-from typing import Final, Literal, Protocol, SupportsInt, overload
+from typing import Final, Protocol, SupportsInt
 from warnings import warn
 from weakref import WeakValueDictionary
 
@@ -22,10 +22,10 @@ from ._futures import (
     ABatchFn,
     ABatchFnRv,
     AnyFuture,
-    BatchDecorator,
     BatchFn,
     BatchFnRv,
     adispatch,
+    as_maybe,
     dispatch,
     fs_to_results,
 )
@@ -33,7 +33,7 @@ from ._keys import make_key
 from ._locking import maybe_future
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import ACallable, CachePolicy, Decorator, Empty, Get, KeyFn, empty
+from ._types import ACallable, CachePolicy, Empty, Get, KeyFn, empty
 
 _inf: Final = float('inf')
 
@@ -77,14 +77,12 @@ _REFS = WeakValueDictionary[int, '_Cache']()
 class _AbstractCache[T](Protocol):
     def __getitem__(self, key: Hashable, /) -> T | Empty: ...
     def __setitem__(self, key: Hashable, value: T, /) -> None: ...
+    def __delitem__(self, key: Hashable, /) -> None: ...
 
 
 class _CacheMaker[T](Protocol):
     def __call__(
-        self,
-        capacity: int,
-        capacity_bytes: int,
-        ttl: float = ...,
+        self, capacity: int, capacity_bytes: int, ttl: float = ...
     ) -> _AbstractCache[T]: ...
 
 
@@ -112,10 +110,6 @@ class _Cache[T]:
         self.stats = Stats()
         self.store = {} if store is None else store
         self.ttl = ttl
-
-    def __post_init__(self) -> None:
-        assert self.capacity != 0
-        assert self.capacity_bytes != 0
         _REFS[id(self)] = self
 
     def __len__(self) -> int:
@@ -166,6 +160,12 @@ class _Cache[T]:
             nbytes = sizeof(value) if self.capacity_bytes > 0 else 0
             node = _Node(value, nbytes, deadline)
             self._maybe_insert(key, node)
+
+    def __delitem__(self, key: Hashable, /) -> None:
+        if node := self.store.pop(key, None):
+            self.nbytes -= node.nbytes
+            self.stats.dropped += 1
+        self._prune_and_get_new_deadline()
 
     def _maybe_insert(self, key: Hashable, node: _Node[T], /) -> None:
         if (0 < self.capacity <= len(self.store)) or (
@@ -262,6 +262,9 @@ class _WeakCache[T]:
         if type(value).__weakrefoffset__:  # Support weak reference.
             self.alive[key] = value
 
+    def __delitem__(self, key: Hashable, /) -> None:
+        self.alive.pop(key, None)
+
 
 class _StrongCache[T](_WeakCache[T]):
     def __init__(self, cache: _AbstractCache[T]) -> None:
@@ -281,250 +284,60 @@ class _StrongCache[T](_WeakCache[T]):
         self.cache[key] = value
         super().__setitem__(key, value)
 
-
-# --------------------------------- wrapping ---------------------------------
-
-
-def _sync_memoize[**P, R](
-    fn: Callable[P, R],
-    cache: _AbstractCache[R],
-    key_fn: KeyFn[P],
-) -> Callable[P, R]:
-    futures = WeakValueDictionary[Hashable, cf.Future[R]]()
-    lock = RLock()
-
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = key_fn(*args, **kwargs)
-
-        is_owner = False
-        with lock:
-            if (ret := cache[key]) is not empty:
-                return ret
-
-            # ... or it could be computed somewhere else, join there.
-            f = futures.get(key)
-            if not f:
-                futures[key] = f = cf.Future[R]()
-                is_owner = True
-
-        # Release lock to allow function to run
-        if not is_owner:
-            with hide_frame:
-                obj = maybe_future(f)
-                if isinstance(obj, BaseException):
-                    raise obj
-            return obj[0]
-
-        try:
-            with hide_frame:
-                ret = fn(*args, **kwargs)
-        except BaseException as exc:
-            f.set_exception(clone_exc(exc))
-            with lock:
-                futures.pop(key)
-            raise
-        else:
-            f.set_result(ret)
-            with lock:
-                cache[key] = ret
-                futures.pop(key)
-            return ret
-
-    return _update_wrapper(wrapper, fn, cache, futures)
-
-
-def _async_memoize[**P, R](
-    fn: ACallable[P, R],
-    cache: _AbstractCache[R],
-    key_fn: KeyFn[P],
-) -> ACallable[P, R]:
-    futures = WeakValueDictionary[Hashable, asyncio.Future[R]]()
-
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        key = key_fn(*args, **kwargs)
-
-        if (ret := cache[key]) is not empty:
-            return ret
-
-        # ... or it could be computed somewhere else, join there.
-        if f := futures.get(key):
-            with hide_frame:
-                return await f
-        futures[key] = f = asyncio.Future[R]()
-
-        # NOTE: fn() is not within threading.Lock, thus it's not thread safe
-        # NOTE: but it's async-safe because this `await` is only one here.
-        try:
-            with hide_frame:
-                ret = await fn(*args, **kwargs)
-        except BaseException as exc:
-            f.set_exception(clone_exc(exc))
-            f.exception()  # Mark as retrieved if nobody awaits the future.
-            futures.pop(key)
-            raise
-        else:
-            f.set_result(ret)
-            cache[key] = ret
-            futures.pop(key)
-            return ret
-
-    return _update_wrapper(wrapper, fn, cache, futures)
+    def __delitem__(self, key: Hashable, /) -> None:
+        del self.cache[key]
+        super().__delitem__(key)
 
 
 # ----------------------- wrapper with batching support ----------------------
 
 
-class _BatchedQuery[T, F: AnyFuture, R]:
-    def __init__(
-        self,
-        cache: _AbstractCache[R],
-        futures: WeakValueDictionary[Hashable, F],
-        new_future: type[F],
-        *keyed_tokens: tuple[Hashable, T],
-    ) -> None:
-        self._keys = [k for k, _ in keyed_tokens]  # All keys with duplicates
-        self._done: dict[Hashable, R] = {}
+def _prepare_batch[T, F: AnyFuture, R](
+    cache: _AbstractCache[R],
+    futures: WeakValueDictionary[Hashable, F],
+    new_future: type[F],
+    *keyed_tokens: tuple[Hashable, T],
+) -> tuple[
+    list[Hashable],  # keys
+    list[tuple[T, F]],  # pending
+    set[F],  # running
+    dict[Hashable, F],  # futures
+    dict[Hashable, R],  # done
+]:
+    done: dict[Hashable, R] = {}
+    running = set[F]()  # Wait for these
+    pending: list[tuple[T, F]] = []  # Populate those
+    fs: dict[Hashable, F] = {}
 
-        self.running = set[F]()  # Wait for these
-        self.pending: list[tuple[T, F]] = []  # Populate those
-        self._futures: dict[Hashable, F] = {}
+    for k, t in dict(keyed_tokens).items():
+        # If this key is processing right now, wait till its done ...
+        if f := futures.get(k):  # ! Protect
+            fs[k] = f
+            running.add(f)  # Wait for these
 
-        for k, t in dict(keyed_tokens).items():
-            # If this key is processing right now, wait till its done ...
-            if f := futures.get(k):  # ! Protect
-                self._futures[k] = f
-                self.running.add(f)  # Wait for these
+        # ... else check if it's done ...
+        elif (r := cache[k]) is not empty:  # ! Protect
+            done[k] = r
 
-            # ... else check if it's done ...
-            elif (r := cache[k]) is not empty:  # ! Protect
-                self._done[k] = r
+        # ... otherwise schedule a new job.
+        else:
+            futures[k] = fs[k] = f = new_future()  # ! Protect
+            pending.append((t, f))  # Resolve this manually
 
-            # ... otherwise schedule a new job.
-            else:
-                futures[k] = self._futures[k] = f = new_future()  # ! Protect
-                self.pending.append((t, f))  # Resolve this manually
-
-        self._stash: dict[Hashable, R] = {}
-
-    def partial_result(self) -> BaseException | None:
-        return fs_to_results(self._futures.items(), self._stash)
-
-    def merge(self, cache: _AbstractCache[R]) -> None:
-        for k, r in self._stash.items():
-            self._done[k] = cache[k] = r
-
-    def result(self) -> list[R]:
-        return [self._done[k] for k in self._keys]
-
-
-def _sync_memoize_batched[T, R](
-    fn: BatchFn[T, R], cache: _AbstractCache[R], key_fn: KeyFn
-) -> BatchFnRv[T, R]:
-    futures = WeakValueDictionary[Hashable, cf.Future[R]]()
-    lock = RLock()
-
-    def wrapper(tokens: Iterable[T]) -> list[R]:
-        keyed_tokens = [(key_fn(t), t) for t in tokens]
-
-        with lock:
-            q = _BatchedQuery(cache, futures, cf.Future, *keyed_tokens)
-
-        if not q.pending and not q.running:
-            return q.result()
-
-        if q.pending:
-            dispatch(fn, *q.pending)
-        if q.running:
-            cf.wait(q.running)
-        err = q.partial_result()
-        with lock:
-            q.merge(cache)
-
-        if err is None:
-            return q.result()
-        with hide_frame:
-            raise err
-
-    return _update_wrapper(wrapper, fn, cache, futures)
-
-
-def _async_memoize_batched[T, R](
-    fn: ABatchFn[T, R], cache: _AbstractCache[R], key_fn: KeyFn[T]
-) -> ABatchFnRv[T, R]:
-    futures = WeakValueDictionary[Hashable, asyncio.Future[R]]()
-
-    async def wrapper(tokens: Iterable[T]) -> list[R]:
-        keyed_tokens = [(key_fn(t), t) for t in tokens]
-        q = _BatchedQuery(cache, futures, asyncio.Future, *keyed_tokens)
-
-        if not q.pending and not q.running:
-            return q.result()
-
-        if q.pending:
-            await adispatch(fn, *q.pending)
-        if q.running:
-            await asyncio.wait(q.running)
-        err = q.partial_result()
-        q.merge(cache)
-
-        if err is None:
-            return q.result()
-        with hide_frame:
-            raise err
-
-    return _update_wrapper(wrapper, fn, cache, futures)
-
-
-def _update_wrapper[F: Callable](
-    wrapper: F,
-    fn: Callable,
-    cache: _AbstractCache,
-    futures: WeakValueDictionary,
-) -> F:
-    wrapper.futures = futures  # type: ignore[attr-defined]
-    if isinstance(cache, _WeakCache):
-        wrapper.wrefs = cache.alive  # type: ignore[attr-defined]
-    if isinstance(cache, _StrongCache):
-        wrapper.cache = cache.cache  # type: ignore[attr-defined]
-    functools.update_wrapper(wrapper, fn)
-    return wrapper
+    return (
+        [k for k, _ in keyed_tokens],  # All keys with duplicates
+        pending,
+        running,
+        fs,
+        done,
+    )
 
 
 # -------------------------------- decoration --------------------------------
 
 
-@overload
-def memoize(
-    count: SupportsInt | None = ...,
-    *,
-    nbytes: SupportsInt | None = ...,
-    batched: Literal[False] = ...,
-    policy: CachePolicy | None = ...,
-    key_fn: KeyFn = make_key,
-    ttl: float | None = ...,
-) -> Decorator: ...
-@overload
-def memoize(
-    count: SupportsInt | None = ...,
-    *,
-    nbytes: SupportsInt | None = ...,
-    batched: Literal[True],
-    policy: CachePolicy | None = ...,
-    key_fn: KeyFn = make_key,
-    ttl: float | None = ...,
-) -> BatchDecorator: ...
-
-
-def memoize(
-    count: SupportsInt | None = None,
-    *,
-    nbytes: SupportsInt | None = None,
-    batched: bool = False,
-    policy: CachePolicy | None = None,
-    key_fn: KeyFn = make_key,
-    ttl: float | None = None,
-) -> Decorator | BatchDecorator:
-    """Create caching decorator.
+class memoize:  # noqa: N801
+    """Caching decorator.
 
     Parameters:
     - count - max objects to store or None for unbound cache.
@@ -541,44 +354,309 @@ def memoize(
     - @memoize(<int>, policy=...) - limit cache size by object count;
     - @memoize(nbytes=..., policy=...) - limit cache size by total object size;
     - @memoize(ttl=...) - limit cache size by lifetime of object.
+    - @memoize().drop(fn) - mark function invalidating cache,
+      should be key-compatible with main function.
+
+    All functions sharing one `memoize` instance, including functions wrapped
+    with `.drop`, must be either synchronous or asynchronous.
     """
-    count = -1 if count is None else int(count)
-    nbytes = -1 if nbytes is None else si_bin(int(nbytes))
 
-    # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
-    if (count == 0 and nbytes > 0) or (count > 0 and nbytes == 0):
-        raise ValueError(
-            'Ambiguity: if one of count/nbytes is 0,'
-            f'then other should be 0 or -1. Got: {count} and {nbytes}'
-        )
-    if count < 0 and nbytes < 0:  # Unbound cache, eviction policy is useless
-        policy = None
+    def __init__(
+        self,
+        count: SupportsInt | None = None,
+        *,
+        nbytes: SupportsInt | None = None,
+        batched: bool = False,
+        policy: CachePolicy | None = None,
+        key_fn: KeyFn = make_key,
+        ttl: float | None = None,
+    ) -> None:
+        count = -1 if count is None else int(count)
+        nbytes = -1 if nbytes is None else si_bin(int(nbytes))
 
-    # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
-    if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
-        # 0/0, 0/-, -/0 (weakrefs only)
-        cache = _WeakCache()
+        # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
+        if (count == 0 and nbytes > 0) or (count > 0 and nbytes == 0):
+            raise ValueError(
+                'Ambiguity: if one of count/nbytes is 0,'
+                f'then other should be 0 or -1. Got: {count} and {nbytes}'
+            )
+        if (
+            count < 0 and nbytes < 0
+        ):  # Unbound cache, eviction policy is useless
+            policy = None
 
-    # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
-    elif cache_cls := _CACHES.get((policy, bool(ttl))):
-        cache = _StrongCache(cache_cls(count, nbytes, ttl or _inf))
-    else:
-        msg = f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
-        raise ValueError(msg)
+        # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
+        if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
+            # 0/0, 0/-, -/0 (weakrefs only)
+            self._cache = _WeakCache()
 
-    def wrap(fn: Callable) -> Callable:
+        # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
+        elif cache_cls := _CACHES.get((policy, bool(ttl))):
+            self._cache = _StrongCache(cache_cls(count, nbytes, ttl or _inf))
+        else:
+            raise ValueError(
+                f'Unknown cache policy: "{policy}". '
+                f'Available: "{set(_CACHES)}"'
+            )
+
+        self._key_fn = key_fn
+        self._batched = batched
+        self._lock = RLock()
+        self._futures = WeakValueDictionary[Hashable, cf.Future]()
+        self._afutures = WeakValueDictionary[Hashable, asyncio.Future]()
+        self._is_async: bool | None = None
+
+    def __call__(self, fn: Callable) -> Callable:
         if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
             raise TypeError(f'Generator functions are not supported. Got {fn}')
 
         if inspect.iscoroutinefunction(fn):
-            if batched:
-                return _async_memoize_batched(fn, cache, key_fn)
-            return _async_memoize(fn, cache, key_fn)
-        if batched:
-            return _sync_memoize_batched(fn, cache, key_fn)
-        return _sync_memoize(fn, cache, key_fn)
+            if self._is_async is False:
+                raise TypeError('Cannot use sync cache for async function')
+            self._is_async = True
+        else:
+            if self._is_async is True:
+                raise TypeError('Cannot use async cache for sync function')
+            self._is_async = False
 
-    return wrap
+        w = (
+            (self._awrap_batched(fn) if self._batched else self._awrap(fn))
+            if inspect.iscoroutinefunction(fn)
+            else (self._wrap_batched(fn) if self._batched else self._wrap(fn))
+        )
+        return self._update_wrapper(w, fn)
+
+    def drop(self, fn: Callable) -> Callable:
+        if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
+            raise TypeError(f'Generator functions are not supported. Got {fn}')
+
+        if inspect.iscoroutinefunction(fn):
+            if self._is_async is False:
+                raise TypeError('Cannot use sync cache for async function')
+            self._is_async = True
+        else:
+            if self._is_async is True:
+                raise TypeError('Cannot use async cache for sync function')
+            self._is_async = False
+
+        w = (
+            (self._adrop_batched(fn) if self._batched else self._adrop(fn))
+            if inspect.iscoroutinefunction(fn)
+            else (self._drop_batched(fn) if self._batched else self._drop(fn))
+        )
+        return self._update_wrapper(w, fn)
+
+    def _wrap[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            key = self._key_fn(*args, **kwargs)
+
+            is_owner = False
+            with self._lock:
+                if (ret := self._cache[key]) is not empty:
+                    return ret
+
+                # ... or it could be computed somewhere else, join there.
+                f = self._futures.get(key)
+                if not f:
+                    self._futures[key] = f = cf.Future[R]()
+                    is_owner = True
+
+            # Release lock to allow function to run
+            if not is_owner:
+                with hide_frame:
+                    obj = maybe_future(f)
+                    if isinstance(obj, BaseException):
+                        raise obj
+                return obj[0]
+
+            try:
+                with hide_frame:
+                    ret = fn(*args, **kwargs)
+            except BaseException as exc:
+                f.set_exception(clone_exc(exc))
+                with self._lock:
+                    self._futures.pop(key)
+                raise
+            else:
+                f.set_result(ret)
+                with self._lock:
+                    self._cache[key] = ret
+                    self._futures.pop(key)
+                return ret
+
+        return wrapper
+
+    def _awrap[**P, R](self, fn: ACallable[P, R]) -> ACallable[P, R]:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            key = self._key_fn(*args, **kwargs)
+
+            if (ret := self._cache[key]) is not empty:
+                return ret
+
+            # ... or it could be computed somewhere else, join there.
+            if f := self._afutures.get(key):
+                with hide_frame:
+                    return await f
+            self._afutures[key] = f = asyncio.Future[R]()
+
+            # NOTE: `fn()` isn't thread safe - no threading.Lock,
+            # but it's async-safe because this `await` is the only one here.
+            try:
+                with hide_frame:
+                    ret = await fn(*args, **kwargs)
+            except BaseException as exc:
+                f.set_exception(clone_exc(exc))
+                f.exception()  # Mark as retrieved if nobody awaits the future.
+                self._afutures.pop(key)
+                raise
+            else:
+                f.set_result(ret)
+                self._cache[key] = ret
+                self._afutures.pop(key)
+                return ret
+
+        return wrapper
+
+    def _wrap_batched[T, R](self, fn: BatchFn[T, R]) -> BatchFnRv[T, R]:
+        def wrapper(tokens: Iterable[T]) -> list[R]:
+            keyed_tokens = [(self._key_fn(t), t) for t in tokens]
+
+            with self._lock:
+                keys, pending, running, futures, done = _prepare_batch(
+                    self._cache, self._futures, cf.Future, *keyed_tokens
+                )
+
+            if not futures:
+                return [done[k] for k in keys]
+
+            if pending:
+                dispatch(fn, *pending)
+            if running:
+                cf.wait(running)
+            stash, err = fs_to_results(futures.items())
+            with self._lock:
+                for k, r in stash.items():
+                    done[k] = self._cache[k] = r
+
+            if err is None:
+                return [done[k] for k in keys]
+            with hide_frame:
+                raise err
+
+        return wrapper
+
+    def _awrap_batched[T, R](self, fn: ABatchFn[T, R]) -> ABatchFnRv[T, R]:
+        async def wrapper(tokens: Iterable[T]) -> list[R]:
+            keyed_tokens = [(self._key_fn(t), t) for t in tokens]
+            keys, pending, running, futures, done = _prepare_batch(
+                self._cache, self._afutures, asyncio.Future, *keyed_tokens
+            )
+
+            if not futures:
+                return [done[k] for k in keys]
+
+            if pending:
+                await adispatch(fn, *pending)
+            if running:
+                await asyncio.wait(running)
+            stash, err = fs_to_results(futures.items())
+            for k, r in stash.items():
+                done[k] = self._cache[k] = r
+
+            if err is None:
+                return [done[k] for k in keys]
+            with hide_frame:
+                raise err
+
+        return wrapper
+
+    def _drop[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            key = self._key_fn(*args, **kwargs)
+
+            with self._lock:  # Check if other call is running
+                f = self._futures.get(key)
+            try:
+                with hide_frame:
+                    if f:  # Wait for completion of previous calls
+                        maybe_future(f)
+                    return fn(*args, **kwargs)
+            finally:
+                with self._lock:
+                    del self._cache[key]
+
+        return wrapper
+
+    def _adrop[**P, R](self, fn: ACallable[P, R]) -> ACallable[P, R]:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            key = self._key_fn(*args, **kwargs)
+            try:
+                # Wait other calls
+                if (f := self._afutures.get(key)) and not f.done():
+                    await asyncio.wait([f])
+                with hide_frame:
+                    return await fn(*args, **kwargs)
+            finally:
+                del self._cache[key]
+
+        return wrapper
+
+    def _drop_batched[T, R](self, fn: BatchFn[T, R]) -> BatchFnRv[T, R]:
+        def wrapper(tokens: Iterable[T]) -> list[R]:
+            kts = [(self._key_fn(t), t) for t in tokens]
+            if not kts:
+                return []
+
+            ukts = dict(kts)
+            with self._lock:
+                fs = [f for k in ukts if (f := self._futures.get(k))]
+            try:
+                with hide_frame:
+                    cf.wait(fs)
+                    obj = as_maybe(fn(list(ukts.values())), len(ukts))
+                    if isinstance(obj, list):
+                        map_ = dict(zip(ukts, obj))
+                        return [map_[k] for k, _ in kts]
+                    raise obj
+            finally:
+                with self._lock:
+                    for k in ukts:
+                        del self._cache[k]
+
+        return wrapper
+
+    def _adrop_batched[T, R](self, fn: ABatchFn[T, R]) -> ABatchFnRv[T, R]:
+        async def wrapper(tokens: Iterable[T]) -> list[R]:
+            kts = [(self._key_fn(t), t) for t in tokens]
+            if not kts:
+                return []
+
+            ukts = dict(kts)
+            fs = [f for k in ukts if (f := self._afutures.get(k))]
+            try:
+                with hide_frame:
+                    if fs:
+                        await asyncio.wait(fs)
+                    obj = as_maybe(await fn(list(ukts.values())), len(ukts))
+                    if isinstance(obj, list):
+                        map_ = dict(zip(ukts, obj))
+                        return [map_[k] for k, _ in kts]
+                    raise obj
+            finally:
+                for k in ukts:
+                    del self._cache[k]
+
+        return wrapper
+
+    def _update_wrapper[F: Callable](self, wrapper: F, fn: Callable) -> F:
+        wrapper.futures = self._futures  # type: ignore[attr-defined]
+        wrapper.afutures = self._afutures  # type: ignore[attr-defined]
+        if isinstance(self._cache, _WeakCache):
+            wrapper.wrefs = self._cache.alive  # type: ignore[attr-defined]
+        if isinstance(self._cache, _StrongCache):
+            wrapper.cache = self._cache.cache  # type: ignore[attr-defined]
+        functools.update_wrapper(wrapper, fn)
+        return wrapper
 
 
 def call_once[T](fn: Get[T], /) -> Get[T]:
