@@ -25,9 +25,9 @@ from ._futures import (
     BatchFn,
     BatchFnRv,
     adispatch,
-    as_maybe,
     dispatch,
     fs_to_results,
+    seqcheck,
 )
 from ._keys import make_key
 from ._locking import maybe_future
@@ -407,18 +407,7 @@ class memoize:  # noqa: N801
         self._is_async: bool | None = None
 
     def __call__(self, fn: Callable) -> Callable:
-        if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
-            raise TypeError(f'Generator functions are not supported. Got {fn}')
-
-        if inspect.iscoroutinefunction(fn):
-            if self._is_async is False:
-                raise TypeError('Cannot use sync cache for async function')
-            self._is_async = True
-        else:
-            if self._is_async is True:
-                raise TypeError('Cannot use async cache for sync function')
-            self._is_async = False
-
+        self._api_check(fn)
         w = (
             (self._awrap_batched(fn) if self._batched else self._awrap(fn))
             if inspect.iscoroutinefunction(fn)
@@ -427,6 +416,15 @@ class memoize:  # noqa: N801
         return self._update_wrapper(w, fn)
 
     def drop(self, fn: Callable) -> Callable:
+        self._api_check(fn)
+        w = (
+            (self._adrop_batched(fn) if self._batched else self._adrop(fn))
+            if inspect.iscoroutinefunction(fn)
+            else (self._drop_batched(fn) if self._batched else self._drop(fn))
+        )
+        return self._update_wrapper(w, fn)
+
+    def _api_check(self, fn: Callable) -> None:
         if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
             raise TypeError(f'Generator functions are not supported. Got {fn}')
 
@@ -438,13 +436,6 @@ class memoize:  # noqa: N801
             if self._is_async is True:
                 raise TypeError('Cannot use async cache for sync function')
             self._is_async = False
-
-        w = (
-            (self._adrop_batched(fn) if self._batched else self._adrop(fn))
-            if inspect.iscoroutinefunction(fn)
-            else (self._drop_batched(fn) if self._batched else self._drop(fn))
-        )
-        return self._update_wrapper(w, fn)
 
     def _wrap[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -613,7 +604,7 @@ class memoize:  # noqa: N801
             try:
                 with hide_frame:
                     cf.wait(fs)
-                    obj = as_maybe(fn(list(ukts.values())), len(ukts))
+                    obj = seqcheck(fn(list(ukts.values())), len(ukts))
                     if isinstance(obj, list):
                         map_ = dict(zip(ukts, obj))
                         return [map_[k] for k, _ in kts]
@@ -637,7 +628,7 @@ class memoize:  # noqa: N801
                 with hide_frame:
                     if fs:
                         await asyncio.wait(fs)
-                    obj = as_maybe(await fn(list(ukts.values())), len(ukts))
+                    obj = seqcheck(await fn(list(ukts.values())), len(ukts))
                     if isinstance(obj, list):
                         map_ = dict(zip(ukts, obj))
                         return [map_[k] for k, _ in kts]

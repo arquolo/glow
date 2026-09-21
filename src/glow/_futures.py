@@ -1,9 +1,10 @@
 import asyncio
 import concurrent.futures as cf
 from collections.abc import Iterable, Sequence
-from typing import Protocol, overload
+from typing import Protocol, Self, overload
 
-from ._dev import hide_frame
+from ._dev import drop_tb_frames
+from ._locking import maybe_future
 from ._more import each_is
 from ._types import AUnary, Maybe, Unary
 
@@ -41,56 +42,54 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
     if not xs:
         return
 
-    try:
-        with hide_frame:
-            ret = fn([x for x, _ in xs])
-    except BaseException as exc:  # noqa: BLE001
-        for _, f in xs:
-            f.set_exception(exc)
-    else:
-        _populate_futures(ret, [f for _, f in xs])
+    with _Dispatcher([f for _, f in xs], sync=True) as dsp:
+        ret = fn([x for x, _ in xs])
+        dsp.update(ret)
 
 
 async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AJob[T, R]) -> None:
     if not xs:
         return
-
-    try:
-        with hide_frame:
-            ret = await fn([x for x, _ in xs])
-    except asyncio.CancelledError:
-        for _, f in xs:
-            f.cancel()
-        raise
-    except BaseException as exc:  # noqa: BLE001
-        for _, f in xs:
-            f.set_exception(exc)
-    else:
-        _populate_futures(ret, [f for _, f in xs])
+    with _Dispatcher([f for _, f in xs], sync=False) as dsp:
+        ret = await fn([x for x, _ in xs])
+        dsp.update(ret)
 
 
-def _populate_futures[T](ret, fs: Sequence[AnyFuture[T]]) -> None:
-    err: Exception
-    if isinstance(ret, Sequence):
-        if (nf := len(fs)) == (n := len(ret)):
-            for f, x in zip(fs, ret):
+class _Dispatcher[T]:
+    def __init__(self, fs: Sequence[AnyFuture[T]], sync: bool) -> None:
+        self.fs = fs
+        self.sync = sync
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, tp, val: BaseException | None, tb) -> bool | None:
+        if val is not None:
+            drop_tb_frames(val, 1)
+            if self.sync or not isinstance(val, asyncio.CancelledError):
+                for f in self.fs:
+                    f.set_exception(val)
+                return True  # Suppress all but CancelledError
+            for f in self.fs:
+                f.cancel()
+        return None
+
+    def update(self, rs: Sequence[T]) -> None:
+        rs_or_err: Maybe[T] = seqcheck(rs, len(self.fs))
+        if isinstance(rs_or_err, Sequence):
+            for f, x in zip(self.fs, rs_or_err, strict=True):
                 f.set_result(x)
-            return
-        err = RuntimeError(f'Call with {nf} arguments returned {n} results')
-    else:
-        err = TypeError(f'Returned {type(ret).__name__} instead of sequence')
-    for f in fs:
-        f.set_exception(err)
+        else:
+            for f in self.fs:
+                f.set_exception(rs_or_err)
 
 
-def as_maybe[T](xs: Sequence[T] | object, nargs: int) -> Maybe[T]:
-    if not isinstance(xs, Sequence):
-        return TypeError(f'Returned {type(xs).__name__} instead of sequence')
-    if len(xs) != nargs:
-        return RuntimeError(
-            f'Call with {nargs} arguments returned {len(xs)} results'
-        )
-    return list(xs)
+def seqcheck[T](obj: Sequence[T] | object, size: int) -> Maybe[T]:
+    if not isinstance(obj, Sequence):
+        return TypeError(f'Got {type(obj).__name__} instead of sequence')
+    if len(obj) != size:
+        return RuntimeError(f'Got {len(obj)} items instead of {size}')
+    return list(obj)
 
 
 def fs_to_results[K, R](
@@ -98,27 +97,42 @@ def fs_to_results[K, R](
 ) -> tuple[dict[K, R], BaseException | None]:
     results: dict[K, R] = {}
     errors = set[BaseException]()
-    sync_cancelled = async_cancelled = False
+    cancelled = acancelled = False
     for k, f in fs:
-        if f.cancelled():
-            match f:
-                case cf.Future() if not sync_cancelled:
+        # cf.Future - optimization to do acquire-release once
+        if isinstance(f, cf.Future):
+            try:
+                obj = maybe_future(f)
+            except cf.CancelledError:
+                if not cancelled:
                     errors.add(cf.CancelledError())
-                    sync_cancelled = True
-                case asyncio.Future() if not async_cancelled:
-                    errors.add(asyncio.CancelledError())
-                    async_cancelled = True
+                    cancelled = True
+            else:
+                if isinstance(obj, BaseException):
+                    errors.add(obj)
+                else:
+                    [results[k]] = obj
+
+        # asyncio.Future
+        elif f.cancelled():
+            if not acancelled:
+                errors.add(asyncio.CancelledError())
+                acancelled = True
         elif e := f.exception():
             errors.add(e)
         else:
             results[k] = f.result()
 
-    match list(errors):
+    return results, _format_errors(*errors)
+
+
+def _format_errors(*errors: BaseException) -> BaseException | None:
+    match errors:
         case []:
-            return results, None
+            return None
         case [err]:
-            return results, err
+            return err
         case errs if each_is(errs, Exception):
-            return results, ExceptionGroup('Got multiple exceptions', errs)
+            return ExceptionGroup('Got multiple exceptions', errs)
         case errs:
-            return results, BaseExceptionGroup('Got multiple exceptions', errs)
+            return BaseExceptionGroup('Got multiple exceptions', errs)

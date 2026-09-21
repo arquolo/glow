@@ -8,7 +8,7 @@ __all__ = [
 import copy
 import os
 import random
-from types import CodeType, FrameType, TracebackType
+from types import CodeType, FrameType
 from typing import Self
 
 import numpy as np
@@ -28,22 +28,16 @@ class _HideFrame:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(
-        self,
-        tp: type[BaseException] | None,
-        val: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        if val is None:
-            return
-        val.__traceback__ = self.drop(val.__traceback__ or tb)
+    def __exit__(self, tp, val: BaseException | None, tb) -> None:
+        if val is not None:
+            drop_tb_frames(val, self._nframes)
 
-    def drop(self, tb: TracebackType | None) -> TracebackType | None:
-        for _ in range(self._nframes):
-            if not tb:
-                return None
-            tb = tb.tb_next  # Drop outer traceback frame
-        return tb
+
+def drop_tb_frames(exc: BaseException, n: int) -> None:
+    for _ in range(n):
+        if not exc.__traceback__:
+            return
+        exc.__traceback__ = exc.__traceback__.tb_next  # Drop outer frame
 
 
 def clone_exc[E: BaseException](exc: E) -> E:
