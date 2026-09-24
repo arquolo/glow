@@ -135,7 +135,7 @@ class Sound[S: np.number]:
     def __array__(self) -> npt.NDArray[S]:
         return self.data
 
-    def play(self, blocksize=1024) -> None:
+    def play(self, blocksize: int = 1024) -> None:
         """Play audio from array. Supports interruption via Crtl-C."""
         _play(self.data, self.rate, blocksize=blocksize)
 

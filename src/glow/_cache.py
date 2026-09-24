@@ -3,6 +3,7 @@ __all__ = [
     'call_once',
     'coalesce',
     'memoize',
+    'new_cache',
 ]
 
 import asyncio
@@ -33,7 +34,16 @@ from ._keys import make_key
 from ._locking import maybe_future
 from ._repr import si_bin
 from ._sizeof import sizeof
-from ._types import ACallable, CachePolicy, Empty, Get, KeyFn, empty
+from ._types import (
+    AbstractCache,
+    ACallable,
+    CachePolicy,
+    Empty,
+    Get,
+    KeyFn,
+    Maybe,
+    empty,
+)
 
 _inf: Final = float('inf')
 
@@ -65,6 +75,38 @@ class Stats:
 # ----------------------------- basic caches ------------------------------
 
 
+def new_cache(
+    count: SupportsInt | None = None,
+    *,
+    nbytes: SupportsInt | None = None,
+    policy: CachePolicy | None = None,
+    ttl: float | None = None,
+) -> AbstractCache:
+    count = -1 if count is None else int(count)
+    nbytes = -1 if nbytes is None else si_bin(int(nbytes))
+
+    # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
+    if (count == 0 and nbytes > 0) or (count > 0 and nbytes == 0):
+        raise ValueError(
+            'Ambiguity: if one of count/nbytes is 0,'
+            f'then other should be 0 or -1. Got: {count} and {nbytes}'
+        )
+    if count < 0 and nbytes < 0:  # Unbound cache, eviction policy is useless
+        policy = None
+
+    # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
+    if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
+        # 0/0, 0/-, -/0 (weakrefs only)
+        return _WeakCache()
+
+    # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
+    if cache_cls := _CACHES.get((policy, bool(ttl))):
+        return _StrongCache(cache_cls(count, nbytes, ttl or _inf))
+    raise ValueError(
+        f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
+    )
+
+
 def cache_status() -> str:
     return '\n'.join(
         f'{id_:x}: {value!r}' for id_, value in sorted(_REFS.items())
@@ -74,16 +116,10 @@ def cache_status() -> str:
 _REFS = WeakValueDictionary[int, '_Cache']()
 
 
-class _AbstractCache[T](Protocol):
-    def __getitem__(self, key: Hashable, /) -> T | Empty: ...
-    def __setitem__(self, key: Hashable, value: T, /) -> None: ...
-    def __delitem__(self, key: Hashable, /) -> None: ...
-
-
 class _CacheMaker[T](Protocol):
     def __call__(
         self, capacity: int, capacity_bytes: int, ttl: float = ...
-    ) -> _AbstractCache[T]: ...
+    ) -> AbstractCache[T]: ...
 
 
 class _Cache[T]:
@@ -267,7 +303,7 @@ class _WeakCache[T]:
 
 
 class _StrongCache[T](_WeakCache[T]):
-    def __init__(self, cache: _AbstractCache[T]) -> None:
+    def __init__(self, cache: AbstractCache[T]) -> None:
         super().__init__()
         self.cache = cache
 
@@ -293,7 +329,7 @@ class _StrongCache[T](_WeakCache[T]):
 
 
 def _prepare_batch[T, F: AnyFuture, R](
-    cache: _AbstractCache[R],
+    cache: AbstractCache[R],
     futures: WeakValueDictionary[Hashable, F],
     new_future: type[F],
     *keyed_tokens: tuple[Hashable, T],
@@ -371,34 +407,7 @@ class memoize:  # noqa: N801
         key_fn: KeyFn = make_key,
         ttl: float | None = None,
     ) -> None:
-        count = -1 if count is None else int(count)
-        nbytes = -1 if nbytes is None else si_bin(int(nbytes))
-
-        # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
-        if (count == 0 and nbytes > 0) or (count > 0 and nbytes == 0):
-            raise ValueError(
-                'Ambiguity: if one of count/nbytes is 0,'
-                f'then other should be 0 or -1. Got: {count} and {nbytes}'
-            )
-        if (
-            count < 0 and nbytes < 0
-        ):  # Unbound cache, eviction policy is useless
-            policy = None
-
-        # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
-        if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
-            # 0/0, 0/-, -/0 (weakrefs only)
-            self._cache = _WeakCache()
-
-        # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
-        elif cache_cls := _CACHES.get((policy, bool(ttl))):
-            self._cache = _StrongCache(cache_cls(count, nbytes, ttl or _inf))
-        else:
-            raise ValueError(
-                f'Unknown cache policy: "{policy}". '
-                f'Available: "{set(_CACHES)}"'
-            )
-
+        self._cache = new_cache(count, nbytes=nbytes, policy=policy, ttl=ttl)
         self._key_fn = key_fn
         self._batched = batched
         self._lock = RLock()
@@ -604,7 +613,9 @@ class memoize:  # noqa: N801
             try:
                 with hide_frame:
                     cf.wait(fs)
-                    obj = seqcheck(fn(list(ukts.values())), len(ukts))
+                    obj: Maybe[R] = seqcheck(
+                        fn(list(ukts.values())), len(ukts)
+                    )
                     if isinstance(obj, list):
                         map_ = dict(zip(ukts, obj))
                         return [map_[k] for k, _ in kts]
@@ -628,7 +639,9 @@ class memoize:  # noqa: N801
                 with hide_frame:
                     if fs:
                         await asyncio.wait(fs)
-                    obj = seqcheck(await fn(list(ukts.values())), len(ukts))
+                    obj: Maybe[R] = seqcheck(
+                        await fn(list(ukts.values())), len(ukts)
+                    )
                     if isinstance(obj, list):
                         map_ = dict(zip(ukts, obj))
                         return [map_[k] for k, _ in kts]

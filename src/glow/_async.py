@@ -48,7 +48,11 @@ def amap[R](
 
     For extra options, see `astarmap`.
     """
-    it = zip(*iterables) if each_is(iterables, Iterable) else azip(*iterables)
+    it = (
+        zip(*iterables)
+        if each_is(iterables, Iterable)  # type: ignore[type-abstract]
+        else azip(*iterables)
+    )
     return astarmap(func, it, limit=limit, unordered=unordered)
 
 
@@ -178,7 +182,7 @@ async def _iter_results[T](
 
 
 async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
-    if each_is(iterables, Iterable):
+    if each_is(iterables, Iterable):  # type: ignore[type-abstract]
         for x in zip(*iterables):
             yield x
         return

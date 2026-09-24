@@ -207,7 +207,7 @@ def _print_stats(*names: str) -> None:
     if not stats:
         return
 
-    min_t = 0
+    min_t = 0.0
     if len(stats) > 5:  # Keep only calls responsible for 95% time
         durs = sorted(busy + idle for busy, idle, _, _ in stats)
         a_durs = list(accumulate(durs))
@@ -278,8 +278,11 @@ def _get_source_calls(frame: FrameType | None) -> Generator[str]:
 def stack(skip: int = 0, limit: int | None = None) -> Iterator[str]:
     """Return iterator of FrameInfos, stopping on module-level scope."""
     frame = currentframe()
+    for _ in range(skip + 1):  # Skip inner frames
+        if not frame or frame.f_code.co_name == '<module>':
+            break
+        frame = frame.f_back
     calls = _get_source_calls(frame)
-    calls = islice(calls, skip + 1, None)  # Skip 'skip' outerless frames
     if not limit:
         return calls
     if limit < 0:

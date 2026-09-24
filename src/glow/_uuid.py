@@ -1,4 +1,4 @@
-__all__ = ['Uid']
+__all__ = ['Uid', 'base57_decode', 'base57_encode']
 
 import math
 import re

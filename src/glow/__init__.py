@@ -16,7 +16,7 @@ from ._array import (
     pascal,
 )
 from ._async import MulticastQueue, RwLock, amap, amap_dict, astarmap, azip
-from ._cache import cache_status, call_once, coalesce, memoize
+from ._cache import cache_status, call_once, coalesce, memoize, new_cache
 from ._concurrency import threadlocal
 from ._coro import as_actor, consumer, summary
 from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
@@ -135,6 +135,7 @@ __all__ = [
     'memoize',
     'memprof',
     'memtrack',
+    'new_cache',
     'pascal',
     'register_post_import_hook',
     'repr_as_obj',

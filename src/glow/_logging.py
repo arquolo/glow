@@ -101,6 +101,7 @@ def _set_handler(modname: str, handler: logging.Handler) -> None:
 class _InterceptHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         # Get corresponding Loguru level if it exists.
+        level: int | str
         try:
             level = logger.level(record.levelname).name
         except ValueError:
@@ -114,8 +115,12 @@ class _InterceptHandler(logging.Handler):
         opt.log(level, record.getMessage())
 
 
-@memoize(1000, nbytes=65536, policy='lru', key_fn=lambda _, target: target)
-def _frame_to_depth(f: FrameType | None, target: tuple[str, int]) -> int:
+def _frame_key(_, target: tuple[str, int], /) -> tuple[str, int]:
+    return target
+
+
+@memoize(1000, nbytes=65536, policy='lru', key_fn=_frame_key)
+def _frame_to_depth(f: FrameType | None, target: tuple[str, int], /) -> int:
     # Initial frame is always <this-file>:_InterceptHandler.emit:110
     depth = 0
     while f and (f.f_code.co_filename, f.f_lineno) != target:

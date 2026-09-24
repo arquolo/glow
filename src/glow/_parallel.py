@@ -455,7 +455,7 @@ def starmap_n[T](
     else:
         chunksize = chunksize or 1
 
-    qput, fq = _make_task_queue(unordered)
+    qput, fq = _make_task_queue(unordered)  # type: ignore[var-annotated]
 
     if chunksize == 1:
         submit_1 = cast('Callable[..., Future[T]]', partial(submit, func))
