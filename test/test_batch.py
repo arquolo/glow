@@ -159,6 +159,61 @@ async def test_concurrent_async_interrupted():
     assert dict(fn.cache).keys() == set(_lrange(10))
 
 
+def test_drop_preserves_duplicates_and_invalidates_cache():
+    memo = glow.memoize(10, batched=True)
+
+    @memo
+    def load(xs):
+        return [x * 10 for x in xs]
+
+    @memo.drop
+    def update(xs):
+        return [x + 1 for x in xs]
+
+    assert load([1, 2]) == [10, 20]
+    assert update([1, 1, 2]) == [2, 2, 3]
+    assert not dict(load.cache)
+
+
+@pytest.mark.asyncio
+async def test_drop_async_preserves_duplicates_and_invalidates_cache():
+    memo = glow.memoize(10, batched=True)
+
+    @memo
+    async def load(xs):
+        return [x * 10 for x in xs]
+
+    @memo.drop
+    async def update(xs):
+        return [x + 1 for x in xs]
+
+    assert await load([1, 2]) == [10, 20]
+    assert await update([1, 1, 2]) == [2, 2, 3]
+    assert not dict(load.cache)
+
+
+@pytest.mark.parametrize('is_async', [False, True])
+def test_drop_rejects_bad_result_length(is_async):
+    memo = glow.memoize(10, batched=True)
+
+    if is_async:
+
+        @memo.drop
+        async def update(xs):
+            return []
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(update([1]))
+    else:
+
+        @memo.drop
+        def update(xs):
+            return []
+
+        with pytest.raises(RuntimeError):
+            update([1])
+
+
 @pytest.mark.parametrize('workers', [0, 1, 3])
 @pytest.mark.parametrize('unordered', [False, True])
 def test_sync_map(workers, unordered):
