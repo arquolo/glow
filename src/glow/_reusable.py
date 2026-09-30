@@ -10,7 +10,7 @@ from ._cache import memoize
 from ._types import Get, Unary
 
 
-@memoize()
+@memoize(1)
 def make_loop() -> asyncio.AbstractEventLoop:
     loop = asyncio.new_event_loop()
     Thread(target=loop.run_forever, daemon=True).start()
