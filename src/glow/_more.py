@@ -277,7 +277,7 @@ def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]:
     [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
     """
     if size <= 0:
-        raise ValueError('size must be >= 0')
+        raise ValueError('size must be > 0')
     if size == 1:  # Trivial case
         yield from map(iter, zip(it))
         return
