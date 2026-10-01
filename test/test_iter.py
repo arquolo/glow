@@ -6,7 +6,7 @@ from weakref import WeakValueDictionary
 import numpy as np
 import pytest
 
-from glow import chunked, ichunked, windowed
+from glow import azip, chunked, ichunked, windowed
 
 
 @pytest.mark.parametrize(
@@ -323,3 +323,67 @@ def test_invalid_size_sync(fn, factory, size) -> None:
     with pytest.raises(ValueError):
         fn(source, size)
     assert list(source) == list(range(5))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['error', 'exhausted', 'cancel'])
+async def test_azip_cleans_pending_tasks(failure):
+    started = asyncio.Event()
+    closed = asyncio.Event()
+    blocker = asyncio.Event()
+
+    async def blocked():
+        try:
+            started.set()
+            await blocker.wait()
+            yield 1
+        finally:
+            closed.set()
+
+    async def other():
+        await started.wait()
+        if failure == 'error':
+            raise ValueError('source failed')
+        if failure == 'cancel':
+            await blocker.wait()
+        return
+        yield
+
+    result = azip(blocked(), other())
+    task = asyncio.create_task(anext(result))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        if failure == 'cancel':
+            task.cancel()
+        expected = {
+            'error': ValueError,
+            'exhausted': StopAsyncIteration,
+            'cancel': asyncio.CancelledError,
+        }[failure]
+        with pytest.raises(expected):
+            await asyncio.wait_for(task, timeout=1)
+        assert closed.is_set()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await result.aclose()
+
+
+@pytest.mark.asyncio
+async def test_azip_sync_anext_error_cleans_created_future():
+    pending = asyncio.get_running_loop().create_future()
+
+    class Source:
+        def __aiter__(self):
+            return self
+
+        def __anext__(self):
+            return pending
+
+    class Broken(Source):
+        def __anext__(self):
+            raise ValueError('immediate failure')
+
+    with pytest.raises(ValueError, match='immediate failure'):
+        await anext(azip(Source(), Broken()))
+    assert pending.cancelled()

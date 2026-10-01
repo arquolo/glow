@@ -79,6 +79,7 @@ def apack(
 
     if a_max is None:
         a_max = a.max()
+        assert a_max is not None
 
     if (dtype := smallest_dtype(a_min, a_max)).itemsize < a.itemsize:
         return a.astype(dtype)

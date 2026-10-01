@@ -347,8 +347,10 @@ class _WeakCache[T]:
         return self.alive.get(key, empty)
 
     def __setitem__(self, key: Hashable, value: T, /) -> None:
-        if type(value).__weakrefoffset__:  # Support weak reference.
-            self.alive[key] = value
+        if type(value).__weakrefoffset__:  # Supports weak reference.
+            self.alive[key] = value  # Overwrite
+        else:
+            self.alive.pop(key, None)  # Drop old value
 
     def __delitem__(self, key: Hashable, /) -> None:
         self.alive.pop(key, None)

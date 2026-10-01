@@ -54,8 +54,8 @@ type _Index = SupportsIndex | None
 
 
 @runtime_checkable
-class SupportsSlice[T](Sized, Protocol):
-    def __getitem__(self, s: slice[_Index, _Index, _Index], /) -> T: ...
+class SupportsSlice[T](Sized, Protocol):  # slice[...] is on py3.14+
+    def __getitem__(self, s: 'slice[_Index, _Index, _Index]', /) -> T: ...
 
 
 class SupportsWrite[T = str](Protocol):
