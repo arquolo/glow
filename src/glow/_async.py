@@ -3,7 +3,6 @@ __all__ = [
     'amap',
     'amap_dict',
     'astarmap',
-    'azip',
 ]
 
 import asyncio
@@ -14,7 +13,7 @@ from contextlib import asynccontextmanager
 from typing import Literal, Self
 from weakref import finalize
 
-from ._more import each_is
+from ._more import azip, each_is
 from ._types import ACallable, AnyIterable, ASCallable, Get, QueueShutdownError
 
 
@@ -179,34 +178,6 @@ async def _iter_results[T](
         # Pop tasks happened to also be DONE (after line above)
         while pending and pending[0].done():
             yield pending.popleft().result()
-
-
-async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
-    if each_is(iterables, Iterable):  # type: ignore[type-abstract]
-        for x in zip(*iterables):
-            yield x
-        return
-
-    aiters = [
-        _wrapgen(it) if isinstance(it, Iterable) else aiter(it)
-        for it in iterables
-    ]
-    while True:
-        tasks = [asyncio.ensure_future(ait.__anext__()) for ait in aiters]
-        try:
-            ret = await asyncio.gather(*tasks)
-        except StopAsyncIteration:
-            for t in tasks:
-                t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            return
-        else:
-            yield tuple(ret)
-
-
-async def _wrapgen[T](it: Iterable[T]) -> AsyncGenerator[T]:
-    for x in it:
-        yield x
 
 
 # ----------------------------- read/write guard -----------------------------

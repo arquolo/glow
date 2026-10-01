@@ -7,7 +7,14 @@ from collections.abc import (
     Iterable,
     Sized,
 )
-from typing import Any, Final, Literal, Protocol
+from typing import (
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    SupportsIndex,
+    runtime_checkable,
+)
 
 type KeyFn[**P] = Callable[P, Hashable]
 
@@ -43,8 +50,12 @@ class SupportsNext[T](Protocol):
     def __next__(self, /) -> T: ...
 
 
+type _Index = SupportsIndex | None
+
+
+@runtime_checkable
 class SupportsSlice[T](Sized, Protocol):
-    def __getitem__(self, s: slice, /) -> T: ...
+    def __getitem__(self, s: slice[_Index, _Index, _Index], /) -> T: ...
 
 
 class SupportsWrite[T = str](Protocol):

@@ -73,6 +73,8 @@ __all__ = [
 
 from collections.abc import (
     AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
     Callable,
     Generator,
     Hashable,
@@ -257,36 +259,6 @@ def amap[R](
 async def amap_dict[K, T, T2](
     func: ACallable[[T], T2], obj: Mapping[K, T], /, *, limit: int
 ) -> dict[K, T2]: ...
-@overload
-def azip() -> AsyncGenerator[Any]: ...
-@overload
-def azip[T](iter1: AnyIterable[T], /) -> AsyncGenerator[tuple[T]]: ...  # noqa: RUF100,RUF102
-@overload
-def azip[T, T2](
-    iter1: AnyIterable[T], iter2: AnyIterable[T2], /
-) -> AsyncGenerator[tuple[T, T2]]: ...
-@overload
-def azip[T, T2, T3](
-    iter1: AnyIterable[T], iter2: AnyIterable[T2], iter3: AnyIterable[T3], /
-) -> AsyncGenerator[tuple[T, T2, T3]]: ...
-@overload
-def azip[T, T2, T3, T4](
-    iter1: AnyIterable[T],
-    iter2: AnyIterable[T2],
-    iter3: AnyIterable[T3],
-    iter4: AnyIterable[T4],
-    /,
-) -> AsyncGenerator[tuple[T, T2, T3, T4]]: ...
-@overload
-def azip(
-    iter1: AnyIterable,
-    iter2: AnyIterable,
-    iter3: AnyIterable,
-    iter4: AnyIterable,
-    iter5: AnyIterable,
-    /,
-    *iters: AnyIterable,
-) -> AsyncGenerator[tuple]: ...
 
 # ---------------------------------- _cache ----------------------------------
 
@@ -564,9 +536,17 @@ def windowed[T](it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
 @overload
 def windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 @overload
+def windowed[T](
+    it: AsyncIterable[T], size: int, /
+) -> AsyncIterator[tuple[T, ...]]: ...
+@overload
 def chunked[S](__it: SupportsSlice[S], size: int, /) -> Iterator[S]: ...
 @overload
 def chunked[T](__it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
+@overload
+def chunked[T](
+    __it: AsyncIterable[T], size: int, /
+) -> AsyncIterator[tuple[T, ...]]: ...
 def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]: ...
 def ilen(iterable: Iterable, /) -> int: ...
 def eat(iterable: Iterable, /, *, daemon: bool = False) -> None: ...
@@ -579,6 +559,36 @@ def groupby[T, K: Hashable](
 def groupby[T, K: Hashable, V](
     iterable: Iterable[T], /, key: Unary[T, K], value: Unary[T, V]
 ) -> dict[K, list[V]]: ...
+@overload
+def azip() -> AsyncGenerator[Any]: ...
+@overload
+def azip[T](iter1: AnyIterable[T], /) -> AsyncGenerator[tuple[T]]: ...  # noqa: RUF100,RUF102
+@overload
+def azip[T, T2](
+    iter1: AnyIterable[T], iter2: AnyIterable[T2], /
+) -> AsyncGenerator[tuple[T, T2]]: ...
+@overload
+def azip[T, T2, T3](
+    iter1: AnyIterable[T], iter2: AnyIterable[T2], iter3: AnyIterable[T3], /
+) -> AsyncGenerator[tuple[T, T2, T3]]: ...
+@overload
+def azip[T, T2, T3, T4](
+    iter1: AnyIterable[T],
+    iter2: AnyIterable[T2],
+    iter3: AnyIterable[T3],
+    iter4: AnyIterable[T4],
+    /,
+) -> AsyncGenerator[tuple[T, T2, T3, T4]]: ...
+@overload
+def azip(
+    iter1: AnyIterable,
+    iter2: AnyIterable,
+    iter3: AnyIterable,
+    iter4: AnyIterable,
+    iter5: AnyIterable,
+    /,
+    *iters: AnyIterable,
+) -> AsyncGenerator[tuple]: ...
 
 # -------------------------------- _parallel ---------------------------------
 

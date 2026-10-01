@@ -1,5 +1,6 @@
 __all__ = [
     'as_iter',
+    'azip',
     'chunked',
     'eat',
     'groupby',
@@ -9,8 +10,12 @@ __all__ = [
     'windowed',
 ]
 
+import asyncio
 from collections import deque
 from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
     Callable,
     Generator,
     Hashable,
@@ -24,7 +29,7 @@ from itertools import batched, chain, compress, cycle, islice, repeat
 from threading import Thread
 from typing import TypeGuard, overload
 
-from ._types import HasPopleft, SupportsSlice, Unary
+from ._types import AnyIterable, HasPopleft, SupportsSlice, Unary
 
 
 def as_iter[T](
@@ -41,8 +46,9 @@ def as_iter[T](
 
 @overload
 def _dispatch[S, *Ts](
-    fallback_fn,
-    fn: Callable[[SupportsSlice[S], *Ts], Iterator[S]],
+    slice_fn: Callable[[SupportsSlice[S], *Ts], Iterator[S]],
+    sync_fn: Callable[[Iterable, *Ts], Iterator],
+    async_fn: Callable[[AsyncIterable, *Ts], AsyncIterator],
     it: SupportsSlice[S],
     *args: *Ts,
 ) -> Iterator[S]: ...
@@ -50,30 +56,46 @@ def _dispatch[S, *Ts](
 
 @overload
 def _dispatch[T, *Ts](
-    fallback_fn: Callable[[Iterable[T], *Ts], Iterator[T]],
-    fn,
+    slice_fn: Callable[[SupportsSlice, *Ts], Iterator],
+    sync_fn: Callable[[Iterable[T], *Ts], Iterator[tuple[T, ...]]],
+    async_fn: Callable[[AsyncIterable, *Ts], AsyncIterator],
     it: Iterable[T],
     *args: *Ts,
 ) -> Iterator[tuple[T, ...]]: ...
 
 
-def _dispatch(fallback_fn, fn, it, *args):
-    if (
-        not isinstance(it, Sized)
-        or not hasattr(it, '__getitem__')
-        or isinstance(it, Mapping)
-    ):
-        return fallback_fn(it, *args)
+@overload
+def _dispatch[T, *Ts](
+    slice_fn: Callable[[SupportsSlice, *Ts], Iterator],
+    sync_fn: Callable[[Iterable, *Ts], Iterator],
+    async_fn: Callable[[AsyncIterable[T], *Ts], AsyncIterator[tuple[T, ...]]],
+    it: AsyncIterable[T],
+    *args: *Ts,
+) -> AsyncIterator[tuple[T, ...]]: ...
 
-    r = fn(it, *args)
-    if isinstance(it, Sequence):
-        return r
+
+def _dispatch[*Ts](
+    slice_fn: Callable[[SupportsSlice, *Ts], Iterator],
+    sync_fn: Callable[[Iterable, *Ts], Iterator],
+    async_fn: Callable[[AsyncIterable, *Ts], AsyncIterator],
+    it: SupportsSlice | Iterable | AsyncIterable,
+    *args: *Ts,
+) -> Iterator | AsyncIterator:
+    if isinstance(it, AsyncIterable):
+        return async_fn(it, *args)
+
+    if isinstance(it, Mapping) or not isinstance(it, SupportsSlice):
+        return sync_fn(it, *args)
+
+    if isinstance(it, str | bytes | tuple | list):  # Could always be sliced
+        return slice_fn(it, *args)
 
     try:
         # Ensure that slice is supported by prefetching 1st item
+        r = slice_fn(it, *args)
         first_or_none = tuple(islice(r, 1))
     except TypeError:
-        return fallback_fn(it, *args)
+        return sync_fn(it, *args)  # type: ignore[arg-type]
     else:
         return chain(first_or_none, r)
 
@@ -90,27 +112,64 @@ def chunk_hint(it: Sized, size: int) -> int:
 
 
 def _sliced_windowed[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
-    indices = range(len(s) + 1)
+    len_ = len(s)
+    if not len_:
+        return iter([])
+    if len_ < size:
+        return iter([s[:]])
+    indices = range(len_ + 1)
     slices = map(slice, indices[:-size], indices[size:])
     return map(s.__getitem__, slices)
 
 
 def _windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
-    if size == 1:  # Trivial case
-        return zip(it)
+    assert size >= 1
 
     it = iter(it)
     w = deque(islice(it, size), maxlen=size)
 
-    if len(w) != size:
-        return iter(())
+    if not w:
+        return iter([])
+    if len(w) < size:
+        return iter([tuple(w)])
     return map(tuple, chain([w], map(w.__iadd__, zip(it))))
 
 
+async def _awindowed[T](
+    it: AsyncIterable[T], size: int, /
+) -> AsyncGenerator[tuple[T, ...]]:
+    assert size >= 1
+
+    w = deque[T](maxlen=size)
+    async for x in it:
+        w.append(x)
+        if len(w) == size:
+            yield tuple(w)
+    if w and len(w) < size:
+        yield tuple(w)
+
+
 def _sliced[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
+    assert size >= 1
+
     indices = range(len(s) + size)
     slices = map(slice, indices[::size], indices[size::size])
     return map(s.__getitem__, slices)
+
+
+async def _abatched[T](
+    it: AsyncIterable[T], size: int, /
+) -> AsyncGenerator[tuple[T, ...]]:
+    assert size >= 1
+
+    batch: list[T] = []
+    async for x in it:
+        batch.append(x)
+        if len(batch) == size:
+            yield tuple(batch)
+            batch.clear()
+    if batch:
+        yield tuple(batch)
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +183,18 @@ def windowed[T](it: SupportsSlice[T], size: int, /) -> Iterator[T]: ...
 def windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 
 
-def windowed(it, size, /):
+@overload
+def windowed[T](
+    __it: AsyncIterable[T], size: int, /
+) -> AsyncIterator[tuple[T, ...]]: ...
+
+
+def windowed(
+    it: SupportsSlice | Iterable | AsyncIterable, size: int, /
+) -> Iterator | AsyncIterator:
     """Retrieve overlapped windows from iterable.
 
-    Tries to use slicing if possible.
+    Tries to use slicing if possible. Supports async iterables.
 
     >>> [*windowed(range(6), 3)]
     [range(0, 3), range(1, 4), range(2, 5), range(3, 6)]
@@ -135,11 +202,9 @@ def windowed(it, size, /):
     >>> [*windowed(iter(range(6)), 3)]
     [(0, 1, 2), (1, 2, 3), (2, 3, 4), (3, 4, 5)]
     """
-    if size < 0:
-        raise ValueError('size must be >= 0')
-    if size == 0:
-        return iter([()])
-    return _dispatch(_windowed, _sliced_windowed, it, size)
+    if size < 1:
+        raise ValueError('size must be >= 1')
+    return _dispatch(_sliced_windowed, _windowed, _awindowed, it, size)
 
 
 @overload
@@ -150,11 +215,21 @@ def chunked[S](__it: SupportsSlice[S], size: int, /) -> Iterator[S]: ...
 def chunked[T](__it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]: ...
 
 
-def chunked(it, size):
+@overload
+def chunked[T](
+    __it: AsyncIterable[T], size: int, /
+) -> AsyncIterator[tuple[T, ...]]: ...
+
+
+def chunked(
+    it: SupportsSlice | Iterable | AsyncIterable, size: int, /
+) -> Iterator | AsyncIterator:
     """Split iterable to chunks of at most size items each.
 
     Uses slicing if possible.
     Each next() on result will advance passed iterable to size items.
+
+    Supports async iterables.
 
     >>> [*chunked(range(10), 3)]
     [range(0, 3), range(3, 6), range(6, 9), range(9, 10)]
@@ -162,7 +237,9 @@ def chunked(it, size):
     >>> [*chunked(iter(range(10)), 3)]
     [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9,)]
     """
-    return _dispatch(batched, _sliced, it, size)
+    if size < 1:
+        raise ValueError('size must be >= 1')
+    return _dispatch(_sliced, batched, _abatched, it, size)
 
 
 # ----------------------------------------------------------------------------
@@ -285,3 +362,34 @@ def groupby[T, K: Hashable](
     for x in iterable:
         r.setdefault(key(x), []).append(value(x))
     return r
+
+
+# ----------------------------------------------------------------------------
+
+
+async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
+    if each_is(iterables, Iterable):  # type: ignore[type-abstract]
+        for x in zip(*iterables):
+            yield x
+        return
+
+    aiters = [
+        _as_asyncgen(it) if isinstance(it, Iterable) else aiter(it)
+        for it in iterables
+    ]
+    while True:
+        tasks = [asyncio.ensure_future(ait.__anext__()) for ait in aiters]
+        try:
+            ret = await asyncio.gather(*tasks)
+        except StopAsyncIteration:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            return
+        else:
+            yield tuple(ret)
+
+
+async def _as_asyncgen[T](it: Iterable[T]) -> AsyncGenerator[T]:
+    for x in it:
+        yield x

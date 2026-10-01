@@ -15,7 +15,7 @@ from ._array import (
     around,
     pascal,
 )
-from ._async import MulticastQueue, RwLock, amap, amap_dict, astarmap, azip
+from ._async import MulticastQueue, RwLock, amap, amap_dict, astarmap
 from ._cache import cache_status, call_once, coalesce, memoize, new_cache
 from ._concurrency import threadlocal
 from ._coro import as_actor, consumer, summary
@@ -24,6 +24,7 @@ from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru, span_task
 from ._more import (
     as_iter,
+    azip,
     chunked,
     eat,
     groupby,
