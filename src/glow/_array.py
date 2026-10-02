@@ -67,23 +67,29 @@ def apack(
 ) -> npt.NDArray[np.integer]:
     """Convert integer array to smallest dtype."""
     a = np.asarray(a)
-    if a.dtype.kind != 'i':
+    if a.dtype.kind not in 'iu':
         msg = f'Cannot pack non-integer array: {a.dtype}'
         raise ValueError(msg)
     if not a.size:
         return a
 
-    if a_min is None:
-        a_min = a.min()
-        assert a_min is not None
+    a_min = int(a.min() if a_min is None else a_min)
+    a_max = int(a.max() if a_max is None else a_max)
+    if a_min > a_max:
+        raise ValueError('a_min must be <= a_max')
 
-    if a_max is None:
-        a_max = a.max()
-        assert a_max is not None
+    dtype: np.dtype
+    if a_min >= 0:
+        for dtype in map(np.dtype, 'BHIQ'):  # u8,u16,u32,u64
+            if a_max <= np.iinfo(dtype).max:
+                return a.astype(dtype) if dtype.itemsize < a.itemsize else a
+    else:
+        for dtype in map(np.dtype, 'bhiq'):  # i8,i16,i32,i64
+            bounds = np.iinfo(dtype)
+            if bounds.min <= a_min and a_max <= bounds.max:
+                return a.astype(dtype) if dtype.itemsize < a.itemsize else a
 
-    if (dtype := smallest_dtype(a_min, a_max)).itemsize < a.itemsize:
-        return a.astype(dtype)
-    return a
+    raise ValueError('Bounds exceed the supported integer range')
 
 
 def pascal(n: int) -> npt.NDArray[np.int64]:
