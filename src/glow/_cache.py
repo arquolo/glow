@@ -406,7 +406,7 @@ def _prepare_batch[T, F: AnyFuture, R](
 
     for k, t in dict(keyed_tokens).items():
         # If this key is processing right now, wait till its done ...
-        if f := futures.get(k):  # ! Protect
+        if (f := futures.get(k)) and not f.cancelled():  # ! Protect
             fs[k] = f
             running.add(f)  # Wait for these
 
@@ -475,24 +475,22 @@ class memoize:  # noqa: N801
         self._is_async: bool | None = None
 
     def __call__(self, fn: Callable) -> Callable:
-        self._api_check(fn)
         w = (
             (self._awrap_batched(fn) if self._batched else self._awrap(fn))
-            if inspect.iscoroutinefunction(fn)
+            if self._do_async(fn)
             else (self._wrap_batched(fn) if self._batched else self._wrap(fn))
         )
         return self._update_wrapper(w, fn)
 
     def drop(self, fn: Callable) -> Callable:
-        self._api_check(fn)
         w = (
             (self._adrop_batched(fn) if self._batched else self._adrop(fn))
-            if inspect.iscoroutinefunction(fn)
+            if self._do_async(fn)
             else (self._drop_batched(fn) if self._batched else self._drop(fn))
         )
         return self._update_wrapper(w, fn)
 
-    def _api_check(self, fn: Callable) -> None:
+    def _do_async(self, fn: Callable) -> bool:
         if inspect.isasyncgenfunction(fn) or inspect.isgeneratorfunction(fn):
             raise TypeError(f'Generator functions are not supported. Got {fn}')
 
@@ -504,6 +502,7 @@ class memoize:  # noqa: N801
             if self._is_async is True:
                 raise TypeError('Cannot use async cache for sync function')
             self._is_async = False
+        return self._is_async
 
     def _wrap[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -555,7 +554,7 @@ class memoize:  # noqa: N801
             # ... or it could be computed somewhere else, join there.
             if f := self._afutures.get(key):
                 with hide_frame:
-                    return await f
+                    return await asyncio.shield(f)
             self._afutures[key] = f = asyncio.Future[R]()
 
             # NOTE: `fn()` isn't thread safe - no threading.Lock,

@@ -12,7 +12,7 @@ from threading import Thread
 from time import monotonic, sleep
 from typing import Never, cast, overload
 
-from ._dev import hide_frame
+from ._dev import hide_frame, name_object
 from ._futures import (
     ABatchFn,
     ABatchFnRv,
@@ -28,9 +28,9 @@ from ._futures import (
     fs_to_results,
     get_usable_size,
 )
-from ._locking import q_get
+from ._locking import q_get, set_future
 
-_debug1 = partial(getLogger(__name__).debug, stacklevel=2)
+_logger = getLogger(__name__)
 
 
 @overload
@@ -120,29 +120,25 @@ def streaming[T, R](  # noqa: C901
 
     if inspect.iscoroutinefunction(fn):
         workers = 1
-        afn: ABatchFn = fn
-        semlock = asyncio.Semaphore(workers)
-        ast = _Astream[T, R](batch_size, timeout)
+        afn = cast('ABatchFn[T, R]', fn)
+        ast = _Astream(afn, batch_size, timeout, workers)
+        enqueue_tasks = set[asyncio.Task[None]]()
 
         async def awrapper(items: Iterable[T]) -> list[R]:
-            items = list(items)
-            if not items:
+            fs = {asyncio.Future[R](): item for item in items}
+            if not fs:
                 return []
 
-            with ast as fs:
-                for x in items:
-                    if batch := ast.enqueue(fs, x):
-                        async with semlock:
-                            await adispatch(afn, *batch)
-
-            if batch := await ast.resolve():
-                async with semlock:
-                    await adispatch(afn, *batch)
-
-            # NOTE: raises only first exception for multiple dead `f` calls
-            with hide_frame:
+            task = asyncio.create_task(ast.enqueue(fs))
+            enqueue_tasks.add(task)
+            task.add_done_callback(enqueue_tasks.discard)
+            try:
                 async with asyncio.timeout(pool_timeout):
-                    return await asyncio.gather(*fs)
+                    with hide_frame:
+                        return await asyncio.gather(*fs)
+            finally:
+                for f in fs:
+                    f.cancel()
 
         return update_wrapper(awrapper, afn)
 
@@ -181,14 +177,14 @@ class _Stream[T, R]:
         self,
         func: BatchFn[T, R],
         usable_size: UsableSize[T],
-        timeout: float,
+        latency: float,
         workers: int,
     ) -> None:
         # TODO: Use scalable ThreadPool.
         # Track count of active dispatches and scale workers accordingly
         self._func = func
         self._usable_size = usable_size
-        self._timeout = timeout
+        self._latency = latency
 
         self._q = SimpleQueue[Job[T, R]]()
         self._lock = threading.Lock()
@@ -220,21 +216,45 @@ class _Stream[T, R]:
     def _next_batch(self) -> list[Job[T, R]]:
         if not self._jobs:  # Wait indefinitely till the first item
             self._jobs[:] = [q_get(self._q)]
-            self._deadline = monotonic() + self._timeout
+            self._deadline = monotonic() + self._latency
 
-        while not (usable := self._usable_size([x for x, _ in self._jobs])):
+        while True:
+            try:
+                usable = self._usable_size([x for x, _ in self._jobs])
+            except BaseException as exc:
+                if not self._jobs:
+                    raise
+                log_msg = (
+                    f'{name_object(self._usable_size)} on '
+                    f'{name_object(self._func)} failed with {exc!r}. '
+                    'Using batch 1'
+                )
+                # Could be traced only up to `_thread.start_joinable_thread`,
+                # not func() call, thus no `stacklevel=...`
+                _logger.exception(log_msg)
+                usable = 1
+
+            if usable:
+                break
+
             rem = self._deadline - monotonic()
             try:
                 j = self._q.get(timeout=max(rem, 0) or None, block=rem > 0)
             except Empty:
                 usable = len(self._jobs)
-                _debug1(f'worker timed out {self._timeout:.3f}s - qd {usable}')
+                log_msg = (
+                    f'Worker timed out for {name_object(self._func)}, '
+                    f'{self._latency:.3f}s - qd {usable}'
+                )
+                # Could be traced only up to `_thread.start_joinable_thread`,
+                # not func() call, thus no `stacklevel=...`
+                _logger.debug(log_msg)
                 break
             else:
                 self._jobs.append(j)
 
         if usable < len(self._jobs):  # Some jobs would remain
-            self._deadline = monotonic() + self._timeout
+            self._deadline = monotonic() + self._latency
 
         # Dispatch batch
         jobs, self._jobs = self._jobs[:usable], self._jobs[usable:]
@@ -242,47 +262,78 @@ class _Stream[T, R]:
 
 
 class _Astream[T, R]:
-    def __init__(self, usable_size: UsableSize, timeout: float) -> None:
+    def __init__(
+        self,
+        func: ABatchFn[T, R],
+        usable_size: UsableSize,
+        latency: float,
+        workers: int,
+    ) -> None:
+        self._func = func
         self._usable_size = usable_size
-        self._timeout = timeout
+        self._latency = latency
 
         self._ncalls = 0
         self._not_last = asyncio.Event()
         self._jobs: list[AJob[T, R]] = []
         self._deadline = float('-inf')
+        self._run_lock = asyncio.Semaphore(workers)
 
-    def __enter__(self) -> list[asyncio.Future[R]]:
-        # There's another handling call with tail, wake it up
-        if not self._ncalls and self._jobs:
-            self._not_last.set()
+    async def enqueue(self, fs: dict[asyncio.Future[R], T]) -> None:
+        try:
+            if not self._ncalls and self._jobs:  # Wake up tail handler
+                self._not_last.set()
+            self._ncalls += 1
+            try:
+                for f, x in fs.items():
+                    self._jobs.append((x, f))  # Enqueue
 
-        self._ncalls += 1
-        return []
+                    if batch := self._next_batch():
+                        async with self._run_lock:
+                            await adispatch(self._func, *batch)
+            finally:
+                self._ncalls -= 1
 
-    def __exit__(self, *_) -> None:
-        self._ncalls -= 1
+            if batch := await self._resolve():
+                async with self._run_lock:
+                    await adispatch(self._func, *batch)
 
-    def enqueue(self, fs: list[asyncio.Future[R]], x: T) -> list[AJob[T, R]]:
-        f = asyncio.Future[R]()
-        fs.append(f)
-        self._jobs.append((x, f))
+        except BaseException as exc:
+            if isinstance(exc, asyncio.CancelledError):
+                for f in fs:
+                    f.cancel()
+                raise
+            for f in fs:
+                set_future(f, exc)
 
-        usable = self._usable_size([x for x, _ in self._jobs])
+    def _next_batch(self) -> list[AJob[T, R]]:
+        try:
+            usable = self._usable_size([x for x, _ in self._jobs])
+        except BaseException as exc:
+            if not self._jobs:
+                raise
+            log_msg = (
+                f'{name_object(self._usable_size)} on '
+                f'{name_object(self._func)} failed with {exc!r}. Using batch 1'
+            )
+            # Could be traced only up to `_thread.start_joinable_thread`,
+            # not func() call, thus no `stacklevel=...`
+            _logger.exception(log_msg)
+            usable = 1
+
         if (
-            # Got first job...
-            len(self._jobs) == 1
-            # ...or batch is about to dispatch
-            or (usable and usable < len(self._jobs))
+            len(self._jobs) == 1  # Got first job...
+            or 0 < usable < len(self._jobs)  # ...or batch is about to dispatch
         ):
             # Reset deadline
-            self._deadline = asyncio.get_running_loop().time() + self._timeout
+            self._deadline = asyncio.get_running_loop().time() + self._latency
 
         if usable:  # Do dispatch
             batch, self._jobs[:] = self._jobs[:usable], self._jobs[usable:]
             return batch
         return []
 
-    async def resolve(self) -> list[AJob[T, R]]:
+    async def _resolve(self) -> list[AJob[T, R]]:
         if self._ncalls or not self._jobs:
             return []
 

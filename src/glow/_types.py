@@ -28,7 +28,7 @@ type Unary[T, R = object] = Callable[[T], R]
 type AUnary[T, R = object] = ACallable[[T], R]
 
 type CachePolicy = Literal['lru', 'mru']
-type Maybe[T] = 'list[T] | BaseException'
+type Maybe[T] = list[T] | BaseException
 
 
 class AbstractCache[T](Protocol):

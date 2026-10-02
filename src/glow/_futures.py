@@ -48,8 +48,10 @@ def dispatch[T, R](fn: BatchFn[T, R], *xs: Job[T, R]) -> None:
 
 
 async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AJob[T, R]) -> None:
+    xs = tuple((x, f) for x, f in xs if not f.cancelled())
     if not xs:
         return
+
     with _Dispatcher([f for _, f in xs], sync=False) as dsp:
         ret = await fn([x for x, _ in xs])
         dsp.update(ret)

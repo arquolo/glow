@@ -1,6 +1,7 @@
 __all__ = [
     'memprof',
     'memtrack',
+    'name_object',
     'time_this',
     'timer',
     'whereami',
@@ -24,7 +25,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Never
 
 from ._cache import memoize
-from ._dev import frame_key, hide_frame
+from ._dev import frame_key, hide_frame, name_object
 from ._pipes import cumsum, maximum_cumsum
 from ._repr import si, si_bin
 from ._types import Get, Pipe, Unary
@@ -122,14 +123,6 @@ def timer(
     if callable(name_or_callback):
         return _timer_callback(name_or_callback, time)
     return _timer_print(name_or_callback, time)
-
-
-def _to_fname(obj) -> str:
-    if not hasattr(obj, '__module__') or not hasattr(obj, '__qualname__'):
-        obj = type(obj)
-    if obj.__module__ == 'builtins':
-        return obj.__qualname__
-    return f'{obj.__module__}.{obj.__qualname__}'
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,9 +225,7 @@ def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
     if disable:
         return fn
 
-    if name is None:
-        name = _to_fname(fn)
-
+    name = name or name_object(fn)
     fin = fn.log_timing = partial(_print_stats, name)
     time_this.finalizers[fn] = fin  # type: ignore[attr-defined]
     return wrap(fn, _profilers[name])

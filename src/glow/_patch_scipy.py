@@ -66,13 +66,13 @@ def apply() -> None:
         'Ctrl-C on Windows is broken when scipy is from conda. '
         'Please use scipy from PyPI'
     )
-    warnings.warn(msg, stacklevel=2)
+    warnings.warn(msg, stacklevel=2)  # warn on the line of `apply` call
 
     if 'scipy.stats' in sys.modules:
         msg2 = (
             'Cannot fix handling of Ctrl-C in current process. '
             'Import glow before scipy.stats to fix this.'
         )
-        warnings.warn(msg2, stacklevel=2)
+        warnings.warn(msg2, stacklevel=2)  # warn on the line of `apply` call
     else:
         _patch_handler_and_load_scipy()

@@ -378,3 +378,63 @@ async def test_astream_dyn_lim():
     calls = []
     await asyncio.gather(fn(range(5)), fn(range(5, 8)))
     assert calls == [[0, 1, 2, 3], [4], [5], [6], [7]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('batch_size', [1, 10])
+async def test_astream_pool_timeout(batch_size):
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    @glow.streaming(batch_size=batch_size, timeout=0.01, pool_timeout=0.03)
+    async def fn(xs):
+        try:
+            await release.wait()
+            return xs
+        finally:
+            finished.set()
+
+    try:
+        start = asyncio.get_running_loop().time()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(fn([1]), timeout=1)
+        assert asyncio.get_running_loop().time() - start < 0.5
+        assert not finished.is_set()
+    finally:
+        release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1)
+    assert await fn([2]) == [2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fail', [False, True])
+async def test_astream_cancel_shared_batch(fail):
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @glow.streaming(batch_size=2, timeout=0.01)
+    async def fn(xs):
+        started.set()
+        await release.wait()
+        if fail:
+            raise ValueError('batch failed')
+        return xs
+
+    first = asyncio.create_task(fn([1]))
+    second = asyncio.create_task(fn([2]))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        release.set()
+        if fail:
+            with pytest.raises(ValueError, match='batch failed'):
+                await asyncio.wait_for(second, timeout=1)
+        else:
+            assert await asyncio.wait_for(second, timeout=1) == [2]
+    finally:
+        release.set()
+        first.cancel()
+        second.cancel()
+        await asyncio.gather(first, second, return_exceptions=True)

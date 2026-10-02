@@ -75,7 +75,7 @@ def _torch_limit() -> int | None:
             'Max process count may be calculated incorrectly, '
             'leading to application crash or even BSOD. '
             'Install psutil to avoid that',
-            stacklevel=3,
+            stacklevel=3,  # warn on the line of `max_cpu_count` call
         )
         return None
 

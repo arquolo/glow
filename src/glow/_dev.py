@@ -3,6 +3,7 @@ __all__ = [
     'declutter_tb',
     'hide_frame',
     'lock_seed',
+    'name_object',
 ]
 
 import copy
@@ -63,6 +64,14 @@ hide_frame = _HideFrame()
 
 def frame_key(frame: FrameType | None) -> tuple[str, int] | None:
     return (frame.f_code.co_filename, frame.f_lineno) if frame else None
+
+
+def name_object(obj) -> str:
+    if not hasattr(obj, '__module__') or not hasattr(obj, '__qualname__'):
+        obj = type(obj)
+    if obj.__module__ == 'builtins':
+        return obj.__qualname__
+    return f'{obj.__module__}.{obj.__qualname__}'
 
 
 # ---------------------------------------------------------------------------
