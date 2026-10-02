@@ -37,7 +37,7 @@ except ImportError:
     psutil = None
 
 from ._dev import hide_frame
-from ._locking import AbsEvent, AbsManager, AbsQueue, maybe_future, q_get
+from ._locking import AbsEvent, AbsManager, AbsQueue, await_future, q_get
 from ._more import ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
@@ -217,7 +217,7 @@ class buffered[T]:  # noqa: N801
 
             self.close()
             # Reraise exception from source iterable if any
-            obj = maybe_future(self._consume)
+            obj = await_future(self._consume)
             if isinstance(obj, BaseException):
                 with hide_frame:
                     raise obj
@@ -339,7 +339,7 @@ def _futures_to_results[T](
     with s, hide_frame:  # hide this frame for error in `sched_it.__next__()`
         for _ in sched_it:
             # Retrieve done task
-            obj = maybe_future(q_get(fq), cancel=True)
+            obj = await_future(q_get(fq), cancel=True)
             if isinstance(obj, BaseException):
                 with hide_frame:
                     raise obj

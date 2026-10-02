@@ -31,7 +31,7 @@ from ._futures import (
     seqcheck,
 )
 from ._keys import make_key
-from ._locking import maybe_future
+from ._locking import await_future
 from ._repr import si_bin
 from ._sizeof import sizeof
 from ._types import (
@@ -523,7 +523,7 @@ class memoize:  # noqa: N801
             # Release lock to allow function to run
             if not is_owner:
                 with hide_frame:
-                    obj = maybe_future(f)
+                    obj = await_future(f)
                     if isinstance(obj, BaseException):
                         raise obj
                 return obj[0]
@@ -638,7 +638,7 @@ class memoize:  # noqa: N801
             try:
                 with hide_frame:
                     if f:  # Wait for completion of previous calls
-                        maybe_future(f)
+                        await_future(f)
                     return fn(*args, **kwargs)
             finally:
                 with self._lock:

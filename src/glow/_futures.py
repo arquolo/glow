@@ -1,10 +1,10 @@
 import asyncio
 import concurrent.futures as cf
 from collections.abc import Iterable, Sequence
-from typing import Protocol, Self, overload
+from typing import NamedTuple, Protocol, Self, overload
 
 from ._dev import drop_tb_frames
-from ._locking import maybe_future
+from ._locking import await_future, set_future
 from ._more import each_is
 from ._types import AUnary, Maybe, Unary
 
@@ -55,10 +55,9 @@ async def adispatch[T, R](fn: ABatchFn[T, R], *xs: AJob[T, R]) -> None:
         dsp.update(ret)
 
 
-class _Dispatcher[T]:
-    def __init__(self, fs: Sequence[AnyFuture[T]], sync: bool) -> None:
-        self.fs = fs
-        self.sync = sync
+class _Dispatcher[T](NamedTuple):
+    fs: Sequence[AnyFuture[T]]
+    sync: bool
 
     def __enter__(self) -> Self:
         return self
@@ -68,9 +67,10 @@ class _Dispatcher[T]:
             drop_tb_frames(val, 1)
             if self.sync or not isinstance(val, asyncio.CancelledError):
                 for f in self.fs:
-                    f.set_exception(val)
-                return True  # Suppress all but CancelledError
-            for f in self.fs:
+                    set_future(f, val)
+                return True  # Suppress all except CancelledError
+
+            for f in self.fs:  # Cancel if cancelled and raise further
                 f.cancel()
         return None
 
@@ -78,10 +78,10 @@ class _Dispatcher[T]:
         rs_or_err: Maybe[T] = seqcheck(rs, len(self.fs))
         if isinstance(rs_or_err, Sequence):
             for f, x in zip(self.fs, rs_or_err, strict=True):
-                f.set_result(x)
+                set_future(f, [x])
         else:
             for f in self.fs:
-                f.set_exception(rs_or_err)
+                set_future(f, rs_or_err)
 
 
 def seqcheck[T](obj: Sequence[T] | object, size: int) -> Maybe[T]:
@@ -102,7 +102,7 @@ def fs_to_results[K, R](
         # cf.Future - optimization to do acquire-release once
         if isinstance(f, cf.Future):
             try:
-                obj = maybe_future(f)
+                obj = await_future(f)
             except cf.CancelledError:
                 if not cancelled:
                     errors.add(cf.CancelledError())

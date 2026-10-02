@@ -2,10 +2,12 @@ __all__ = [
     'AbsEvent',
     'AbsManager',
     'AbsQueue',
-    'maybe_future',
+    'await_future',
     'q_get',
+    'set_future',
 ]
 
+import asyncio
 import sys
 from concurrent.futures import CancelledError, Future
 from queue import Empty
@@ -43,7 +45,7 @@ class AbsManager(Protocol):
     def Queue(self, /, maxsize: int) -> AbsQueue: ...  # noqa: N802
 
 
-def maybe_future[T](f: Future[T], cancel: bool = False) -> Maybe[T]:
+def await_future[T](f: Future[T], cancel: bool = False) -> Maybe[T]:
     """Version with single acquire-release call of this:
     >>> try:
     ...     if (exc := f.exception()) is not None:  # <- acquire-release
@@ -80,6 +82,40 @@ def maybe_future[T](f: Future[T], cancel: bool = False) -> Maybe[T]:
         raise
     finally:
         del f
+
+
+def set_future[T](f: Future[T] | asyncio.Future[T], obj: Maybe[T]) -> None:
+    """Version with single acquire-release call of this:
+    >>> if not f.done():  # <- acquire-release
+    ...     if isinstance(obj, BaseException):
+    ...         f.set_exception(obj)  # <- acquire-release
+    ...     else:
+    ...         f.set_result(*obj)  # <- acquire-release
+    """
+    if isinstance(f, asyncio.Future):
+        if not f.done():
+            if isinstance(obj, BaseException):
+                f.set_exception(obj)
+            else:
+                f.set_result(*obj)
+        return
+
+    invoke_callbacks = False
+    with f._condition:
+        if f._state in ['PENDING', 'RUNNING']:
+            invoke_callbacks = True
+            f._state = 'FINISHED'
+            if isinstance(obj, BaseException):
+                f._exception = obj
+                for waiter in f._waiters:
+                    waiter.add_exception(f)
+            else:
+                f._result = obj[0]
+                for waiter in f._waiters:
+                    waiter.add_result(f)
+            f._condition.notify_all()
+    if invoke_callbacks:
+        f._invoke_callbacks()  # type: ignore[attr-defined]
 
 
 if sys.platform == 'win32':
