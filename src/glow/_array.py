@@ -121,7 +121,9 @@ def abs2(c: npt.NDArray[np.complexfloating]) -> npt.NDArray[np.floating]:
 def aminmax_norm(a: np.ndarray) -> np.ndarray:
     """Scale unsigned array (i.e. uint*) to use full range"""
     dtype = a.dtype
-    assert dtype.kind == 'u'
+    if dtype.kind != 'u' or dtype.itemsize not in (1, 2, 4):
+        raise ValueError('Expected `uint8/uint16/uint32` array')
+
     lo, hi = int(a.min()), int(a.max())
     amax = np.iinfo(dtype).max
     if lo == hi or (lo == 0 and hi == amax):
@@ -134,9 +136,10 @@ def aminmax_norm(a: np.ndarray) -> np.ndarray:
         lut_f = np.multiply(lut, scale, dtype='f')
         return around(lut_f.clip(0, amax), a.dtype)[a]
 
+    work_dtype = 'd' if dtype == 'I' else 'f'
     if lo > 0:
-        a = np.subtract(a, lo, dtype='f')
+        a = np.subtract(a, lo, dtype=work_dtype)
         a *= scale
     else:
-        a = np.multiply(a, scale, dtype='f')
+        a = np.multiply(a, scale, dtype=work_dtype)
     return around(a, dtype)
