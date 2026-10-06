@@ -219,7 +219,15 @@ def _print_stats(*names: str) -> None:
 
 
 def time_this(fn=None, /, *, name: str | None = None, disable: bool = False):
-    """Log function and/or generator timings at program exit."""
+    """Log function and/or generator timings at program exit.
+
+    NOTE: Tracking expands for:
+    - function -> iterator/generator -> next[/send/throw/close]
+    - function -> awaitable -> __await__ -> next[/send/throw/close]
+    - function -> coroutine -> send/throw/close
+    - coroutine function -> coroutine -> send/throw/close
+    - asyncgen function -> asyncgen -> anext/asend/athrow/aclose -> coro -> ...
+    """
     if fn is None:
         return partial(time_this, name=name, disable=disable)
     if disable:
