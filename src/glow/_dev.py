@@ -16,6 +16,8 @@ import numpy as np
 
 from ._import_hook import register_post_import_hook
 
+_DEBUG = (os.getenv('GLOW_DEBUG') or '').lower() in ('1', 'true', 'y', 'yes')
+
 
 class _HideFrame:
     """Context manager to hide current frame in traceback"""
@@ -35,6 +37,8 @@ class _HideFrame:
 
 
 def drop_tb_frames(exc: BaseException, n: int) -> None:
+    if _DEBUG:
+        return
     for _ in range(n):
         if not exc.__traceback__:
             return
@@ -46,6 +50,8 @@ def clone_exc[E: BaseException](exc: E) -> E:
 
 
 def declutter_tb(e: BaseException, code: CodeType) -> None:
+    if _DEBUG:
+        return
     tb = e.__traceback__
 
     # Drop frames until `code` frame is reached

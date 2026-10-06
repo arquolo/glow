@@ -1,4 +1,5 @@
 import enum
+import types
 from collections.abc import (
     AsyncIterable,
     Callable,
@@ -13,6 +14,7 @@ from typing import (
     Literal,
     Protocol,
     SupportsIndex,
+    overload,
     runtime_checkable,
 )
 
@@ -60,6 +62,36 @@ class SupportsSlice[T](Sized, Protocol):  # slice[...] is on py3.14+
 
 class SupportsWrite[T = str](Protocol):
     def write(self, s: T, /) -> object: ...
+
+
+class HasSend[Y, S](Protocol):
+    def send(self, value: S, /) -> Y: ...
+
+
+class HasThrow[Y](Protocol):
+    @overload
+    def throw(
+        self,
+        typ: type[BaseException],
+        val: object = ...,
+        tb: types.TracebackType | None = ...,
+        /,
+    ) -> Y: ...
+
+    @overload
+    def throw(
+        self,
+        typ: BaseException,
+        val: None = ...,
+        tb: types.TracebackType | None = ...,
+        /,
+    ) -> Y: ...
+
+    # def throw(self, *args) -> Y: ...
+
+
+class HasClose[R](Protocol):
+    def close(self) -> R | None: ...
 
 
 class HasPopleft[T](Protocol):

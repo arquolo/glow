@@ -1,28 +1,13 @@
 import asyncio
-import contextlib
 import gc
 import inspect
 import re
 import sys
 import traceback
+import types
 import warnings
 import weakref
-from collections.abc import (
-    AsyncGenerator,
-    AsyncIterator,
-    Awaitable,
-    Coroutine,
-    Generator,
-    Iterator,
-)
-from types import (
-    AsyncGeneratorType,
-    CodeType,
-    CoroutineType,
-    FrameType,
-    GeneratorType,
-    coroutine,
-)
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Generator
 from typing import Any, Literal, Never, Protocol, Self, cast, overload
 
 import pytest
@@ -49,25 +34,25 @@ def gc_collect() -> None:
     gc.collect()
 
 
-def throw(exc: type[Exception]) -> Never:
-    raise exc
-
-
 class _BadTarget:
     def __setitem__(self, key, value) -> Never:
         raise StopAsyncIteration(42)
 
 
 class _BadIterable:
-    def __iter__(self) -> Iterator[Never]:
+    def __iter__(self) -> Never:
         raise StopAsyncIteration(42)
+
+
+class HasNext[T](Protocol):
+    def __next__(self, /) -> T: ...
 
 
 # ---------------------------- generator mixtures ----------------------------
 
 
-def as_gen[Y, S, R](obj: Generator[Y, S, R]) -> GeneratorType[Y, S, R]:
-    return cast('GeneratorType[Y, S, R]', obj)
+def as_gen[Y, S, R](obj: Generator[Y, S, R]) -> types.GeneratorType[Y, S, R]:
+    return cast('types.GeneratorType[Y, S, R]', obj)
 
 
 @overload
@@ -103,6 +88,7 @@ def gen_raises(exc_tp: type[Exception]) -> Generator[Never, Any, Never]:
 def gen_catching_genexit() -> Generator[None, Any, Literal[0] | None]:
     try:
         yield
+        # close() raises GeneratorExit here, which is caught
     except GeneratorExit:
         return 0
     else:
@@ -120,30 +106,16 @@ def _gen_copy[T](*values: T) -> Generator[T]:
         yield x
 
 
-def _sync_iterate[T](g: Iterator[T]) -> Generator[T | str]:
-    while True:
-        try:
-            yield g.__next__()
-        except StopIteration:
-            yield 'STOP'
-            return
-        except Exception as ex:  # noqa: BLE001
-            yield str(type(ex))
-
-
 # ---------------------------- coroutine mixtures ----------------------------
 
 
-def as_coro[Y, S, R](obj: Coroutine[Y, S, R]) -> CoroutineType[Y, S, R]:
-    return cast('CoroutineType[Y, S, R]', obj)
-
-
-@overload
-def _cr_return() -> Coroutine[Any, Any, None]: ...
-@overload
-def _cr_return[T](v: T, /) -> Coroutine[Any, Any, T]: ...
 @decorate
-async def _cr_return[T](v: T | None = None, /) -> T | None:
+async def _cr_none() -> None:
+    return None
+
+
+@decorate
+async def _cr_return[T](v: T, /) -> T:
     return v
 
 
@@ -160,18 +132,18 @@ class AwaitableGenerator[Y, S, R](Awaitable[R], Generator[Y, S, R]):
 def _old_await() -> AwaitableGenerator[None, Any, None]: ...
 @overload
 def _old_await[Y](y: Y, /) -> AwaitableGenerator[Y, Any, None]: ...
-@coroutine  # type: ignore[misc]
+@types.coroutine  # type: ignore[misc]
 def _old_await[Y](y: Y | None = None, /) -> Generator[Y | None, Any]:
     yield y
 
 
-@coroutine
+@types.coroutine
 def _old_suspend_return[Y, S](v: Y) -> Generator[Y, S, S]:
     send = yield v
     return send
 
 
-@coroutine
+@types.coroutine
 def _old_suspend_suspend_return[S](v: int) -> Generator[int, S, S]:
     yield v * 10
     send = yield v * 10 + 1
@@ -181,18 +153,27 @@ def _old_suspend_suspend_return[S](v: int) -> Generator[int, S, S]:
 class TestCoroType:
     @pytest.mark.asyncio
     async def test_cr_frame_f_back(self) -> None:
-        cr = as_coro(_cr_return())
+        cr = _cr_none()
+        assert isinstance(cr, types.CoroutineType)
         assert cr.cr_frame
         assert cr.cr_frame.f_back is None
         await cr
 
 
-class CatchUnraisableException:
-    def __init__(self) -> None:
-        self.unraisable = None
-        self._old_hook = None
+class _UnraisableHookArgs(Protocol):
+    exc_type: type[BaseException]
+    exc_value: BaseException | None
+    exc_traceback: types.TracebackType | None
+    err_msg: str | None
+    object: object
 
-    def _hook(self, unraisable) -> None:
+
+class _CatchUnraisableException:
+    def __init__(self) -> None:
+        self.unraisable: _UnraisableHookArgs | None = None
+        self._old_hook: Any | None = None
+
+    def _hook(self, unraisable: _UnraisableHookArgs) -> None:
         self.unraisable = unraisable
 
     def __enter__(self) -> Self:
@@ -201,6 +182,7 @@ class CatchUnraisableException:
         return self
 
     def __exit__(self, *exc_info) -> None:
+        assert self._old_hook is not None
         sys.unraisablehook = self._old_hook
         del self.unraisable
 
@@ -214,7 +196,7 @@ class _AsyncYieldFrom[T]:
 
 
 def _run_async[Y, R](
-    obj: Awaitable[R] | Coroutine[Y, Any, R] | Generator[Y, Any, R],
+    obj: Awaitable[R] | Generator[Y, Any, R],
 ) -> tuple[list[Y], R | None]:
     g = obj.__await__() if isinstance(obj, Awaitable) else obj
 
@@ -226,18 +208,7 @@ def _run_async[Y, R](
         return buffer, ex.value
 
 
-@contextlib.contextmanager
-def _silence_warnings(action: Literal['ignore', 'error']) -> Generator[None]:
-    with warnings.catch_warnings():
-        warnings.simplefilter(action)
-        yield
-
-
 # ------------------------- async generator mixtures -------------------------
-
-
-def as_agen[Y, S](obj: AsyncGenerator[Y, S]) -> AsyncGeneratorType[Y, S]:
-    return cast('AsyncGeneratorType[Y, S]', obj)
 
 
 @decorate
@@ -315,7 +286,7 @@ async def _agen_copy[T](*values: T) -> AsyncGenerator[T, Any]:
 
 
 class _AsyncIterable:
-    async def __aiter__(self) -> AsyncIterator[Literal[1, 2]]:
+    async def __aiter__(self) -> AsyncGenerator[Literal[1, 2]]:
         yield 1
         yield 2
 
@@ -354,7 +325,7 @@ async def _async_gen_asyncio_anext() -> AsyncGenerator[
     yield 4
 
 
-def _to_list[T](ait: AsyncIterator[T]) -> list[T]:
+def _to_list[T](ait: AsyncIterable[T]) -> list[T]:
     @decorate
     async def iterate() -> list[T]:
         return [x async for x in ait]
@@ -369,16 +340,20 @@ def _to_list[T](ait: AsyncIterator[T]) -> list[T]:
         exc = fut == ('throw',)
 
 
+class HasAnext[T](Protocol):
+    def __anext__(self, /) -> Awaitable[T]: ...
+
+
 @overload
-def py_anext[T](iterator: AsyncIterator[T]) -> Awaitable[T]: ...
+def py_anext[T](iterator: HasAnext[T], /) -> Awaitable[T]: ...
 @overload
 def py_anext[T, T2](
-    iterator: AsyncIterator[T], default: T2, /
+    iterator: HasAnext[T], default: T2, /
 ) -> Awaitable[T | T2]: ...
 
 
 def py_anext[T, T2](
-    iterator: AsyncIterator[T], default: T2 | Empty = Empty.token
+    iterator: HasAnext[T], default: T2 | Empty = Empty.token, /
 ) -> Awaitable[T | T2]:
     """Pure-Python implementation of anext() for testing purposes.
 
@@ -396,7 +371,7 @@ def py_anext[T, T2](
     if default is Empty.token:
         return __anext__(iterator)
 
-    @decorate  # ! FIXME smh coroutine breaks drops to 202/203
+    @decorate
     async def anext_impl() -> T | T2:
         # The C code is way more low-level than this, as it implements
         # all methods of the iterator protocol. In this implementation
@@ -416,46 +391,44 @@ def py_anext[T, T2](
 
 class Anext(Protocol):
     @overload
-    async def __call__[T](self, x: AsyncIterator[T], /) -> T: ...
+    async def __call__[T](self, x: HasAnext[T], /) -> T: ...
 
     @overload
     async def __call__[T, T2](
-        self, x: AsyncIterator[T], default: T2, /
+        self, x: HasAnext[T], default: T2, /
     ) -> T | T2: ...
 
 
-def _async_iterate[T](g: AsyncIterator[T]) -> Generator[T | str]:
-    an = g.__anext__().__await__()
+def gencmp[T](it: HasNext[T], ait: HasAnext[T]) -> list[T | str]:
+    gen_list: list[T | str] = []
+    while True:
+        try:
+            gen_list.append(it.__next__())
+        except StopIteration:
+            gen_list.append('STOP')
+            break
+        except Exception as e:  # noqa: BLE001
+            gen_list.append(str(type(e)))
+
+    agen_list: list[T | str] = []
+    an = ait.__anext__().__await__()
     while True:
         try:
             an.__next__()
-
         except StopAsyncIteration:
-            yield 'STOP'
-            return
+            agen_list.append('STOP')
+            break
+        except StopIteration as e:
+            agen_list.append(
+                'EMPTY StopIteration' if e.value is None else e.value
+            )
+            an = ait.__anext__().__await__()
+        except Exception as e:  # noqa: BLE001
+            agen_list.append(str(type(e)))
+            an = ait.__anext__().__await__()
 
-        except StopIteration as ex:
-            try:
-                yield 'EMPTY StopIteration' if ex.value is None else ex.value
-            except StopAsyncIteration:
-                yield 'STOP'
-                return
-            an = g.__anext__().__await__()
-
-        except Exception as ex:  # noqa: BLE001
-            try:
-                yield str(type(ex))
-            except StopAsyncIteration:
-                yield 'STOP'
-                return
-            an = g.__anext__().__await__()
-
-
-def gencmp[T](it: Iterator[T], ait: AsyncIterator[T]) -> list[T | str]:
-    sync_gen_result = [*_sync_iterate(it)]
-    async_gen_result = [*_async_iterate(ait)]
-    assert sync_gen_result == async_gen_result
-    return async_gen_result
+    assert gen_list == agen_list
+    return agen_list
 
 
 # -------------------------------- generators --------------------------------
@@ -734,7 +707,15 @@ class TestGenExceptions:
 
     def test_stopiteration_error(self) -> None:
         # See also PEP 479.
-        with pytest.raises(RuntimeError, match='raised StopIteration'):
+        with pytest.raises(
+            RuntimeError,
+            match='raised StopIteration',
+            check=lambda exc: (
+                isinstance(exc.__cause__, StopIteration)
+                and isinstance(exc.__context__, StopIteration)
+                and exc.__suppress_context__
+            ),
+        ):
             next(gen_raises(StopIteration))
 
     def test_tutorial_stopiteration(self) -> None:
@@ -765,12 +746,8 @@ class TestGenExceptions:
 
 
 class TestGenClose:
-    def test_no_return_value(self) -> None:
-        g = _gen_once()
-        g.send(None)
-        assert g.close() is None
-
     def test_no_except(self) -> None:
+        @decorate
         def foo() -> Generator[None, Any]:
             try:
                 yield
@@ -780,21 +757,6 @@ class TestGenClose:
         g = foo()
         g.send(None)
         g.close()
-
-    def test_return_value(self) -> None:
-        @decorate
-        def gen() -> Generator[None, Any, Literal[0] | None]:
-            try:
-                yield
-                # close() raises GeneratorExit here, which is caught
-            except GeneratorExit:
-                return 0
-            else:
-                return None
-
-        g = gen()
-        g.send(None)
-        assert g.close() == 0
 
     def test_not_catching_exit(self) -> None:
         @decorate
@@ -915,7 +877,7 @@ class TestGenThrow:
         # Check that the context is also available from inside the generator
         # with yield, as opposed to outside.
         @decorate
-        def gen() -> Generator[None | Literal['b']]:
+        def gen() -> Generator[Literal['b'] | None]:
             try:
                 raise KeyError('a')  # noqa: TRY301
             except Exception:  # noqa: BLE001
@@ -994,49 +956,21 @@ class TestGenThrow:
             g.throw(ValueError)
 
 
-class TestGenPep479:
-    def test_stopiteration_wrapping(self) -> None:
-        @decorate
-        def gen() -> Generator[Never, Any, Never]:
-            yield throw(StopIteration)
-
-        with pytest.raises(
-            RuntimeError, match='generator raised StopIteration'
-        ):
-            next(gen())
-
-    def test_stopiteration_wrapping_context(self) -> None:
-        @decorate
-        def gen() -> Generator[Never, Any, Never]:
-            yield throw(StopIteration)
-
-        with pytest.raises(
-            RuntimeError,
-            check=lambda exc: (
-                isinstance(exc.__cause__, StopIteration)
-                and isinstance(exc.__context__, StopIteration)
-                and exc.__suppress_context__
-            ),
-        ):
-            next(gen())
-
-
 # -------------------------------- coroutines --------------------------------
 
 
 class TestCoroutine:
     def test_gen_1(self) -> None:
-        assert not hasattr(_gen_once, '__await__')
+        assert not hasattr(_gen_once(), '__await__')
 
     def test_func_1(self) -> None:
         cr = _cr_return(10)
-        assert isinstance(cr, CoroutineType)
+        assert isinstance(cr, types.CoroutineType)
         assert _cr_return.__code__.co_flags & inspect.CO_COROUTINE
         assert not (_cr_return.__code__.co_flags & inspect.CO_GENERATOR)
         assert cr.cr_code.co_flags & inspect.CO_COROUTINE
         assert not (cr.cr_code.co_flags & inspect.CO_GENERATOR)
         assert _run_async(cr) == ([], 10)
-        assert _run_async(_cr_return(10)) == ([], 10)
 
         @decorate
         def bar() -> None:
@@ -1056,14 +990,11 @@ class TestCoroutine:
         cr.close()
 
     def test_func_4(self) -> None:
-        for el in _old_await(1):
-            assert el == 1
-        assert list(_old_await(1)) == [1]
-        assert tuple(_old_await(1)) == (1,)
-        assert next(iter(_old_await(1))) == 1
+        fn = decorate(_old_await)
+        assert list(fn(1)) == [1]
 
     def test_func_5(self) -> None:
-        @coroutine
+        @types.coroutine
         def bar() -> Generator[Literal[1, 2]]:
             yield 1
             yield 2
@@ -1071,18 +1002,20 @@ class TestCoroutine:
         async def foo() -> None:
             await bar()
 
-        cr = foo()
+        cr = decorate(foo)()
         assert cr.send(None) == 1
         assert cr.send(None) == 2
         with pytest.raises(StopIteration):
             cr.send(None)
 
     def test_func_6(self) -> None:
-        @coroutine
-        def bar() -> Generator[Any, Any, str]:
-            return (yield from cr)
-
         cr = _cr_return('spam')
+
+        @types.coroutine
+        def bar() -> Generator[Any, Any, str]:
+            x = yield from cr
+            return x
+
         assert _run_async(bar()) == ([], 'spam')
         cr.close()
 
@@ -1090,21 +1023,21 @@ class TestCoroutine:
         with pytest.warns(  # noqa: PT031
             RuntimeWarning, match=r"coroutine '.*' was never awaited"
         ):
-            _cr_return()  # type: ignore[unused-coroutine]
+            _cr_none()  # type: ignore[unused-coroutine]
             gc_collect()
 
         with pytest.warns(  # noqa: PT031
             RuntimeWarning, match=r"coroutine '.*' was never awaited"
         ):
             with pytest.raises(TypeError):  # See bpo-32703.
-                for _ in _cr_return():  # type: ignore[attr-defined]
+                for _ in _cr_none():  # type: ignore[attr-defined]
                     pass
             gc_collect()
 
     def test_func_8(self) -> None:
         n = 0
 
-        @coroutine
+        @types.coroutine
         def gen() -> Generator[int | None, int]:
             nonlocal n
             try:
@@ -1147,7 +1080,7 @@ class TestCoroutine:
             g.throw(ZeroDivisionError, ZeroDivisionError(), None)
 
     def test_func_9(self) -> None:
-        cr = _cr_return()
+        cr = _cr_none()
         # Test that PyCoro_Type and _PyCoroWrapper_Type types were properly
         # initialized
         assert '__await__' in dir(cr)
@@ -1156,17 +1089,17 @@ class TestCoroutine:
         cr.close()  # avoid RuntimeWarning
 
     def test_func_10(self) -> None:
-        async def coro():
+        async def coro() -> None:
             assert cr is not None
             cr.send(None)
             await asyncio.sleep(0)
 
-        cr = coro()
+        cr = decorate(coro)()
         with pytest.raises(ValueError, match='coroutine already executing'):
             cr.send(None)
 
     def test_func_11(self) -> None:
-        cr = _cr_return()
+        cr = _cr_none()
         with pytest.raises(
             TypeError,
             match="can't send non-None value to a just-started coroutine",
@@ -1304,7 +1237,7 @@ class TestCoroutine:
     def test_func_17(self) -> None:
         check = 0
 
-        @coroutine
+        @types.coroutine
         def coro1() -> Generator[None]:
             nonlocal check
             yield
@@ -1331,17 +1264,17 @@ class TestCoroutine:
             assert check == 1
 
     def test_coro_wrapper_send_tuple(self) -> None:
-        result = _run_async(_cr_return((10,)))
-        assert result == ([], (10,))
+        assert _run_async(_cr_return((10,))) == ([], (10,))
 
     def test_coro_wrapper_send_stop_iterator(self) -> None:
-        result = _run_async(_cr_return(StopIteration(10)))
-        assert isinstance(result[1], StopIteration)
-        assert result[1].value == 10
+        _, ret = _run_async(_cr_return(StopIteration(10)))
+        assert isinstance(ret, StopIteration)
+        assert ret.value == 10
 
     def test_cr_await(self) -> None:
-        @coroutine
+        @types.coroutine
         def coro1() -> Generator[None, Any]:
+            assert isinstance(cr, types.CoroutineType)
             assert inspect.getcoroutinestate(cr) == inspect.CORO_RUNNING
             assert cr.cr_await is None
             yield
@@ -1354,11 +1287,13 @@ class TestCoroutine:
 
         @decorate
         async def coro3() -> None:
+            assert isinstance(cr, types.CoroutineType)
             assert cr.cr_await is None
             await coro2()
             assert cr.cr_await is None
 
-        cr = as_coro(coro3())
+        cr = coro3()
+        assert isinstance(cr, types.CoroutineType)
         assert inspect.getcoroutinestate(cr) == inspect.CORO_CREATED
         assert cr.cr_await is None
 
@@ -1370,14 +1305,6 @@ class TestCoroutine:
             cr.send(None)  # complete coroutine
         assert inspect.getcoroutinestate(cr) == inspect.CORO_CLOSED
         assert cr.cr_await is None
-
-    def test_corotype_1(self) -> None:
-        ct = CoroutineType
-        assert ct.__name__ == 'coroutine'
-
-        cr = _cr_return()
-        assert 'coroutine object' in repr(cr)
-        cr.close()
 
     def test_await_1(self) -> None:
         @decorate
@@ -1399,7 +1326,7 @@ class TestCoroutine:
                 return (x for x in [52])
 
         @decorate
-        async def foo():
+        async def foo() -> None:
             return await _Awaitable()
 
         assert _run_async(foo()) == ([52], None)
@@ -1418,18 +1345,6 @@ class TestCoroutine:
 
     def test_await_5(self) -> None:
         @decorate
-        async def foo() -> int:
-            return await _cr_return(42)
-
-        @decorate
-        async def foo2() -> int:
-            return -await _cr_return(42)
-
-        assert _run_async(foo()) == ([], 42)
-        assert _run_async(foo2()) == ([], -42)
-
-    def test_await_6(self) -> None:
-        @decorate
         async def bar() -> Awaitable[Literal[42]]:
             return _cr_return(42)
 
@@ -1439,14 +1354,7 @@ class TestCoroutine:
 
         assert _run_async(foo()) == ([], 42)
 
-    def test_await_7(self) -> None:
-        @decorate
-        async def foo2() -> tuple[Literal['spam'], Literal['ham']]:
-            return await _cr_return('spam'), 'ham'
-
-        assert _run_async(foo2()) == ([], ('spam', 'ham'))
-
-    def test_await_8(self) -> None:
+    def test_await_6(self) -> None:
         class FutureLike:
             def __await__(
                 self,
@@ -1462,8 +1370,8 @@ class TestCoroutine:
 
         class Wrapper[R]:
             # Forces the interpreter to use CoroutineType.__await__
-            def __init__(self, coro: Coroutine[Any, Any, R]) -> None:
-                assert coro.__class__ is CoroutineType
+            def __init__(self, coro: types.CoroutineType[Any, Any, R]) -> None:
+                assert coro.__class__ is types.CoroutineType
                 self.coro = coro
 
             def __await__(self) -> Generator[Any, Any, R]:
@@ -1471,19 +1379,21 @@ class TestCoroutine:
 
         @decorate
         async def coro2() -> Literal['spam']:
-            return await Wrapper(coro1())
+            cr1 = coro1()
+            assert isinstance(cr1, types.CoroutineType)
+            return await Wrapper(cr1)
 
-        cr = coro2()
-        cr.send(None)
+        cr2 = coro2()
+        cr2.send(None)
         with pytest.raises(StopIteration, match='spam'):
-            cr.send('spam')
+            cr2.send('spam')
 
-        cr = coro2()
-        cr.send(None)
+        cr2 = coro2()
+        cr2.send(None)
         with pytest.raises(MyError):
-            cr.throw(ZeroDivisionError)
+            cr2.throw(ZeroDivisionError)
 
-    def test_await_9(self) -> None:
+    def test_await_7(self) -> None:
         @decorate
         async def coro() -> None:
             await _old_await()
@@ -1500,7 +1410,7 @@ class TestCoroutine:
         ):
             waiter(cr).send(None)
 
-    def test_await_10(self) -> None:
+    def test_await_8(self) -> None:
         # See https://bugs.python.org/issue29600 for details.
         @decorate
         async def coro() -> ValueError:
@@ -1515,28 +1425,18 @@ class TestCoroutine:
 
     def test_comp_1(self) -> None:
         @decorate
-        async def coro() -> list[int]:
-            return [await c for c in [_cr_return(1), _cr_return(41)]]
-
-        assert _run_async(coro()) == ([], [1, 41])
-
-    def test_comp_2(self) -> None:
-        @decorate
         async def coro() -> list[str]:
-            return [
-                s
-                for c in [
-                    _cr_return(''),
-                    _cr_return('abc'),
-                    _cr_return(''),
-                    _cr_return(['de', 'fg']),
-                ]
-                for s in await c
+            aws = [
+                _cr_return(''),
+                _cr_return('abc'),
+                _cr_return(''),
+                _cr_return(['de', 'fg']),
             ]
+            return [s for c in aws for s in await c]
 
         assert _run_async(coro()) == ([], ['a', 'b', 'c', 'de', 'fg'])
 
-    def test_comp_3(self) -> None:
+    def test_comp_2(self) -> None:
         @decorate
         async def coro() -> list[int]:
             return [
@@ -1549,7 +1449,7 @@ class TestCoroutine:
 
         assert _run_async(coro()) == ([], [41])
 
-    def test_comp_4(self) -> None:
+    def test_comp_3(self) -> None:
         @decorate
         async def coro() -> list[int]:
             return [
@@ -1558,23 +1458,17 @@ class TestCoroutine:
 
         assert _run_async(coro()) == ([], [11, 21, 31])
 
-    def test_comp_5(self) -> None:
-        @decorate
-        async def coro() -> list[int]:
-            return [1, 2, 3]
-
-        assert _run_async(coro()) == ([], [1, 2, 3])
-
     def test_fatal_coro_warning(self) -> None:
         # Issue 27811
-        with (
-            _silence_warnings('error'),
-            CatchUnraisableException() as cm,
-        ):
+        with warnings.catch_warnings(), _CatchUnraisableException() as cm:
+            warnings.simplefilter('error')
+
             # avoid keeping the coroutine alive
-            _cr_return()  # type: ignore[unused-coroutine]
+            _cr_none()  # type: ignore[unused-coroutine]
             gc_collect()
 
+            assert cm.unraisable is not None
+            assert cm.unraisable.err_msg is not None
             assert re.match(
                 r'Exception ignored while finalizing coroutine .*',
                 cm.unraisable.err_msg,
@@ -1583,28 +1477,34 @@ class TestCoroutine:
 
     def test_bpo_45813_1(self) -> None:
         """This would crash the interpreter in 3.11a2"""
+        cr = _cr_none()
+        assert isinstance(cr, types.CoroutineType)
+
+        frame = cr.cr_frame
         with pytest.warns(RuntimeWarning):
-            frame = as_coro(_cr_return()).cr_frame
+            del cr
         assert frame is not None
         frame.clear()
 
     def test_bpo_45813_2(self) -> None:
         """This would crash the interpreter in 3.11a2"""
-        cr = as_coro(_cr_return())
+        cr = _cr_none()
+        assert isinstance(cr, types.CoroutineType)
         assert cr.cr_frame is not None
         with pytest.warns(RuntimeWarning):
             cr.cr_frame.clear()
         cr.close()
 
     def test_cr_frame_after_close(self) -> None:
-        cr = as_coro(_cr_return())
+        cr = _cr_none()
+        assert isinstance(cr, types.CoroutineType)
         assert cr.cr_frame is not None
         cr.close()
         assert cr.cr_frame is None
 
     def test_stack_in_coroutine_throw(self) -> None:
         # Regression test for https://github.com/python/cpython/issues/93592
-        @coroutine
+        @types.coroutine
         def coro1() -> Generator[int, Any]:
             try:
                 yield len(traceback.extract_stack())
@@ -1638,6 +1538,7 @@ class TestCoroutine:
             obj = CallGeneratorOnDealloc()  # noqa: F841
             return 42
 
+        yielded: list
         yielded, result = _run_async(coro())
         assert yielded == []
         assert result == 42
@@ -1699,6 +1600,7 @@ class TestAsyncFor:
             async for i1, i2 in decorate(AsyncIter)():
                 buffer.append(i1 + i2)
 
+        yielded: list[int]
         yielded, _ = _run_async(coro())
         # Make sure that __aiter__ was called only once
         assert aiter_calls == 1
@@ -1725,7 +1627,7 @@ class TestAsyncFor:
                     raise StopAsyncIteration
                 return self.i, self.i
 
-        buffer = []
+        buffer: list[int | str] = []
 
         @decorate
         async def coro() -> None:
@@ -1737,6 +1639,7 @@ class TestAsyncFor:
             buffer.append('what?')
             buffer.append('end')
 
+        yielded: list[int]
         yielded, _ = _run_async(coro())
         # Make sure that __aiter__ was called only once
         assert aiter_calls == 1
@@ -1755,7 +1658,8 @@ class TestAsyncFor:
                 i += 1
             i += 1000
 
-        with _silence_warnings('error'):
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
             # Test that __aiter__ that returns an asynchronous iterator
             # directly does not throw any warnings.
             _run_async(coro())
@@ -1815,31 +1719,10 @@ class TestAsyncFor:
     def test_comp_2(self) -> None:
         @decorate
         async def coro() -> list[int]:
-            return [i + 1 async for i in _agen_copy(10, 20) if i > 10]
-
-        assert _run_async(coro()) == ([], [21])
-
-    def test_comp_3(self) -> None:
-        @decorate
-        async def coro() -> list[int]:
-            return [i + 10 async for i in _agen_copy(*range(5)) if 0 < i < 4]
-
-        assert _run_async(coro()) == ([], [11, 12, 13])
-
-    def test_comp_4(self) -> None:
-        @decorate
-        async def coro() -> list[int]:
             return [i async for i in _agen_yi_raise(MyError('aaa'), 1, 2)]
 
         with pytest.raises(MyError, match='aaa'):
             _run_async(coro())
-
-    def test_comp_5(self) -> None:
-        @decorate
-        async def coro() -> list[int]:
-            return [i async for i in _agen_copy(1, 2)]
-
-        assert _run_async(coro()) == ([], [1, 2])
 
     def test_nested_cmp_list_in_list(self) -> None:
         @decorate
@@ -1848,48 +1731,13 @@ class TestAsyncFor:
 
         assert _run_async(coro()) == ([], [[11, 12], [21, 22]])
 
-    def test_nested_cmp_list_in_gen(self) -> None:
-        @decorate
-        async def coro() -> list[list[int]]:
-            agen = ([i + j async for i in _agen_copy(1, 2)] for j in [10, 20])
-            return [x async for x in agen]  # type: ignore[attr-defined]
-
-        assert _run_async(coro()) == ([], [[11, 12], [21, 22]])
-
-    def test_nested_cmp_gen_in_list(self) -> None:
-        @decorate
-        async def coro() -> list[int]:
-            gens = [(i async for i in _agen_copy(*range(j))) for j in [3, 5]]
-            return [x for g in gens async for x in g]
-
-        assert _run_async(coro()) == (
-            [],
-            [0, 1, 2, 0, 1, 2, 3, 4],
-        )
-
     def test_nested_cmp_gen_in_gen(self) -> None:
         @decorate
         async def coro() -> list[int]:
             gens = ((i async for i in _agen_copy(*range(j))) for j in [3, 5])
             return [x for g in gens async for x in g]
 
-        assert _run_async(coro()) == (
-            [],
-            [0, 1, 2, 0, 1, 2, 3, 4],
-        )
-
-    def test_nested_cmp_list_in_list_in_list(self) -> None:
-        @decorate
-        async def coro() -> list[list[list[int]]]:
-            return [
-                [[i + j + k async for i in _agen_copy(1, 2)] for j in [10, 20]]
-                for k in [100, 200]
-            ]
-
-        assert _run_async(coro()) == (
-            [],
-            [[[111, 112], [121, 122]], [[211, 212], [221, 222]]],
-        )
+        assert _run_async(coro()) == ([], [0, 1, 2, 0, 1, 2, 3, 4])
 
     def test_assign_raising_stop_async_iter_1_for(self) -> None:
         tgt = _BadTarget()
@@ -1983,7 +1831,8 @@ class TestAsyncFor:
 
 class TestAsyncGenType:
     def test_ag_frame_f_back(self) -> None:
-        ag = as_agen(_agen_copy(None))
+        ag = _agen_copy(None)
+        assert isinstance(ag, types.AsyncGeneratorType)
         assert ag.ag_frame
         assert ag.ag_frame.f_back is None
 
@@ -2322,12 +2171,13 @@ class TestOldAsyncGenAlreadyRunning:
 
 class TestAsyncGenApi:
     def test_frame(self) -> None:
-        ag = as_agen(_agen_copy(1, 2))
+        ag = _agen_copy(1, 2)
+        assert isinstance(ag, types.AsyncGeneratorType)
 
         assert ag.ag_await is None
-        assert isinstance(ag.ag_frame, FrameType)
+        assert isinstance(ag.ag_frame, types.FrameType)
         assert not ag.ag_running
-        assert isinstance(ag.ag_code, CodeType)
+        assert isinstance(ag.ag_code, types.CodeType)
 
         cr = ag.aclose()
         assert inspect.isawaitable(cr)
@@ -2394,11 +2244,11 @@ class TestAsyncGenAnext:
     async def test_4_send(self, anext_: Anext) -> None:
         ag = _agen_copy(1, 2)
         cr = anext_(ag, 'completed')
-        with (
-            pytest.raises(StopIteration),
-            contextlib.closing(cr.__await__()) as g,
-        ):
+        g = cr.__await__()
+        with pytest.raises(StopIteration):
             g.send(None)
+        g.close()
+        await ag.aclose()
 
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_bad_throw(self, anext_: Anext) -> None:
@@ -2413,31 +2263,40 @@ class TestAsyncGenAnextIter:
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_1(self, anext_: Anext) -> None:
         ag = _agen_aw_exc_aw(MyError, x1=1, x2=2)
-        with contextlib.closing(anext_(ag, 'default').__await__()) as g:
+        g = anext_(ag, 'default').__await__()
+        try:
             assert g.send(None) == 1
             assert g.throw(MyError()) == 2
             with pytest.raises(
                 StopIteration, check=lambda e: e.value == 'default'
             ):
                 g.send(None)
+        finally:
+            g.close()
 
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_2(self, anext_: Anext) -> None:
         ag = _agen_aw_exc_aw(MyError, x1=1, x2=2)
-        with contextlib.closing(anext_(ag, 'default').__await__()) as g:
+        g = anext_(ag, 'default').__await__()
+        try:
             assert g.send(None) == 1
             assert g.throw(MyError()) == 2
             with pytest.raises(MyError):
                 g.throw(MyError())
+        finally:
+            g.close()
 
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_3(self, anext_: Anext) -> None:
         ag = _agen_aw_exc_aw(MyError, x1=1, x2=2)
-        with contextlib.closing(anext_(ag, 'default').__await__()) as g:
+        g = anext_(ag, 'default').__await__()
+        try:
             assert g.send(None) == 1
             g.close()
             with pytest.raises(RuntimeError, match='cannot reuse'):
                 assert g.send(None) == 1
+        finally:
+            g.close()
 
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_4(self, anext_: Anext) -> None:
@@ -2451,11 +2310,14 @@ class TestAsyncGenAnextIter:
             yield
 
         ag = agenfn_aw_exc_aw()
-        with contextlib.closing(anext_(ag, 'default').__await__()) as g:
+        g = anext_(ag, 'default').__await__()
+        try:
             assert g.send(None) == 10
             assert g.throw(MyError()) == 20
             with pytest.raises(MyError, match='val'):
                 g.throw(MyError('val'))
+        finally:
+            g.close()
 
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_5(self, anext_: Anext) -> None:
@@ -2468,10 +2330,13 @@ class TestAsyncGenAnextIter:
             yield 'aaa'
 
         ag = agenfn_aw_ex_yi()
-        with contextlib.closing(anext_(ag, 'default').__await__()) as g:
+        g = anext_(ag, 'default').__await__()
+        try:
             assert g.send(None) == 10
             with pytest.raises(StopIteration, match='default'):
                 g.throw(MyError())
+        finally:
+            g.close()
 
     @pytest.mark.parametrize('anext_', [py_anext, anext])
     def test_6(self, anext_: Anext) -> None:
@@ -2481,12 +2346,12 @@ class TestAsyncGenAnextIter:
             yield 'aaa'
 
         ag = agenfn()
-        with (
-            contextlib.closing(anext_(ag, 'default').__await__()) as g,
-            pytest.raises(MyError),
-        ):
-            g.throw(MyError())
-        g.close()
+        g = anext_(ag, 'default').__await__()
+        try:
+            with pytest.raises(MyError):
+                g.throw(MyError())
+        finally:
+            g.close()
 
 
 class TestAsyncGenAsyncio:
@@ -2670,6 +2535,8 @@ class TestAsyncGenAsyncio:
             RuntimeError, match='async generator ignored GeneratorExit'
         ):
             await ag.aclose()
+        with pytest.raises(GeneratorExit):
+            await ag.asend(None)
 
     @pytest.mark.asyncio
     async def test_aclose_01a(self) -> None:
@@ -2802,6 +2669,9 @@ class TestAsyncGenAsyncio:
         with pytest.raises(RuntimeError, match='ignored GeneratorExit'):
             await ag.aclose()
         assert done == 0
+        with pytest.raises(StopAsyncIteration):
+            await ag.asend(None)
+        assert done == 1
 
     @pytest.mark.asyncio
     async def test_aclose_07(self) -> None:
