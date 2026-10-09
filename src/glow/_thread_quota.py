@@ -48,7 +48,6 @@ type _ExecutorPipe = SimpleQueue['ThreadQuota | None']
 _shutdown = False  # set only by `_python_exit`
 _shutdown_lock = Lock()  # Blocks worker creation on interpreter shutdown
 _executors = WeakSet['ThreadQuota']()
-_workers = WeakSet[Thread]()
 _idle = deque[_ExecutorPipe]()
 
 
@@ -150,7 +149,6 @@ class ThreadQuota(Executor):
                     q.put(self)
                     w = Thread(target=_worker, args=[q])
                     w.start()
-                    _workers.add(w)
 
         f.add_done_callback(self._forget)
 

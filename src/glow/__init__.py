@@ -18,7 +18,7 @@ from ._array import (
 from ._async import MulticastQueue, RwLock, amap, amap_dict, astarmap
 from ._cache import cache_status, call_once, coalesce, memoize, new_cache
 from ._concurrency import threadlocal
-from ._coro import as_actor, consumer, summary
+from ._coro import consumer, summary
 from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru, span_task
@@ -41,7 +41,7 @@ from ._parallel import (
     max_cpu_count,
     starmap_n,
 )
-from ._pipes import cumsum, maximum_cumsum
+from ._pipes import Actor, cumsum, maximum_cumsum
 from ._profile import memprof, memtrack, time_this, timer, whereami
 from ._repr import countable, mangle, repr_as_obj, si, si_bin
 from ._reusable import Reusable
@@ -86,6 +86,7 @@ else:
 
 
 __all__ = [
+    'Actor',
     'MulticastQueue',
     'Reusable',
     'RwLock',
@@ -99,7 +100,6 @@ __all__ = [
     'aminmax_norm',
     'apack',
     'around',
-    'as_actor',
     'as_iter',
     'astarmap',
     'azip',

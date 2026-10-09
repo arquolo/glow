@@ -27,7 +27,7 @@ type AnyIterable[T] = AsyncIterable[T] | Iterable[T]
 
 type Get[T] = Callable[[], T]
 type Unary[T, R = object] = Callable[[T], R]
-type AUnary[T, R = object] = ACallable[[T], R]
+type AUnary[T, R = object] = Callable[[T], Coro[R]]
 
 type CachePolicy = Literal['lru', 'mru']
 type Maybe[T] = list[T] | BaseException
@@ -87,8 +87,6 @@ class HasThrow[Y](Protocol):
         /,
     ) -> Y: ...
 
-    # def throw(self, *args) -> Y: ...
-
 
 class HasClose[R](Protocol):
     def close(self) -> R | None: ...
@@ -99,7 +97,7 @@ class HasPopleft[T](Protocol):
 
 
 class Pipe[In, Out](Protocol):
-    def send(self, value: In) -> Out: ...
+    def send(self, value: In, /) -> Out: ...
 
 
 class Empty(enum.Enum):

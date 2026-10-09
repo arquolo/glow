@@ -18,12 +18,10 @@ from collections.abc import (
     AsyncIterator,
     Callable,
     Generator,
-    Hashable,
     Iterable,
     Iterator,
     Mapping,
     Sequence,
-    Sized,
 )
 from itertools import batched, chain, compress, cycle, islice, repeat
 from threading import Thread
@@ -47,8 +45,8 @@ def as_iter[T](
 @overload
 def _dispatch[S, *Ts](
     slice_fn: Callable[[SupportsSlice[S], *Ts], Iterator[S]],
-    sync_fn: Callable[[Iterable, *Ts], Iterator],
-    async_fn: Callable[[AsyncIterable, *Ts], AsyncIterator],
+    sync_fn: Callable[[Iterator, *Ts], Iterator],
+    async_fn: Callable[[AsyncIterator, *Ts], AsyncIterator],
     it: SupportsSlice[S],
     *args: *Ts,
 ) -> Iterator[S]: ...
@@ -57,8 +55,8 @@ def _dispatch[S, *Ts](
 @overload
 def _dispatch[T, *Ts](
     slice_fn: Callable[[SupportsSlice, *Ts], Iterator],
-    sync_fn: Callable[[Iterable[T], *Ts], Iterator[tuple[T, ...]]],
-    async_fn: Callable[[AsyncIterable, *Ts], AsyncIterator],
+    sync_fn: Callable[[Iterator[T], *Ts], Iterator[tuple[T, ...]]],
+    async_fn: Callable[[AsyncIterator, *Ts], AsyncIterator],
     it: Iterable[T],
     *args: *Ts,
 ) -> Iterator[tuple[T, ...]]: ...
@@ -67,8 +65,8 @@ def _dispatch[T, *Ts](
 @overload
 def _dispatch[T, *Ts](
     slice_fn: Callable[[SupportsSlice, *Ts], Iterator],
-    sync_fn: Callable[[Iterable, *Ts], Iterator],
-    async_fn: Callable[[AsyncIterable[T], *Ts], AsyncIterator[tuple[T, ...]]],
+    sync_fn: Callable[[Iterator, *Ts], Iterator],
+    async_fn: Callable[[AsyncIterator[T], *Ts], AsyncIterator[tuple[T, ...]]],
     it: AsyncIterable[T],
     *args: *Ts,
 ) -> AsyncIterator[tuple[T, ...]]: ...
@@ -76,16 +74,16 @@ def _dispatch[T, *Ts](
 
 def _dispatch[*Ts](
     slice_fn: Callable[[SupportsSlice, *Ts], Iterator],
-    sync_fn: Callable[[Iterable, *Ts], Iterator],
-    async_fn: Callable[[AsyncIterable, *Ts], AsyncIterator],
+    sync_fn: Callable[[Iterator, *Ts], Iterator],
+    async_fn: Callable[[AsyncIterator, *Ts], AsyncIterator],
     it: SupportsSlice | Iterable | AsyncIterable,
     *args: *Ts,
 ) -> Iterator | AsyncIterator:
     if isinstance(it, AsyncIterable):
-        return async_fn(it, *args)
+        return async_fn(aiter(it), *args)
 
     if isinstance(it, Mapping) or not isinstance(it, SupportsSlice):
-        return sync_fn(it, *args)
+        return sync_fn(iter(it), *args)
 
     if isinstance(it, str | bytes | tuple | list):  # Could always be sliced
         return slice_fn(it, *args)
@@ -95,20 +93,12 @@ def _dispatch[*Ts](
         r = slice_fn(it, *args)
         first_or_none = tuple(islice(r, 1))
     except TypeError:
-        return sync_fn(it, *args)  # type: ignore[arg-type]
+        return sync_fn(iter(it), *args)  # type: ignore[call-overload]
     else:
         return chain(first_or_none, r)
 
 
 # ----------------------------------------------------------------------------
-
-
-def window_hint(it: Sized, size: int) -> int:
-    return len(it) + 1 - size
-
-
-def chunk_hint(it: Sized, size: int) -> int:
-    return len(range(0, len(it), size))
 
 
 def _sliced_windowed[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
@@ -122,12 +112,9 @@ def _sliced_windowed[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
     return map(s.__getitem__, slices)
 
 
-def _windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
+def _windowed[T](it: Iterator[T], size: int, /) -> Iterator[tuple[T, ...]]:
     assert size >= 1
-
-    it = iter(it)
     w = deque(islice(it, size), maxlen=size)
-
     if not w:
         return iter([])
     if len(w) < size:
@@ -136,16 +123,22 @@ def _windowed[T](it: Iterable[T], size: int, /) -> Iterator[tuple[T, ...]]:
 
 
 async def _awindowed[T](
-    it: AsyncIterable[T], size: int, /
+    it: AsyncIterator[T], size: int, /
 ) -> AsyncGenerator[tuple[T, ...]]:
     assert size >= 1
-
     w = deque[T](maxlen=size)
+
+    try:  # Prefill
+        for _ in range(size):
+            w.append(await anext(it))
+    except StopAsyncIteration:
+        pass
+
+    if not w:
+        return
+    yield tuple(w)
     async for x in it:
         w.append(x)
-        if len(w) == size:
-            yield tuple(w)
-    if w and len(w) < size:
         yield tuple(w)
 
 
@@ -158,7 +151,7 @@ def _sliced[T](s: SupportsSlice[T], size: int, /) -> Iterator[T]:
 
 
 async def _abatched[T](
-    it: AsyncIterable[T], size: int, /
+    it: AsyncIterator[T], size: int, /
 ) -> AsyncGenerator[tuple[T, ...]]:
     assert size >= 1
 
@@ -253,7 +246,7 @@ def each_is[T](items: Sequence, tp: type[T]) -> TypeGuard[Sequence[T]]:
 
 
 def unqueue[T](q: HasPopleft[T], /) -> Generator[T]:
-    # Same as more_itertools.iter_except(q.popleft, IndexError)
+    """Same as more_itertools.iter_except(q.popleft, IndexError)"""
     try:
         while True:
             yield q.popleft()
@@ -338,18 +331,18 @@ def roundrobin[T](*iterables: Iterable[T]) -> Generator[T]:
 
 
 @overload
-def groupby[T, K: Hashable](
+def groupby[T, K](
     iterable: Iterable[T], /, key: Unary[T, K]
 ) -> dict[K, list[T]]: ...
 
 
 @overload
-def groupby[T, K: Hashable, V](
+def groupby[T, K, V](
     iterable: Iterable[T], /, key: Unary[T, K], value: Unary[T, V]
 ) -> dict[K, list[V]]: ...
 
 
-def groupby[T, K: Hashable](
+def groupby[T, K](
     iterable: Iterable[T], /, key: Unary[T, K], value=lambda x: x
 ) -> dict[K, list]:
     """Group items from iterable by key.

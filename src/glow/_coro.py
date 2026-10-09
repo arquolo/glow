@@ -1,7 +1,7 @@
-__all__ = ['as_actor', 'consumer']
+__all__ = ['consumer']
 
-from collections import Counter, deque
-from collections.abc import Callable, Generator, Hashable, Iterable, Iterator
+from collections import Counter
+from collections.abc import Callable, Generator, Hashable
 from contextlib import AbstractContextManager
 from functools import update_wrapper
 from threading import Lock
@@ -11,8 +11,7 @@ try:
 except ImportError:
     from wrapt import ObjectProxy
 
-from ._more import unqueue
-from ._types import SupportsNext, Unary
+from ._types import SupportsNext
 
 
 def consumer[**P, R: SupportsNext](fn: Callable[P, R], /) -> Callable[P, R]:
@@ -82,18 +81,3 @@ def summary() -> Generator[dict[Hashable, int], Hashable | None]:
         else:
             state[key] += 1
             print(dict(state), flush=True, end='\r')
-
-
-@threadsafe_iter
-@consumer
-def as_actor[T, R](fn: Unary[Iterable[T], Iterator[R]], /) -> Generator[R, T]:
-    buf = deque[T]()
-    gen = fn(unqueue(buf))  # infinite
-
-    # shortcuts
-    buf_append, gen_next = buf.append, gen.__next__
-
-    x = yield  # type: ignore[misc]  # preseed coroutine
-    while True:
-        buf_append(x)
-        x = yield gen_next()
