@@ -11,7 +11,6 @@ import concurrent.futures as cf
 import functools
 import inspect
 from collections.abc import Callable, Hashable, Iterable, Iterator
-from math import isinf
 from threading import RLock
 from time import monotonic
 from typing import Final, SupportsInt
@@ -35,8 +34,8 @@ from ._locking import await_future
 from ._repr import si_bin
 from ._sizeof import sizeof
 from ._types import (
-    AbstractCache,
     ACallable,
+    Cache,
     CachePolicy,
     Empty,
     Get,
@@ -85,12 +84,14 @@ def new_cache(
     *,
     nbytes: SupportsInt | None = None,
     policy: CachePolicy | None = None,
-    ttl: float | None = None,
+    ttl: float = _inf,
     renew_on_access: bool = True,
     weak_fallback: bool = True,
-) -> AbstractCache:
+) -> Cache:
     count = -1 if count is None else int(count)
     nbytes = -1 if nbytes is None else int(nbytes)
+    if ttl <= 0:
+        ttl = _inf
 
     # +/+, +/0, +/-, 0/+, 0/0, 0/-, -/+, -/0, -/-
     if (count == 0 and nbytes > 0) or (count > 0 and nbytes == 0):
@@ -102,14 +103,16 @@ def new_cache(
         policy = None
 
     # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
-    if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
+    if count == 0 or nbytes == 0:
         # 0/0, 0/-, -/0 (weakrefs only)
-        return _WeakCache() if weak_fallback else _ZeroCache()
+        count = nbytes = 0  # Normalize
+        if ttl >= _inf:
+            return _WeakCache() if weak_fallback else _ZeroCache()
+        return _TimedCache(0, 0, ttl, renew_on_access, weak_fallback)
 
     # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
-    if cache_cls := _CACHES.get((policy, bool(ttl))):
-        cache = cache_cls(count, nbytes, ttl or _inf, renew_on_access)
-        return _StrongCache(cache) if weak_fallback else cache
+    if cache_cls := _CACHES.get((policy, ttl < _inf)):
+        return cache_cls(count, nbytes, ttl, renew_on_access, weak_fallback)
     raise ValueError(
         f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
     )
@@ -121,7 +124,7 @@ def cache_status() -> str:
     )
 
 
-_REFS = WeakValueDictionary[int, '_Cache']()
+_REFS = WeakValueDictionary[int, '_BaseCache']()
 
 
 class _ZeroCache:
@@ -155,17 +158,19 @@ class _ZeroCache:
         pass
 
 
-class _Cache[T]:
+class _BaseCache[K, T]:
     __slots__ = (
         '__weakref__',
-        '_deadlines',
         'capacity',
         'capacity_bytes',
+        'deadlines',
         'nbytes',
         'renew_on_access',
         'stats',
         'store',
         'ttl',
+        'weak_fallback',
+        'wstore',
     )
 
     def __init__(
@@ -174,38 +179,44 @@ class _Cache[T]:
         capacity_bytes: int,
         ttl: float = _inf,
         renew_on_access: bool = True,
-        store: dict[Hashable, _Node[T]] | None = None,
+        weak_fallback: bool = True,
+        *,
+        store: dict[K, _Node[T]] | None = None,
     ) -> None:
         self.capacity = capacity
         self.capacity_bytes = capacity_bytes
-        self.nbytes = 0
-        self.stats = Stats()
-        self.store = {} if store is None else store
         self.ttl = ttl
         self.renew_on_access = renew_on_access if ttl < _inf else False
-        self._deadlines: dict[Hashable, float] = {}
+        self.weak_fallback = weak_fallback
+        self.store = {} if store is None else store
+        self.wstore = WeakValueDictionary[K, T]()
+        self.deadlines: dict[K, float] = {}
+        self.nbytes = 0
+        self.stats = Stats()
         _REFS[id(self)] = self
 
     def __len__(self) -> int:
         self._prune_and_get_new_deadline()
-        return len(self.store)
+        return len(self.store) + len(self.wstore)
 
-    def keys(self) -> Iterator[Hashable]:
+    def keys(self) -> Iterator[K]:
         self._prune_and_get_new_deadline()
-        return iter(self.store)
+        return iter([*self.store, *self.wstore])
 
     __iter__ = keys
 
     def clear(self) -> None:
         self.stats.dropped += len(self.store)
-        self._deadlines.clear()
+        self.deadlines.clear()
         self.store.clear()
+        self.wstore.clear()
         self.nbytes = 0
 
     def __repr__(self) -> str:
         self._prune_and_get_new_deadline()
         args = [
             f'items={len(self.store)}',
+            f'weakitems={len(self.wstore)}',
             f'size[bytes]={si_bin(self.nbytes)}',
             f'capacity={self.capacity}',
             f'capacity[bytes]={si_bin(self.capacity_bytes)}',
@@ -214,7 +225,7 @@ class _Cache[T]:
             args.append(f'stats={self.stats}')
         return f'{type(self).__name__}({", ".join(args)})'
 
-    def get(self, key: Hashable, /) -> T | Empty:
+    def get(self, key: K, /) -> T | Empty:
         """Retrieve value by key, access is not recorded"""
         self._prune_and_get_new_deadline()
 
@@ -222,19 +233,23 @@ class _Cache[T]:
             self.stats.hits += 1
             return node.value
 
+        if (value := self.wstore.get(key, empty)) is not empty:
+            self.stats.hits += 1
+            return value
+
         self.stats.misses += 1
         return empty
 
-    def pop(self, key: Hashable, /) -> T | Empty:
+    def pop(self, key: K, /) -> T | Empty:
         """Retrieve value and delete it from cache"""
         self._prune_and_get_new_deadline()
+        self.deadlines.pop(key, None)
         if node := self.store.pop(key, None):
-            self._deadlines.pop(key, None)
             self.nbytes -= node.nbytes
             return node.value
-        return empty
+        return self.wstore.pop(key, empty)
 
-    def __getitem__(self, key: Hashable, /) -> T | Empty:
+    def __getitem__(self, key: K, /) -> T | Empty:
         """Retrieve value and update its atime"""
         deadline = self._prune_and_get_new_deadline()
 
@@ -242,28 +257,36 @@ class _Cache[T]:
             self.stats.hits += 1
             self.store[key] = node  # Move front
             if self.renew_on_access:
-                del self._deadlines[key]
-                self._deadlines[key] = deadline  # Move front
+                del self.deadlines[key]
+                self.deadlines[key] = deadline  # Move front
             return node.value
+
+        if (value := self.wstore.pop(key, empty)) is not empty:
+            self.stats.hits += 1
+            if self.renew_on_access:
+                self.deadlines.pop(key, None)
+                self._maybe_insert(key, value, deadline)
+            else:
+                self._maybe_insert(key, value, _inf)
+            return value
 
         self.stats.misses += 1
         return empty
 
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
+    def __setitem__(self, key: K, value: T, /) -> None:
         self.getset(key, value)
 
-    def getset(self, key: Hashable, value: T, /) -> T | Empty:
+    def getset(self, key: K, value: T, /) -> T | Empty:
         """Sets the value at key to value and returns the old value at key."""
         deadline = self._prune_and_get_new_deadline()
+        self.deadlines.pop(key, None)
 
         if node := self.store.pop(key, None):
-            self._deadlines.pop(key, None)
-
             # Cache hit - update access (assuming value's size is the same)
             if node.value is value:
                 self.store[key] = node  # Move front
                 if deadline < _inf:
-                    self._deadlines[key] = deadline
+                    self.deadlines[key] = deadline
                 return value
 
             # Cache hit - overwrite (value's size maybe has changed)
@@ -271,19 +294,30 @@ class _Cache[T]:
             self._maybe_insert(key, value, deadline)
             return node.value
 
-        # Cache miss - insert
-        self._maybe_insert(key, value, deadline)
-        return empty
+        old_value = self.wstore.pop(key, empty)
+        if old_value is not empty:  # Weak cache hit - update
+            self.stats.hits += 1
 
-    def __delitem__(self, key: Hashable, /) -> None:
+        self._maybe_insert(key, value, deadline)
+        return old_value
+
+    def __delitem__(self, key: K, /) -> None:
+        self.deadlines.pop(key, None)
         if node := self.store.pop(key, None):
-            self._deadlines.pop(key, None)
             self.nbytes -= node.nbytes
             self.stats.dropped += 1
+        else:
+            self.wstore.pop(key, None)
         self._prune_and_get_new_deadline()
 
-    def _maybe_insert(self, key: Hashable, value: T, deadline: float) -> None:
-        if 0 < self.capacity <= len(self.store):  # No free slots
+    def _maybe_insert(self, key: K, value: T, deadline: float) -> None:
+        if 0 <= self.capacity <= len(self.store):  # No free slots
+            if (
+                self.weak_fallback
+                and _weak_insert(self.wstore, key, value)
+                and deadline < _inf
+            ):
+                self.deadlines[key] = deadline
             return
 
         nbytes = 0
@@ -294,46 +328,65 @@ class _Cache[T]:
 
         if do_write:
             self.store[key] = _Node(value, nbytes)
-            if deadline < _inf:
-                self._deadlines[key] = deadline
             self.nbytes += nbytes
+            if deadline < _inf:
+                self.deadlines[key] = deadline
+        elif (
+            self.weak_fallback
+            and _weak_insert(self.wstore, key, value)
+            and deadline < _inf
+        ):
+            self.deadlines[key] = deadline
 
     def _prune_and_get_new_deadline(self) -> float:
         return _inf
 
 
-class _TimedCache[T](_Cache[T]):
+class _TimedCache[K, V](_BaseCache[K, V]):
     """
     Drops items older than `now - ttl`
     """
 
     def _prune_and_get_new_deadline(self) -> float:
-        if isinf(self.ttl):
+        if self.ttl >= _inf:
             return _inf
         now = monotonic()
         deadline = now + self.ttl
-        while self._deadlines:
-            key, expires_at = next(iter(self._deadlines.items()))
-            if expires_at > now:  # reached alive node before free space
+        while self.deadlines:
+            key, expires_at = next(iter(self.deadlines.items()))
+            if key not in self.store and key not in self.wstore:  # Do GC
+                del self.deadlines[key]
+                continue
+            if expires_at > now:  # Reached alive node before free space
                 return deadline
-            self.nbytes -= self.store.pop(key).nbytes  # dead node, delete
-            del self._deadlines[key]
+            # Dead node, delete
+            if node := self.store.pop(key, None):
+                self.nbytes -= node.nbytes  # In main store
+            else:
+                self.wstore.pop(key, None)  # Maybe in weakref store
+            del self.deadlines[key]
             self.stats.dropped += 1
         return deadline
 
 
-class _EvictableCache[T](_Cache[T]):
+class _EvictableCache[K, V](_BaseCache[K, V]):
     """
     Evicts nodes when cache is too large
     """
 
-    def _maybe_insert(self, key: Hashable, value: T, deadline: float) -> None:
+    def _maybe_insert(self, key: K, value: V, deadline: float) -> None:
         if self.store and len(self.store) == self.capacity:  # no space
             self._evict()
 
         if self.capacity_bytes > 0:  # byte-bound cache
             nbytes = int(sizeof(value))
             if nbytes > self.capacity_bytes:  # cache will never fit this
+                if (
+                    self.weak_fallback
+                    and _weak_insert(self.wstore, key, value)
+                    and deadline < _inf
+                ):
+                    self.deadlines[key] = deadline
                 return
             while self.store and self.nbytes + nbytes > self.capacity_bytes:
                 self._evict()
@@ -342,127 +395,105 @@ class _EvictableCache[T](_Cache[T]):
 
         self.store[key] = _Node(value, nbytes)
         if deadline < _inf:
-            self._deadlines[key] = deadline
+            self.deadlines[key] = deadline
         self.nbytes += nbytes
 
     def _evict(self) -> None:
         raise NotImplementedError
 
 
-class _LruCache[T](_EvictableCache[T]):
+class _LruCache[K, V](_EvictableCache[K, V]):
     """Evicts least recently used node when cache is too large."""
 
     def _evict(self) -> None:
         """Drop oldest node."""
         key = next(iter(self.store))
-        self.nbytes -= self.store.pop(key).nbytes
-        self._deadlines.pop(key, None)
+        node = self.store.pop(key)
+        self.nbytes -= node.nbytes
+        if not (
+            self.weak_fallback and _weak_insert(self.wstore, key, node.value)
+        ):
+            self.deadlines.pop(key, None)
         self.stats.dropped += 1
 
 
-class _MruCache[T](_EvictableCache[T]):
+class _MruCache[K, V](_EvictableCache[K, V]):
     """Evicts most recently used node when cache is too large."""
 
     def _evict(self) -> None:
         """Drop most recently added node."""
         key, node = self.store.popitem()
         self.nbytes -= node.nbytes
-        self._deadlines.pop(key, None)
+        if not (
+            self.weak_fallback and _weak_insert(self.wstore, key, node.value)
+        ):
+            self.deadlines.pop(key, None)
         self.stats.dropped += 1
 
 
-class _TimedLruCache[T](_LruCache, _TimedCache[T]):
+class _TimedLruCache[K, V](_LruCache, _TimedCache[K, V]):
     pass
 
 
-class _TimedMruCache[T](_MruCache, _TimedCache[T]):
+class _TimedMruCache[K, V](_MruCache, _TimedCache[K, V]):
     pass
 
 
 # --------------------------------- utilities --------------------------------
 
 
-class _WeakCache[T]:
+class _WeakCache[K, V]:
     """Retrieve items via weak references from everywhere."""
 
     def __init__(self) -> None:
-        self.alive = WeakValueDictionary[Hashable, T]()
+        self.alive = WeakValueDictionary[K, V]()
 
     def keys(self) -> Iterator[Hashable]:
         return iter(self.alive)
 
     __iter__ = keys
 
-    def get(self, key: Hashable, /) -> T | Empty:
+    def get(self, key: K, /) -> V | Empty:
         return self.alive.get(key, empty)
 
-    def __getitem__(self, key: Hashable, /) -> T | Empty:
+    def __getitem__(self, key: K, /) -> V | Empty:
         return self.alive.get(key, empty)
 
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
-        if type(value).__weakrefoffset__:  # Supports weak reference.
-            self.alive[key] = value  # Overwrite
-        else:
-            self.alive.pop(key, None)  # Drop old value
+    def __setitem__(self, key: K, value: V, /) -> None:
+        _weak_insert(self.alive, key, value)
 
-    def __delitem__(self, key: Hashable, /) -> None:
+    def __delitem__(self, key: K, /) -> None:
         self.alive.pop(key, None)
 
 
-class _StrongCache[T](_WeakCache[T]):
-    def __init__(self, base: AbstractCache[T]) -> None:
-        super().__init__()
-        self.base = base
+def _weak_insert[K, V](s: WeakValueDictionary[K, V], key: K, value: V) -> bool:
+    if type(value).__weakrefoffset__:  # Supports weak reference.
+        s[key] = value  # Overwrite
+        return True
 
-    def keys(self) -> Iterator[Hashable]:
-        return iter({*self.base.keys(), *self.alive.keys()})
-
-    __iter__ = keys
-
-    def get(self, key: Hashable, /) -> T | Empty:
-        # Retrieve from main storage first
-        if (ret := self.base.get(key)) is not empty:
-            return ret
-        # Item could still exist, try reference ...
-        return super().get(key)
-
-    def __getitem__(self, key: Hashable, /) -> T | Empty:
-        # Alive and stored items.
-        # Called first to update cache stats (i.e. MRU/LRU if any).
-        # `cache` has subset of objects from `alive`.
-        if (ret := self.base[key]) is not empty:
-            return ret
-        # Item could still exist, try reference ...
-        return super().__getitem__(key)
-
-    def __setitem__(self, key: Hashable, value: T, /) -> None:
-        self.base[key] = value
-        super().__setitem__(key, value)
-
-    def __delitem__(self, key: Hashable, /) -> None:
-        del self.base[key]
-        super().__delitem__(key)
+    s.pop(key, None)  # Drop old value
+    return False
 
 
 # ----------------------- wrapper with batching support ----------------------
 
 
-def _prepare_batch[T, F: AnyFuture, R](
-    cache: AbstractCache[R],
-    futures: WeakValueDictionary[Hashable, F],
+def _prepare_batch[K, T, F: AnyFuture, V](
+    cache: Cache[K, V],
+    futures: WeakValueDictionary[K, F],
     new_future: type[F],
-    *keyed_tokens: tuple[Hashable, T],
+    *keyed_tokens: tuple[K, T],
 ) -> tuple[
-    list[Hashable],  # keys
+    list[K],  # keys
     list[tuple[T, F]],  # pending
     set[F],  # running
-    dict[Hashable, F],  # futures
-    dict[Hashable, R],  # done
+    dict[K, F],  # futures
+    dict[K, V],  # done
 ]:
-    done: dict[Hashable, R] = {}
+    done: dict[K, V] = {}
     running = set[F]()  # Wait for these
     pending: list[tuple[T, F]] = []  # Populate those
-    fs: dict[Hashable, F] = {}
+    fs: dict[K, F] = {}
 
     for k, t in dict(keyed_tokens).items():
         # If this key is processing right now, wait till its done ...
@@ -502,8 +533,8 @@ class memoize:  # noqa: N801
     - batched - set if callable supports batching.
     - ttl - time for object to live in the cache. Not renewed by `get()`
     - renew_on_access - if set, `[]` access will renew TTL.
-    - weak_fallback - reuse evicted or expired values while they remain
-      strongly referenced elsewhere; may return stale values.
+    - weak_fallback - keep values that do not fit in the strong cache
+      through weak references; TTL still applies.
 
     Uses:
     - @memoize() - unbound cache;
@@ -527,7 +558,7 @@ class memoize:  # noqa: N801
         batched: bool = False,
         policy: CachePolicy | None = None,
         key_fn: KeyFn = make_key,
-        ttl: float | None = None,
+        ttl: float = _inf,
         renew_on_access: bool = True,
         weak_fallback: bool = True,
     ) -> None:
@@ -787,8 +818,6 @@ class memoize:  # noqa: N801
         wrapper.afutures = self._afutures  # type: ignore[attr-defined]
         if isinstance(self._cache, _WeakCache):
             wrapper.wrefs = self._cache.alive  # type: ignore[attr-defined]
-            if isinstance(self._cache, _StrongCache):
-                wrapper.cache = self._cache.base  # type: ignore[attr-defined]
         else:
             wrapper.cache = self._cache  # type: ignore[attr-defined]
         functools.update_wrapper(wrapper, fn)
@@ -826,9 +855,9 @@ def coalesce[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 _CACHES: dict[
     tuple[CachePolicy | None, bool],
-    Callable[[int, int, float, bool], AbstractCache],
+    Callable[[int, int, float, bool, bool], Cache],
 ] = {
-    (None, False): _Cache,
+    (None, False): _BaseCache,
     ('lru', False): _LruCache,
     ('mru', False): _MruCache,
     (None, True): _TimedCache,

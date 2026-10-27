@@ -114,10 +114,10 @@ from ._futures import (
     UsableSize,
 )
 from ._types import (
-    AbstractCache,
     ACallable,
     AnyIterable,
     ASCallable,
+    Cache,
     CachePolicy,
     Decorator,
     Get,
@@ -269,35 +269,35 @@ def call_once[T](fn: Get[T], /) -> Get[T]: ...
 @overload
 def new_cache(
     *,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
-) -> AbstractCache: ...
+) -> Cache: ...
 @overload
 def new_cache(
     *,
     nbytes: SupportsInt,
     policy: CachePolicy | None = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
-) -> AbstractCache: ...
+) -> Cache: ...
 @overload
 def new_cache(
     count: SupportsInt,
     *,
     nbytes: SupportsInt | None = ...,
     policy: CachePolicy | None = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
-) -> AbstractCache: ...
+) -> Cache: ...
 @overload  # unbound or time-constrained
 def memoize(
     *,
     batched: Literal[False] = ...,
     key_fn: KeyFn[...] = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _Decorator: ...
@@ -308,7 +308,7 @@ def memoize(
     batched: Literal[False] = ...,
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[...] = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _Decorator: ...
@@ -320,7 +320,7 @@ def memoize(
     batched: Literal[False] = ...,
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[...] = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _Decorator: ...
@@ -329,7 +329,7 @@ def memoize[**P](
     *,
     batched: Literal[False] = ...,
     key_fn: KeyFn[P],
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _PsDecorator[P]: ...
@@ -340,7 +340,7 @@ def memoize[**P](
     policy: CachePolicy | None = ...,
     batched: Literal[False] = ...,
     key_fn: KeyFn[P],
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _PsDecorator[P]: ...
@@ -352,7 +352,7 @@ def memoize[**P](
     policy: CachePolicy | None = ...,
     batched: Literal[False] = ...,
     key_fn: KeyFn[P],
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _PsDecorator[P]: ...
@@ -361,7 +361,7 @@ def memoize(
     *,
     batched: Literal[True],
     key_fn: KeyFn[...] = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _BatchDecorator: ...
@@ -372,7 +372,7 @@ def memoize(
     batched: Literal[True],
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[...] = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _BatchDecorator: ...
@@ -384,7 +384,7 @@ def memoize(
     batched: Literal[True],
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[...] = ...,
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _BatchDecorator: ...
@@ -393,7 +393,7 @@ def memoize[T](
     *,
     batched: Literal[True],
     key_fn: KeyFn[T],
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _PsBatchDecorator[T]: ...
@@ -404,7 +404,7 @@ def memoize[T](
     batched: Literal[True],
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[T],
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _PsBatchDecorator[T]: ...
@@ -416,7 +416,7 @@ def memoize[T](
     batched: Literal[True],
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[T],
-    ttl: float | None = ...,
+    ttl: float = ...,
     renew_on_access: bool = ...,
     weak_fallback: bool = ...,
 ) -> _PsBatchDecorator[T]: ...
