@@ -49,25 +49,17 @@ _inf: Final = float('inf')
 
 
 class _Node[T]:
-    __slots__ = ('deadline', 'nbytes', 'value')
+    __slots__ = ('nbytes', 'value')
 
-    def __init__(
-        self, value: T, nbytes: int = 0, deadline: float = _inf
-    ) -> None:
+    def __init__(self, value: T, nbytes: int = 0) -> None:
         self.value = value
         self.nbytes = nbytes
-        self.deadline = deadline
 
     def __repr__(self) -> str:
         line = f'{type(self).__name__}({self.value!r}'
         if self.nbytes > 0:
             line += f' of {si_bin(self.nbytes)}'
-        if isinf(self.deadline):
-            line += ')'
-        elif (remaining := self.deadline - monotonic()) > 0:
-            line += f', {remaining:.1f}s left)'
-        else:
-            line += ', dead)'
+        line += ')'
         return line
 
 
@@ -94,6 +86,8 @@ def new_cache(
     nbytes: SupportsInt | None = None,
     policy: CachePolicy | None = None,
     ttl: float | None = None,
+    renew_on_access: bool = True,
+    weak_fallback: bool = True,
 ) -> AbstractCache:
     count = -1 if count is None else int(count)
     nbytes = -1 if nbytes is None else int(nbytes)
@@ -110,11 +104,12 @@ def new_cache(
     # +/+, +/-, 0/0, 0/-, -/+, -/0, -/-
     if count == 0 or nbytes == 0 or (ttl is not None and ttl <= 0):
         # 0/0, 0/-, -/0 (weakrefs only)
-        return _WeakCache()
+        return _WeakCache() if weak_fallback else _ZeroCache()
 
     # +/+(count+nbytes), +/-(count), -/+(nbytes), -/-(unbound)
     if cache_cls := _CACHES.get((policy, bool(ttl))):
-        return _StrongCache(cache_cls(count, nbytes, ttl or _inf))
+        cache = cache_cls(count, nbytes, ttl or _inf, renew_on_access)
+        return _StrongCache(cache) if weak_fallback else cache
     raise ValueError(
         f'Unknown cache policy: "{policy}". Available: "{set(_CACHES)}"'
     )
@@ -129,12 +124,45 @@ def cache_status() -> str:
 _REFS = WeakValueDictionary[int, '_Cache']()
 
 
+class _ZeroCache:
+    def __len__(self) -> int:
+        return 0
+
+    def keys(self) -> Iterator[Hashable]:
+        return iter(())
+
+    __iter__ = keys
+
+    def clear(self) -> None:
+        pass
+
+    def __repr__(self) -> str:
+        return f'{type(self).__name__}(items=0)'
+
+    def get(self, key: Hashable, /) -> Empty:
+        return empty
+
+    def pop(self, key: Hashable, /) -> Empty:
+        return empty
+
+    def __getitem__(self, key: Hashable, /) -> Empty:
+        return empty
+
+    def __setitem__(self, key: Hashable, value: object, /) -> None:
+        pass
+
+    def __delitem__(self, key: Hashable, /) -> None:
+        pass
+
+
 class _Cache[T]:
     __slots__ = (
         '__weakref__',
+        '_deadlines',
         'capacity',
         'capacity_bytes',
         'nbytes',
+        'renew_on_access',
         'stats',
         'store',
         'ttl',
@@ -145,6 +173,7 @@ class _Cache[T]:
         capacity: int,
         capacity_bytes: int,
         ttl: float = _inf,
+        renew_on_access: bool = True,
         store: dict[Hashable, _Node[T]] | None = None,
     ) -> None:
         self.capacity = capacity
@@ -153,6 +182,8 @@ class _Cache[T]:
         self.stats = Stats()
         self.store = {} if store is None else store
         self.ttl = ttl
+        self.renew_on_access = renew_on_access if ttl < _inf else False
+        self._deadlines: dict[Hashable, float] = {}
         _REFS[id(self)] = self
 
     def __len__(self) -> int:
@@ -167,6 +198,7 @@ class _Cache[T]:
 
     def clear(self) -> None:
         self.stats.dropped += len(self.store)
+        self._deadlines.clear()
         self.store.clear()
         self.nbytes = 0
 
@@ -197,6 +229,7 @@ class _Cache[T]:
         """Retrieve value and delete it from cache"""
         self._prune_and_get_new_deadline()
         if node := self.store.pop(key, None):
+            self._deadlines.pop(key, None)
             self.nbytes -= node.nbytes
             return node.value
         return empty
@@ -207,8 +240,10 @@ class _Cache[T]:
 
         if node := self.store.pop(key, None):
             self.stats.hits += 1
-            node.deadline = deadline
-            self.store[key] = node  # move front
+            self.store[key] = node  # Move front
+            if self.renew_on_access:
+                del self._deadlines[key]
+                self._deadlines[key] = deadline  # Move front
             return node.value
 
         self.stats.misses += 1
@@ -222,13 +257,16 @@ class _Cache[T]:
         deadline = self._prune_and_get_new_deadline()
 
         if node := self.store.pop(key, None):
-            # Cache hit - update access
+            self._deadlines.pop(key, None)
+
+            # Cache hit - update access (assuming value's size is the same)
             if node.value is value:
-                node.deadline = deadline
                 self.store[key] = node  # Move front
+                if deadline < _inf:
+                    self._deadlines[key] = deadline
                 return value
 
-            # Cache hit - overwrite
+            # Cache hit - overwrite (value's size maybe has changed)
             self.nbytes -= node.nbytes
             self._maybe_insert(key, value, deadline)
             return node.value
@@ -239,6 +277,7 @@ class _Cache[T]:
 
     def __delitem__(self, key: Hashable, /) -> None:
         if node := self.store.pop(key, None):
+            self._deadlines.pop(key, None)
             self.nbytes -= node.nbytes
             self.stats.dropped += 1
         self._prune_and_get_new_deadline()
@@ -247,13 +286,16 @@ class _Cache[T]:
         if 0 < self.capacity <= len(self.store):  # No free slots
             return
 
-        if self.capacity_bytes <= 0:  # No size limit
-            self.store[key] = _Node(value, 0, deadline)
-            return
+        nbytes = 0
+        do_write = True
+        if self.capacity_bytes > 0:  # Has size limit
+            nbytes = int(sizeof(value))
+            do_write = self.nbytes + nbytes <= self.capacity_bytes  # Node fits
 
-        nbytes = int(sizeof(value))
-        if self.nbytes + nbytes <= self.capacity_bytes:  # Node would fit
-            self.store[key] = _Node(value, nbytes, deadline)
+        if do_write:
+            self.store[key] = _Node(value, nbytes)
+            if deadline < _inf:
+                self._deadlines[key] = deadline
             self.nbytes += nbytes
 
     def _prune_and_get_new_deadline(self) -> float:
@@ -266,14 +308,16 @@ class _TimedCache[T](_Cache[T]):
     """
 
     def _prune_and_get_new_deadline(self) -> float:
+        if isinf(self.ttl):
+            return _inf
         now = monotonic()
         deadline = now + self.ttl
-        while self.store:
-            key, node = next(iter(self.store.items()))
-            if node.deadline > now:
-                return deadline  # reached alive node before free space
-            self.store.pop(key)  # dead node, delete
-            self.nbytes -= node.nbytes
+        while self._deadlines:
+            key, expires_at = next(iter(self._deadlines.items()))
+            if expires_at > now:  # reached alive node before free space
+                return deadline
+            self.nbytes -= self.store.pop(key).nbytes  # dead node, delete
+            del self._deadlines[key]
             self.stats.dropped += 1
         return deadline
 
@@ -296,7 +340,9 @@ class _EvictableCache[T](_Cache[T]):
         else:
             nbytes = 0
 
-        self.store[key] = _Node(value, nbytes, deadline)
+        self.store[key] = _Node(value, nbytes)
+        if deadline < _inf:
+            self._deadlines[key] = deadline
         self.nbytes += nbytes
 
     def _evict(self) -> None:
@@ -308,7 +354,9 @@ class _LruCache[T](_EvictableCache[T]):
 
     def _evict(self) -> None:
         """Drop oldest node."""
-        self.nbytes -= self.store.pop(next(iter(self.store))).nbytes
+        key = next(iter(self.store))
+        self.nbytes -= self.store.pop(key).nbytes
+        self._deadlines.pop(key, None)
         self.stats.dropped += 1
 
 
@@ -317,7 +365,9 @@ class _MruCache[T](_EvictableCache[T]):
 
     def _evict(self) -> None:
         """Drop most recently added node."""
-        self.nbytes -= self.store.popitem()[1].nbytes
+        key, node = self.store.popitem()
+        self.nbytes -= node.nbytes
+        self._deadlines.pop(key, None)
         self.stats.dropped += 1
 
 
@@ -343,6 +393,9 @@ class _WeakCache[T]:
 
     __iter__ = keys
 
+    def get(self, key: Hashable, /) -> T | Empty:
+        return self.alive.get(key, empty)
+
     def __getitem__(self, key: Hashable, /) -> T | Empty:
         return self.alive.get(key, empty)
 
@@ -365,6 +418,13 @@ class _StrongCache[T](_WeakCache[T]):
         return iter({*self.base.keys(), *self.alive.keys()})
 
     __iter__ = keys
+
+    def get(self, key: Hashable, /) -> T | Empty:
+        # Retrieve from main storage first
+        if (ret := self.base.get(key)) is not empty:
+            return ret
+        # Item could still exist, try reference ...
+        return super().get(key)
 
     def __getitem__(self, key: Hashable, /) -> T | Empty:
         # Alive and stored items.
@@ -440,7 +500,10 @@ class memoize:  # noqa: N801
     - policy - eviction policy, "lru" (pop oldest), "mru" (pop most recent), or
       None for no eviction. Works only if `count > 0` or `nbytes > 0`.
     - batched - set if callable supports batching.
-    - ttl - time to live (in seconds) for time constrained caching
+    - ttl - time for object to live in the cache. Not renewed by `get()`
+    - renew_on_access - if set, `[]` access will renew TTL.
+    - weak_fallback - reuse evicted or expired values while they remain
+      strongly referenced elsewhere; may return stale values.
 
     Uses:
     - @memoize() - unbound cache;
@@ -465,8 +528,17 @@ class memoize:  # noqa: N801
         policy: CachePolicy | None = None,
         key_fn: KeyFn = make_key,
         ttl: float | None = None,
+        renew_on_access: bool = True,
+        weak_fallback: bool = True,
     ) -> None:
-        self._cache = new_cache(count, nbytes=nbytes, policy=policy, ttl=ttl)
+        self._cache = new_cache(
+            count,
+            nbytes=nbytes,
+            policy=policy,
+            ttl=ttl,
+            renew_on_access=renew_on_access,
+            weak_fallback=weak_fallback,
+        )
         self._key_fn = key_fn
         self._batched = batched
         self._lock = RLock()
@@ -715,8 +787,10 @@ class memoize:  # noqa: N801
         wrapper.afutures = self._afutures  # type: ignore[attr-defined]
         if isinstance(self._cache, _WeakCache):
             wrapper.wrefs = self._cache.alive  # type: ignore[attr-defined]
-        if isinstance(self._cache, _StrongCache):
-            wrapper.cache = self._cache.base  # type: ignore[attr-defined]
+            if isinstance(self._cache, _StrongCache):
+                wrapper.cache = self._cache.base  # type: ignore[attr-defined]
+        else:
+            wrapper.cache = self._cache  # type: ignore[attr-defined]
         functools.update_wrapper(wrapper, fn)
         return wrapper
 
@@ -752,7 +826,7 @@ def coalesce[**P, R](fn: Callable[P, R], /) -> Callable[P, R]:
 
 _CACHES: dict[
     tuple[CachePolicy | None, bool],
-    Callable[[int, int, float], AbstractCache],
+    Callable[[int, int, float, bool], AbstractCache],
 ] = {
     (None, False): _Cache,
     ('lru', False): _LruCache,

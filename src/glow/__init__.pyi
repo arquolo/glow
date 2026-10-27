@@ -267,13 +267,20 @@ coalesce: Decorator
 def cache_status() -> str: ...
 def call_once[T](fn: Get[T], /) -> Get[T]: ...
 @overload
-def new_cache(*, ttl: float | None = ...) -> AbstractCache: ...
+def new_cache(
+    *,
+    ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
+) -> AbstractCache: ...
 @overload
 def new_cache(
     *,
     nbytes: SupportsInt,
     policy: CachePolicy | None = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> AbstractCache: ...
 @overload
 def new_cache(
@@ -282,13 +289,17 @@ def new_cache(
     nbytes: SupportsInt | None = ...,
     policy: CachePolicy | None = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> AbstractCache: ...
 @overload  # unbound or time-constrained
 def memoize(
     *,
     batched: Literal[False] = ...,
-    key_fn: KeyFn = ...,
+    key_fn: KeyFn[...] = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _Decorator: ...
 @overload  # byte-capped
 def memoize(
@@ -296,8 +307,10 @@ def memoize(
     nbytes: SupportsInt,
     batched: Literal[False] = ...,
     policy: CachePolicy | None = ...,
-    key_fn: KeyFn = ...,
+    key_fn: KeyFn[...] = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _Decorator: ...
 @overload  # count or byte-capped (optionally)
 def memoize(
@@ -306,8 +319,10 @@ def memoize(
     nbytes: SupportsInt | None = ...,
     batched: Literal[False] = ...,
     policy: CachePolicy | None = ...,
-    key_fn: KeyFn = ...,
+    key_fn: KeyFn[...] = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _Decorator: ...
 @overload  #  parametric, unbound or time-constrained
 def memoize[**P](
@@ -315,6 +330,8 @@ def memoize[**P](
     batched: Literal[False] = ...,
     key_fn: KeyFn[P],
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _PsDecorator[P]: ...
 @overload  # parametric, byte-capped
 def memoize[**P](
@@ -324,6 +341,8 @@ def memoize[**P](
     batched: Literal[False] = ...,
     key_fn: KeyFn[P],
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _PsDecorator[P]: ...
 @overload  # parametric, count or byte-capped (optionally)
 def memoize[**P](
@@ -334,13 +353,17 @@ def memoize[**P](
     batched: Literal[False] = ...,
     key_fn: KeyFn[P],
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _PsDecorator[P]: ...
 @overload  # batched, unbound or time-constrained
 def memoize(
     *,
     batched: Literal[True],
-    key_fn: KeyFn = ...,
+    key_fn: KeyFn[...] = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _BatchDecorator: ...
 @overload  # batched,  byte-capped
 def memoize(
@@ -348,8 +371,10 @@ def memoize(
     nbytes: SupportsInt,
     batched: Literal[True],
     policy: CachePolicy | None = ...,
-    key_fn: KeyFn = ...,
+    key_fn: KeyFn[...] = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _BatchDecorator: ...
 @overload  # batched, count or byte-capped (optionally)
 def memoize(
@@ -358,8 +383,10 @@ def memoize(
     nbytes: SupportsInt | None = ...,
     batched: Literal[True],
     policy: CachePolicy | None = ...,
-    key_fn: KeyFn = ...,
+    key_fn: KeyFn[...] = ...,
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _BatchDecorator: ...
 @overload  # batched, parametric, unbound or time-constrained
 def memoize[T](
@@ -367,6 +394,8 @@ def memoize[T](
     batched: Literal[True],
     key_fn: KeyFn[T],
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _PsBatchDecorator[T]: ...
 @overload  # batched, parametric, byte-capped
 def memoize[T](
@@ -376,6 +405,8 @@ def memoize[T](
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[T],
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _PsBatchDecorator[T]: ...
 @overload  # batched, parametric, count or byte-capped (optionally)
 def memoize[T](
@@ -386,6 +417,8 @@ def memoize[T](
     policy: CachePolicy | None = ...,
     key_fn: KeyFn[T],
     ttl: float | None = ...,
+    renew_on_access: bool = ...,
+    weak_fallback: bool = ...,
 ) -> _PsBatchDecorator[T]: ...
 
 # ------------------------------- _concurrency -------------------------------
