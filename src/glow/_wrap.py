@@ -285,12 +285,13 @@ def _gen_aw[Y, S, R](
         return e.value
 
 
-@types.coroutine
-def _await[S](value: None, sent: list[S]) -> Generator[None, S]:
-    # For asyncio's event loop `y` should be None,
-    # otherwise `await _await(...)` will trigger: `Task got bad yield: ...`.
-    # Other implementations of event loop could support more types.
-    sent.append((yield value))
+class _AwaitHook[S](list[S]):
+    @types.coroutine
+    def wait(self, value: None) -> Generator[None, S]:
+        # For asyncio's event loop `value` should be None,
+        # else `await wait(...)` will trigger: `Task got bad yield: ...`.
+        # Other implementations of event loop could support more types.
+        self[:] = [(yield value)]
 
 
 async def _coroutine[R](
@@ -298,6 +299,7 @@ async def _coroutine[R](
 ) -> R:
     genex: GeneratorExit | None = None
     op: Get = partial(coro.send, None)
+    hook = _AwaitHook[None]()
     try:
         while True:
             with hide_frame:
@@ -306,20 +308,20 @@ async def _coroutine[R](
                 if genex:
                     raise genex
 
-            sent: list[None] = []
+            hook[:] = []
             try:
                 resume = wrapper.suspend()
                 try:
                     # Future
                     if getattr(yielded, '_asyncio_future_blocking', None):
                         yielded._asyncio_future_blocking = False
-                        sent.append(None)
                         with hide_frame:
                             await yielded  # Won't stopiter
+                        hook[:] = [None]
                     # `None` for asyncio
                     else:
                         with hide_frame:
-                            await _await(yielded, sent)  # Won't stopiter
+                            await hook.wait(yielded)  # Won't stopiter
                 finally:
                     resume()
             except GeneratorExit as exc:
@@ -328,8 +330,8 @@ async def _coroutine[R](
             except BaseException as exc:  # noqa: BLE001
                 op = partial(coro.throw, exc)
             else:
-                assert sent
-                op = partial(coro.send, *sent)
+                assert len(hook) == 1
+                op = partial(coro.send, hook.pop())
 
     except StopIteration as e:
         return e.value
