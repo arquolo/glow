@@ -19,7 +19,7 @@ from ._async import MulticastQueue, RwLock, amap, amap_dict, astarmap
 from ._cache import cache_status, call_once, coalesce, memoize, new_cache
 from ._concurrency import threadlocal
 from ._coro import consumer, summary
-from ._dev import clone_exc, declutter_tb, hide_frame, lock_seed
+from ._dev import clone_exc, declutter_tb, flatten_exc, hide_frame, lock_seed
 from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru, span_task
 from ._more import (
@@ -115,6 +115,7 @@ __all__ = [
     'cumsum',
     'declutter_tb',
     'eat',
+    'flatten_exc',
     'get_executor',
     'groupby',
     'hide_frame',

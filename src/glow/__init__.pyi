@@ -28,6 +28,7 @@ __all__ = [
     'cumsum',
     'declutter_tb',
     'eat',
+    'flatten_exc',
     'get_executor',
     'groupby',
     'hide_frame',
@@ -455,6 +456,7 @@ class _HideFrame:
 hide_frame: _HideFrame
 
 def clone_exc[E: BaseException](exc: E) -> E: ...
+def flatten_exc(ex: BaseException) -> BaseException: ...
 def declutter_tb(e: BaseException, code: CodeType) -> None: ...
 def lock_seed(seed: int) -> None: ...
 

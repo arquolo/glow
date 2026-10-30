@@ -49,6 +49,25 @@ def clone_exc[E: BaseException](exc: E) -> E:
     return copy.copy(exc)
 
 
+def flatten_exc(ex: BaseException) -> BaseException:
+    stack: list[BaseException] = [ex]
+    iflat: dict[int, BaseException] = {}
+    while stack:  # DFS
+        e = stack.pop()
+        if isinstance(e, BaseExceptionGroup | ExceptionGroup):
+            stack += reversed(e.exceptions)
+        else:
+            iflat[id(e)] = e  # Dedup by ID
+    if not iflat:  # Empty excgroup?
+        return ex
+    flat = list(iflat.values())
+    if len(flat) == 1:
+        return flat[0]
+    if all(isinstance(e, Exception) for e in flat):
+        return ExceptionGroup('Got multiple errors', flat)  # type: ignore[type-var]
+    return BaseExceptionGroup('Got multiple errors', flat)
+
+
 def declutter_tb(e: BaseException, code: CodeType) -> None:
     if _DEBUG:
         return
