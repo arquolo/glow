@@ -616,6 +616,7 @@ def azip(
     /,
     *iters: AnyIterable,
 ) -> AsyncGenerator[tuple]: ...
+async def atake[T](it: AsyncIterable[T], count: int, /) -> list[T]: ...
 
 # -------------------------------- _parallel ---------------------------------
 

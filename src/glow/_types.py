@@ -93,10 +93,6 @@ class HasClose[R](Protocol):
     def close(self) -> R | None: ...
 
 
-class HasPopleft[T](Protocol):
-    def popleft(self) -> T: ...
-
-
 class Pipe[In, Out](Protocol):
     def send(self, value: In, /) -> Out: ...
 

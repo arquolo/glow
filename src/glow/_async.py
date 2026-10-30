@@ -10,10 +10,11 @@ from asyncio import CancelledError, Condition, Future, Queue, Task, TaskGroup
 from collections import deque
 from collections.abc import AsyncGenerator, Iterable, Mapping, MutableSet
 from contextlib import asynccontextmanager
+from itertools import islice
 from typing import Literal, Self
 from weakref import finalize
 
-from ._more import azip, each_is
+from ._more import atake, azip, each_is
 from ._types import ACallable, AnyIterable, ASCallable, Get, QueueShutdownError
 
 
@@ -119,12 +120,9 @@ async def _iter_results_unordered[T](
 
     while True:
         # Prefill task buffer
-        while len(todo) + done_q.qsize() < limit and (
-            t := (
-                next(it, None)
-                if isinstance(it, Iterable)
-                else await anext(it, None)
-            )
+        n = max(limit - len(todo) - done_q.qsize(), 0)
+        for t in (
+            islice(it, n) if isinstance(it, Iterable) else await atake(it, n)
         ):
             # optimization: Immediately put to done if the task is
             # already done (e.g. if the coro was able to complete eagerly),
@@ -159,14 +157,10 @@ async def _iter_results[T](
     pending = deque[Task[T]]()
     while True:
         # Prefill task buffer
-        while len(pending) < limit and (
-            t := (
-                next(it, None)
-                if isinstance(it, Iterable)
-                else await anext(it, None)
-            )
-        ):
-            pending.append(t)
+        n = max(limit - len(pending), 0)
+        pending += (
+            islice(it, n) if isinstance(it, Iterable) else await atake(it, n)
+        )
         if not pending:  # No more tasks to do and nothing more to schedule
             return
 

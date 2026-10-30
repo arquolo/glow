@@ -1,5 +1,6 @@
 __all__ = [
     'as_iter',
+    'atake',
     'azip',
     'chunked',
     'eat',
@@ -24,10 +25,11 @@ from collections.abc import (
     Sequence,
 )
 from itertools import batched, chain, compress, cycle, islice, repeat
+from queue import Empty
 from threading import Thread
 from typing import TypeGuard, overload
 
-from ._types import AnyIterable, HasPopleft, SupportsSlice, Unary
+from ._types import AnyIterable, SupportsSlice, Unary, empty
 
 
 def as_iter[T](
@@ -245,13 +247,15 @@ def each_is[T](items: Sequence, tp: type[T]) -> TypeGuard[Sequence[T]]:
 # ----------------------------------------------------------------------------
 
 
-def unqueue[T](q: HasPopleft[T], /) -> Generator[T]:
-    """Same as more_itertools.iter_except(q.popleft, IndexError)"""
-    try:
-        while True:
-            yield q.popleft()
-    except IndexError:
-        return
+def iterex[**P, R](
+    fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs
+) -> Generator[R]:
+    while True:
+        try:
+            x = fn(*args, **kwargs)
+        except (IndexError, Empty):
+            return
+        yield x
 
 
 # ----------------------------------------------------------------------------
@@ -284,7 +288,7 @@ def ichunked[T](it: Iterable[T], size: int, /) -> Generator[Iterator[T]]:
         tail = deque[T]()
 
         # Include early fetched item into chunk
-        yield chain(unqueue(head), body, unqueue(tail))
+        yield chain(iterex(head.popleft), body, iterex(tail.popleft))
 
         # Advance and fill internal cache, expand tail with items from body
         tail += body
@@ -385,6 +389,17 @@ async def azip(*iterables: AnyIterable) -> AsyncGenerator[tuple]:
             await asyncio.gather(*tasks, return_exceptions=True)
 
         yield tuple(ret)
+
+
+async def atake[T](it: AsyncIterable[T], count: int, /) -> list[T]:
+    assert count >= 0
+    itr = aiter(it)
+    ret: list[T] = []
+    for _ in range(count):
+        if (x := await anext(itr, empty)) is empty:
+            break
+        ret.append(x)
+    return ret
 
 
 async def _as_asyncgen[T](it: Iterable[T]) -> AsyncGenerator[T]:

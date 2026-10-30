@@ -24,6 +24,7 @@ from ._import_hook import register_post_import_hook, when_imported
 from ._logging import init_loguru, span_task
 from ._more import (
     as_iter,
+    atake,
     azip,
     chunked,
     eat,
@@ -102,6 +103,7 @@ __all__ = [
     'around',
     'as_iter',
     'astarmap',
+    'atake',
     'azip',
     'buffered',
     'cache_status',

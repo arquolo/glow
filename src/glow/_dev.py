@@ -54,7 +54,7 @@ def flatten_exc(ex: BaseException) -> BaseException:
     iflat: dict[int, BaseException] = {}
     while stack:  # DFS
         e = stack.pop()
-        if isinstance(e, BaseExceptionGroup | ExceptionGroup):
+        if isinstance(e, BaseExceptionGroup):
             stack += reversed(e.exceptions)
         else:
             iflat[id(e)] = e  # Dedup by ID

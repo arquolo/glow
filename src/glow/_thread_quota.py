@@ -19,6 +19,8 @@ from threading import _register_atexit  # type: ignore[attr-defined]
 from threading import Event, Lock, Thread
 from weakref import WeakSet
 
+from ._more import iterex
+
 if sys.version_info >= (3, 14):
     from concurrent.futures.thread import WorkerContext
 
@@ -59,7 +61,7 @@ def _python_exit() -> None:
     for e in _executors:
         e.shutdown(cancel_futures=True)
 
-    while q := _safe_call(_idle.pop):
+    for q in iterex(_idle.pop):
         q.put(None)
 
 
@@ -68,7 +70,9 @@ _register_atexit(_python_exit)
 
 def _worker(q: _ExecutorPipe) -> None:
     try:
-        while executor := _safe_call(q.get, timeout=_WORKER_TIMEOUT):
+        for executor in iterex(q.get, timeout=_WORKER_TIMEOUT):
+            if not executor:
+                break
             while True:
                 with executor._shutdown_lock:
                     work_item = _safe_call(executor._work_items.popleft)
