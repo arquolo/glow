@@ -413,9 +413,15 @@ def starmap_n[T](
     - prefetch - Count of extra jobs to schedule over N workers.
       Helps with CPU stalls in ordered mode.
       Increase if job execution time is highly variable.
-    - mp - Whether use processes or threads.
-      Also 'mmap' moves callable to memory map, 'shmem' - to shared memory.
-      Useful for large callables (but experimental).
+    - mp - False uses threads; True uses processes with ordinary pickle.
+      Experimental 'mmap' and 'shmem' modes copy the callable's out-of-band
+      Pickle 5 buffers into shared storage once per map call. Useful for large
+      contiguous arrays held by callable objects, bound methods or partials.
+      Workers read mmap buffers through read-only mappings; shmem buffers
+      allow shared writes, which require synchronization by the caller.
+      Iterable items still use ordinary serialization. Buffers are copied
+      when the proxy is created; later changes to the source are not shared.
+      Ordinary pickle restrictions still apply to lambdas and local functions.
     - chunksize - The size of the chunks the iterable will be broken into
       before being passed to a processes.
       Estimated automatically.
@@ -429,7 +435,6 @@ def starmap_n[T](
     - never deadlocks on any exception or Ctrl-C interruption.
     - accepts infinite iterables due to lazy task creation.
     - has single interface for both threads and processes.
-    - TODO: serializes array-like data using out-of-band Pickle 5 buffers.
     - call immediately creates pool ready to yield results
       (which could take some time cause of serialization for multiprocessing),
       so first `__next__` runs on warmed up pool.

@@ -15,7 +15,7 @@ from functools import update_wrapper
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from threading import Lock
-from typing import Self
+from typing import Literal, Self
 
 import loky
 
@@ -43,7 +43,7 @@ def move_to_shmem[*Ts, R](
 
 
 class _Proxy[*Ts, R]:
-    __slots__ = ()
+    __slots__ = ('__weakref__',)
 
     def __call__(self, *args: *Ts) -> R:
         raise NotImplementedError
@@ -83,12 +83,12 @@ class _ChildProxy[*Ts, R]:
 
 
 class _ParentProxy[*Ts, R](_Proxy[*Ts, R]):
-    __slots__ = ('__weakref__', '_closing', '_lock', '_pending')
+    __slots__ = ('_lock', '_pending', '_state')
 
     def __init__(self) -> None:
         self._lock = Lock()
         self._pending = 0
-        self._closing = False
+        self._state: Literal['running', 'closing', 'closed'] = 'running'
 
     def __call__(self, *args: *Ts) -> R:
         raise RuntimeError('Calling moved callable from parent process')
@@ -96,8 +96,8 @@ class _ParentProxy[*Ts, R](_Proxy[*Ts, R]):
     def wrap_func[**P, F: Future](self, fn: Callable[P, F]) -> Callable[P, F]:
         def inner(*args: P.args, **kwargs: P.kwargs) -> F:
             with self._lock:
-                if self._closing:
-                    raise RuntimeError('Cannot schedule to closing')
+                if self._state != 'running':
+                    raise RuntimeError('Cannot schedule to closed')
                 self._pending += 1
             try:
                 fut = fn(*args, **kwargs)
@@ -113,15 +113,19 @@ class _ParentProxy[*Ts, R](_Proxy[*Ts, R]):
     def _done(self, *_) -> None:
         with self._lock:
             self._pending -= 1
-            if not self._closing or self._pending:
+            if self._state != 'closing' or self._pending:
                 return
+            self._state = 'closed'
         self._close()
 
     def __exit__(self, *_) -> None:
         with self._lock:
-            self._closing = True
-            if self._pending:
+            if self._state == 'closed':
                 return
+            if self._pending:
+                self._state = 'closing'
+                return
+            self._state = 'closed'
         self._close()
 
     def _close(self) -> None:
@@ -163,7 +167,7 @@ class _ShmemParentProxy[*Ts, R](_ParentProxy[*Ts, R]):
         self.memos: list[tuple[SharedMemory, int]] = []
         for buf in buffers:
             with buf.raw() as m:
-                sm = SharedMemory(create=True, size=m.nbytes)
+                sm = _SharedMemory(create=True, size=m.nbytes)
                 weakref.finalize(self, _unlink_shmem, sm)
                 if sm.buf is None:
                     raise RuntimeError(f'{sm} is not initialized')
@@ -200,6 +204,22 @@ def _unlink_shmem(sm: SharedMemory) -> None:
 
 
 # -------------------------------- reduction ---------------------------------
+
+
+class _SharedMemory(SharedMemory):
+    _fd: int
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except BufferError:
+            # Exported views retain the mmap and close it when released.
+            # SharedMemory.close() stops before closing the POSIX descriptor.
+            if self._fd >= 0:
+                os.close(self._fd)
+                self._fd = -1
+        except OSError:
+            pass
 
 
 class _Mmap:

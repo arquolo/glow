@@ -1,10 +1,15 @@
 import gc
 import os
 import pickle
+import sys
+import weakref
 from concurrent.futures import Future
 from contextlib import ExitStack, nullcontext
 from functools import partial
+from multiprocessing import Manager
 from multiprocessing.shared_memory import SharedMemory
+from threading import Event, Thread
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -24,6 +29,26 @@ class ArrayLookup:
 
 def describe_lookup(lookup):
     return os.getpid(), lookup(3), lookup.call.values.flags.writeable
+
+
+class GatedLookup:
+    def __init__(self, gate, fail):
+        self.values = np.arange(8)
+        self.gate = gate
+        self.fail = fail
+
+    def __call__(self, index):
+        if index == 0 and self.fail:
+            raise ValueError('worker failed')
+        if index and not self.gate.wait(timeout=20):
+            raise TimeoutError('test gate was not released')
+        return int(self.values[index])
+
+
+def failing_source():
+    yield 0
+    yield 1
+    raise ValueError('source failed')
 
 
 @pytest.fixture(params=['mmap', 'shmem'])
@@ -158,6 +183,29 @@ def test_shmem_unlink_already_removed():
     _reduction._unlink_shmem(sm)
 
 
+def test_shmem_view_outlives_owner(monkeypatch):
+    errors = []
+    monkeypatch.setattr(sys, 'unraisablehook', errors.append)
+    sm = _reduction._SharedMemory(create=True, size=8)
+    mapping = weakref.ref(sm._mmap)
+    descriptor = sm._fd
+    view = sm.buf[:]
+    view[:] = b'12345678'
+    sm.unlink()
+    del sm
+    gc.collect()
+    assert errors == []
+    assert bytes(view) == b'12345678'
+    assert mapping() is not None
+    if descriptor >= 0:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+    view.release()
+    gc.collect()
+    assert mapping() is None
+    assert errors == []
+
+
 def test_proxy_shared_storage(proxy_factory, lookup):
     proxy = proxy_factory(lookup)
     payload = pickle.dumps(proxy)
@@ -263,7 +311,7 @@ def test_proxy_submit_failure(proxy_factory):
 
     with proxy, pytest.raises(ValueError, match='submit failed'):
         proxy.wrap_func(fail)()
-    with pytest.raises(RuntimeError, match='closing'):
+    with pytest.raises(RuntimeError, match='closed'):
         proxy.wrap_func(lambda: Future())()
 
 
@@ -281,5 +329,150 @@ def test_proxy_completed_future(proxy_factory):
     future.set_result(32)
     with proxy:
         assert proxy.wrap_func(lambda: future)().result() == 32
-    with pytest.raises(RuntimeError, match='closing'):
+    with pytest.raises(RuntimeError, match='closed'):
         proxy.wrap_func(lambda: Future())()
+
+
+def test_proxy_cleanup_claimed_before_close(proxy_factory, monkeypatch):
+    proxy = proxy_factory(partial(pow, 2))
+    started, release = Event(), Event()
+    closed = []
+
+    def close(_):
+        closed.append(True)
+        started.set()
+        assert release.wait(timeout=5)
+
+    monkeypatch.setattr(type(proxy), '_close', close)
+    future = Future()
+    with proxy:
+        proxy.wrap_func(lambda: future)()
+    worker = Thread(target=future.set_result, args=(None,))
+    worker.start()
+    try:
+        assert started.wait(timeout=5)
+        with proxy:
+            pass
+        assert closed == [True]
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert not worker.is_alive()
+
+
+def exercise_lifetime_map(call, mode, scenario, references):
+    match scenario:
+        case 'source':
+            with pytest.raises(ValueError, match='source failed'):
+                _parallel.map_n(
+                    call,
+                    failing_source(),
+                    mp=mode,
+                    max_workers=1,
+                    chunksize=1,
+                    prefetch=4,
+                )
+            return None
+
+        case 'short':
+            results = _parallel.map_n(
+                call, range(1), mp=mode, max_workers=1, chunksize=1, prefetch=4
+            )
+            gc.collect()
+            assert references[0]() is not None
+            assert list(results) == [0]
+            return results
+
+        case 'worker':
+            results = _parallel.map_n(
+                call, range(4), mp=mode, max_workers=1, chunksize=1, prefetch=4
+            )
+            gc.collect()
+            assert references[0]() is not None
+            with pytest.raises(ValueError, match='worker failed'):
+                next(results)
+            return results
+
+        case 'close':
+            results = _parallel.map_n(
+                call, range(4), mp=mode, max_workers=1, chunksize=1, prefetch=4
+            )
+            gc.collect()
+            assert references[0]() is not None
+            assert next(results) == 0
+            results.close()
+            return results
+
+        case _:
+            raise NotImplementedError
+
+
+@pytest.mark.parametrize('scenario', ['short', 'worker', 'source', 'close'])
+def test_map_n_proxy_lifetime(proxy_mode, scenario, monkeypatch, tmp_path):
+    monkeypatch.setattr(_reduction, '_SHM_ROOT', tmp_path)
+    monkeypatch.setattr(_parallel, '_NUM_CPUS', 1)
+    futures, references, resources, cleanups = [], [], [], []
+    cleaned = Event()
+    original_move = _parallel.move_to_shmem
+    proxy_type = (
+        _reduction._MmapParentProxy
+        if proxy_mode == 'mmap'
+        else _reduction._ShmemParentProxy
+    )
+    original_close = proxy_type._close
+
+    def move(call, mode):
+        proxy = original_move(call, mode)
+        references.append(weakref.ref(proxy))
+        if proxy_mode == 'shmem':
+            resources.extend(sm.name for sm, _ in proxy.memos)
+        return proxy
+
+    def close(proxy):
+        cleanups.append(all(f.done() for f in futures))
+        original_close(proxy)
+        cleaned.set()
+
+    monkeypatch.setattr(_parallel, 'move_to_shmem', move)
+    monkeypatch.setattr(proxy_type, '_close', close)
+    with Manager() as manager, ProcessPoolExecutor(max_workers=1) as executor:
+        gate = manager.Event()
+
+        def submit(*args, **kwargs):
+            future = executor.submit(*args, **kwargs)
+            futures.append(future)
+            return future
+
+        monkeypatch.setattr(
+            _parallel,
+            'get_executor',
+            lambda *a, **kw: nullcontext(SimpleNamespace(submit=submit)),
+        )
+        call = GatedLookup(gate, fail=scenario == 'worker')
+        results = None
+        try:
+            results = exercise_lifetime_map(
+                call, proxy_mode, scenario, references
+            )
+            if scenario != 'short':
+                gc.collect()
+                assert references[0]() is not None
+                assert not cleaned.is_set()
+        finally:
+            gate.set()
+            for index, future in enumerate(futures):
+                if scenario == 'worker' and index == 0:
+                    with pytest.raises(ValueError, match='worker failed'):
+                        future.result(timeout=30)
+                else:
+                    assert future.result(timeout=30) == index
+            assert cleaned.wait(timeout=5)
+    assert cleanups == [True]
+    del results
+    futures.clear()
+    del future
+    gc.collect()
+    assert not list(tmp_path.iterdir())
+    for name in resources:
+        with pytest.raises(FileNotFoundError):
+            SharedMemory(name=name)
