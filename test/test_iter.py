@@ -113,9 +113,12 @@ def test_ichunked_refs() -> None:
     it = _generator(10, refs)
     chunks = [*ichunked(it, 3)]
     assert len(refs) == 10
-    for i, x in zip(range(10, 0, -1), (x for c in chunks for x in c)):
-        assert len(refs) <= i
+    count = 0
+    for i, x in enumerate(x for c in chunks for x in c):
+        assert len(refs) <= 10 - i
+        count += 1
         del x
+    assert count == 10
     assert not refs
 
 

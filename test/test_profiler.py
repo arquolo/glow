@@ -1468,11 +1468,15 @@ class TestCoroutine:
             gc_collect()
 
             assert cm.unraisable is not None
-            assert cm.unraisable.err_msg is not None
-            assert re.match(
-                r'Exception ignored while finalizing coroutine .*',
-                cm.unraisable.err_msg,
-            )
+            assert cm.unraisable.exc_type is RuntimeWarning
+            if sys.version_info >= (3, 14):
+                assert cm.unraisable.err_msg is not None
+                assert re.match(
+                    r'Exception ignored while finalizing coroutine .*',
+                    cm.unraisable.err_msg,
+                )
+            else:
+                assert cm.unraisable.err_msg is None
             assert 'was never awaited' in str(cm.unraisable.exc_value)
 
     def test_bpo_45813_1(self) -> None:
