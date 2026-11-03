@@ -29,6 +29,7 @@ type Get[T] = Callable[[], T]
 type Unary[T, R = object] = Callable[[T], R]
 type AUnary[T, R = object] = Callable[[T], Coro[R]]
 
+type MpMode = Literal['mmap', 'shmem'] | bool
 type CachePolicy = Literal['lru', 'mru']
 type Maybe[T] = list[T] | BaseException
 

@@ -123,6 +123,7 @@ from ._types import (
     Decorator,
     Get,
     KeyFn,
+    MpMode,
     Pipe,
     PsDecorator,
     SupportsNext,
@@ -623,7 +624,7 @@ async def atake[T](it: AsyncIterable[T], count: int, /) -> list[T]: ...
 class _MapKwargs(TypedDict, total=False):
     max_workers: int | None
     prefetch: int | None
-    mp: bool
+    mp: MpMode
     chunksize: int | None
 
 class _MapIterKwargs(_MapKwargs, total=False):

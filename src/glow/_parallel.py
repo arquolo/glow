@@ -41,7 +41,7 @@ from ._locking import AbsEvent, AbsManager, AbsQueue, await_future, q_get
 from ._more import ilen
 from ._reduction import move_to_shmem, reducers
 from ._thread_quota import ThreadQuota
-from ._types import Empty, Unary, empty
+from ._types import Empty, MpMode, Unary, empty
 
 _TOTAL_CPUS = os.process_cpu_count()
 _NUM_CPUS = _TOTAL_CPUS or 0
@@ -399,7 +399,7 @@ def starmap_n[T](
     *,
     max_workers: int | None = None,
     prefetch: int | None = 2,
-    mp: bool = False,
+    mp: MpMode = False,
     chunksize: int | None = None,
     unordered: bool = False,
 ) -> Iterator[T]:
@@ -414,6 +414,8 @@ def starmap_n[T](
       Helps with CPU stalls in ordered mode.
       Increase if job execution time is highly variable.
     - mp - Whether use processes or threads.
+      Also 'mmap' moves callable to memory map, 'shmem' - to shared memory.
+      Useful for large callables (but experimental).
     - chunksize - The size of the chunks the iterable will be broken into
       before being passed to a processes.
       Estimated automatically.
@@ -433,7 +435,7 @@ def starmap_n[T](
       so first `__next__` runs on warmed up pool.
     """
     if max_workers is None:
-        max_workers = max_cpu_count(_NUM_CPUS, mp=mp)
+        max_workers = max_cpu_count(_NUM_CPUS, mp=bool(mp))
 
     if not max_workers or not _NUM_CPUS:
         return starmap(func, iterable)  # Fallback to single thread
@@ -448,10 +450,11 @@ def starmap_n[T](
         prefetch = max(prefetch + max_workers, 1)
 
     s = ExitStack()
-    submit = s.enter_context(get_executor(max_workers, mp=mp)).submit
+    submit = s.enter_context(get_executor(max_workers, mp=bool(mp))).submit
 
     if mp:
-        func = move_to_shmem(func)
+        func = move_to_shmem(func, mode=mp)
+        submit = s.enter_context(func).wrap_func(submit)
     else:
         chunksize = chunksize or 1
 
@@ -489,7 +492,7 @@ def map_n[T](
     *iterables: Iterable,
     max_workers: int | None = None,
     prefetch: int | None = 2,
-    mp: bool = False,
+    mp: MpMode = False,
     chunksize: int | None = None,
     unordered: bool = False,
 ) -> Iterator[T]:
@@ -518,7 +521,7 @@ def map_n_dict[K, T, T2](
     *,
     max_workers: int | None = None,
     prefetch: int | None = 2,
-    mp: bool = False,
+    mp: MpMode = False,
     chunksize: int | None = None,
 ) -> dict[K, T2]:
     """Apply `func` to each value in a mapping in parallel way.
